@@ -1,0 +1,221 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String               @id @default(cuid())
+  name             String?
+  email            String               @unique
+  username         String?              @unique
+  password         String?
+  image            String?
+  coverPhoto       String?
+  location         String?
+  occupation       String?
+  education        String?
+  bio              String?
+  emailVerified    DateTime?
+  resetToken       String?
+  resetTokenExpiry DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  publicProfile    Boolean              @default(true)
+  accounts         Account[]
+  comments         Comment[]
+  following        Follows[]            @relation("follower")
+  followers        Follows[]            @relation("following")
+  reviews          Review[]
+  sessions         Session[]
+  spirits          Spirit[]
+  streams          Stream[]
+  streamLikes      StreamLike[]
+  streamReports    StreamReport[]
+  subscribers      StreamSubscription[] @relation("HostSubscriptions")
+  subscriptions    StreamSubscription[] @relation("Subscriptions")
+  tipsReceived     StreamTip[]          @relation("TipsReceived")
+  tipsSent         StreamTip[]          @relation("TipsSent")
+  streamViews      StreamView[]
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Spirit {
+  id           String    @id @default(cuid())
+  name         String
+  brand        String
+  type         String
+  category     String    @default("whiskey")
+  description  String?
+  imageUrl     String?
+  proof        Float?
+  price        Float?
+  rating       Int?
+  nose         String?
+  palate       String?
+  finish       String?
+  notes        String?
+  dateAcquired DateTime?
+  bottleSize   String?
+  distillery   String?
+  bottleLevel  Int?      @default(100)
+  isFavorite   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+  ownerId      String
+  reviews      Review[]
+  owner        User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  streams      Stream[]
+}
+
+model Stream {
+  id          String         @id @default(cuid())
+  title       String
+  description String?
+  isLive      Boolean        @default(false)
+  startedAt   DateTime?
+  endedAt     DateTime?
+  privacy     String         @default("public")
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  hostId      String
+  spiritId    String?
+  host        User           @relation(fields: [hostId], references: [id])
+  spirit      Spirit?        @relation(fields: [spiritId], references: [id])
+  likes       StreamLike[]
+  reports     StreamReport[]
+  tips        StreamTip[]
+  views       StreamView[]
+}
+
+model StreamLike {
+  id        String   @id @default(cuid())
+  streamId  String
+  userId    String
+  createdAt DateTime @default(now())
+  stream    Stream   @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([streamId, userId])
+}
+
+model StreamSubscription {
+  id         String   @id @default(cuid())
+  hostId     String
+  userId     String
+  createdAt  DateTime @default(now())
+  host       User     @relation("HostSubscriptions", fields: [hostId], references: [id], onDelete: Cascade)
+  subscriber User     @relation("Subscriptions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([hostId, userId])
+}
+
+model StreamReport {
+  id        String   @id @default(cuid())
+  streamId  String
+  userId    String
+  reason    String?
+  status    String   @default("pending")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  stream    Stream   @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Review {
+  id        String    @id @default(cuid())
+  content   String
+  rating    Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  userId    String
+  spiritId  String
+  comments  Comment[]
+  spirit    Spirit    @relation(fields: [spiritId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model StreamTip {
+  id        String   @id @default(cuid())
+  amount    Float
+  message   String?
+  streamId  String
+  senderId  String
+  hostId    String
+  createdAt DateTime @default(now())
+  host      User     @relation("TipsReceived", fields: [hostId], references: [id], onDelete: Cascade)
+  sender    User     @relation("TipsSent", fields: [senderId], references: [id], onDelete: Cascade)
+  stream    Stream   @relation(fields: [streamId], references: [id], onDelete: Cascade)
+
+  @@index([streamId])
+  @@index([senderId])
+  @@index([hostId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  reviewId  String
+  userId    String
+  review    Review   @relation(fields: [reviewId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model StreamView {
+  id       String    @id @default(cuid())
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+  streamId String
+  userId   String
+  stream   Stream    @relation(fields: [streamId], references: [id])
+  user     User      @relation(fields: [userId], references: [id])
+}
+
+model Follows {
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+  follower    User     @relation("follower", fields: [followerId], references: [id])
+  following   User     @relation("following", fields: [followingId], references: [id])
+
+  @@id([followerId, followingId])
+}

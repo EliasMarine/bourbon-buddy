@@ -1,0 +1,169 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# 🔐 Secure Coding Guidelines (for Cursor AI)
+
+> This project follows strict **secure coding standards**. All code must be reviewed against the OWASP Top 10 and other industry best practices.  
+> Use these rules when writing or editing any part of this codebase.
+
+---
+
+## 🛡️ 1. Input Validation & Output Encoding
+
+- Validate all user input (client & server side)
+  - Use schemas like `zod`, `Joi`, or `yup`
+  - Validate length, type, format, and required fields
+- Sanitize untrusted input (e.g., form fields, query params)
+  - Prevent XSS using `sanitize-html` or `DOMPurify`
+- Escape user input before rendering in:
+  - HTML → use libraries like React’s built-in escaping
+  - URLs → use `encodeURIComponent()`
+  - JavaScript → avoid inline scripts
+
+---
+
+## 🚫 2. Injection Prevention
+
+- Use **parameterized queries** (e.g., `pg`, `knex`, `mongoose`)
+- Never build SQL, NoSQL, shell, or LDAP commands via string concatenation
+- Escape special characters in queries (when needed)
+- Use ORM libraries carefully – validate raw queries
+
+---
+
+## 🔐 3. Authentication
+
+- Use established auth protocols (OAuth 2.0, OpenID Connect, etc.)
+- Use a proven library like `NextAuth`, `Passport`, `Auth0`, or Firebase
+- Always hash passwords with `bcrypt`, `argon2id`, or `scrypt`
+- Enforce strong password policies (length, entropy)
+- Implement MFA (Multi-Factor Authentication) if possible
+
+---
+
+## 🧾 4. Authorization & Access Control
+
+- Implement Role-Based Access Control (RBAC) or Attribute-Based (ABAC)
+- Never trust client-side roles or user IDs
+- Check permissions **on every request**, server-side
+- Restrict access to sensitive APIs based on scopes/claims
+
+---
+
+## 📦 5. Sensitive Data Protection
+
+- Don’t store or log secrets, API keys, or tokens in code
+  - Use `.env` and secure vaults (e.g., AWS Secrets Manager)
+- Mask sensitive data in logs (`****`)
+- Use HTTPS to encrypt data in transit
+- Encrypt sensitive data at rest when applicable
+
+---
+
+## 🍪 6. Session & Token Security
+
+- Use secure cookies:
+  - `HttpOnly`, `Secure`, `SameSite=Strict`
+- Use short-lived JWTs with rotation & refresh tokens
+- Invalidate sessions/tokens on logout and expiration
+- Store refresh tokens securely — never in localStorage
+
+---
+
+## 🧱 7. Security Headers
+
+Set these headers (using `helmet` in Express, `next.config.js`, or serverless configs):
+
+```
+Strict-Transport-Security: max-age=63072000; includeSubDomains
+Content-Security-Policy: default-src 'self'
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: no-referrer
+Permissions-Policy: geolocation=(), microphone=()
+```
+
+---
+
+## 🧨 8. Error Handling
+
+- Do not expose stack traces or internal errors to users.
+- Use custom error messages like:  
+  `"Something went wrong. Please try again later."`
+- Log errors on the server using tools like:
+  - `Winston`
+  - `Pino`
+  - `Sentry`
+- Avoid leaking user identifiers, credentials, tokens, or environment data in logs or error messages.
+
+---
+
+## 🧪 9. Dependency Management
+
+- Regularly update dependencies using:
+  - `npm audit`, `yarn audit`
+  - `npm outdated`
+- Use linters and security plugins like:
+  - `eslint-plugin-security`
+- Prefer well-maintained and reputable libraries.
+- Lock versions with `package-lock.json` or `yarn.lock`.
+- Avoid using deprecated or unmaintained packages.
+
+---
+
+## 📁 10. File Uploads
+
+- Only allow specific MIME types and file extensions (e.g., `image/jpeg`, `application/pdf`).
+- Limit file size (e.g., max 5MB).
+- Rename uploaded files to random strings or UUIDs.
+- Store files outside the web root (not in `/public` or `/static`).
+- Sanitize file names and file paths.
+- Use virus scanning libraries or services when needed (e.g., `ClamAV`, VirusTotal API).
+
+---
+
+## 🌍 11. CORS Configuration
+
+- Set `Access-Control-Allow-Origin` to trusted domains only (not `*`)
+- Limit HTTP methods to what is needed (GET, POST, etc.)
+- Set `Access-Control-Allow-Credentials: true` if using cookies
+
+---
+
+## 🔍 12. Code Reviews & Security Audits
+
+- Always review code for:
+  - Injection points
+  - Data leaks
+  - Insecure logic or configurations
+- Use tools like:
+  - [OWASP Dependency Check](https://owasp.org/www-project-dependency-check/)
+  - [Semgrep](https://semgrep.dev/)
+  - [CodeQL](https://codeql.github.com/)
+
+---
+
+## 🧠 Secure Design Mindset
+
+- Always assume external users are hostile
+- Never trust client input, browser logic, or hidden fields
+- Design APIs to fail safely and log securely
+- Practice **principle of least privilege** in everything
+
+---
+
+## 📚 References
+
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
+- [OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/)
+- [Node.js Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Nodejs_Security_Cheat_Sheet.html)
+- [Frontend Security Cheatsheet](https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html)
+
+---
+
+> 🧠 Use this guide for every feature, endpoint, and component.
+> If unsure, ask: **"Is this code secure?"**  
+> And double-check it against these rules.
