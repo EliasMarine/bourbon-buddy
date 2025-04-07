@@ -54,13 +54,21 @@ export function middleware(req: NextRequest) {
     "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://bourbonbuddy.live"
   );
 
-  // Fix issues with cookie prefixes in production by ensuring cookie is properly set
+  // Force HTTPS in production
   const isProduction = process.env.NODE_ENV === 'production';
-  const isSecure = req.nextUrl.protocol === 'https:' || isProduction;
+  const isSecure = req.nextUrl.protocol === 'https:';
+  
+  // In production, redirect to HTTPS if request is HTTP
+  if (isProduction && !isSecure && !req.nextUrl.pathname.startsWith('/_next/static/')) {
+    const newUrl = req.nextUrl.clone();
+    newUrl.protocol = 'https:';
+    newUrl.host = req.headers.get('host') || req.nextUrl.host;
+    return NextResponse.redirect(newUrl);
+  }
 
-  // Set CSRF token cookie if not exists for non-API routes
+  // Set a standard CSRF token cookie without prefixes
   if (!req.nextUrl.pathname.startsWith('/api/') && req.method === 'GET') {
-    const csrfCookieName = isProduction ? '__Host-next-auth.csrf-token' : 'next-auth.csrf-token';
+    const csrfCookieName = 'next-auth.csrf-token';
     const hasCsrfToken = req.cookies.has(csrfCookieName);
     
     if (!hasCsrfToken) {
@@ -68,13 +76,12 @@ export function middleware(req: NextRequest) {
       const csrfToken = nanoid(32);
       const csrfTokenValue = `${csrfToken}|${Date.now()}`;
       
-      // Set cookie with proper parameters - critical for __Host- prefix
+      // Set cookie with proper parameters
       response.cookies.set(csrfCookieName, csrfTokenValue, {
         httpOnly: true,
-        secure: true, // Must be true for __Host- prefix
+        secure: isProduction, // Only set secure in production
         sameSite: 'lax',
         path: '/',
-        // Important: Do NOT set domain for __Host- prefixed cookies
       });
       
       console.log(`Set new CSRF token: ${csrfCookieName}`);

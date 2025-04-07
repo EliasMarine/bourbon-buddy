@@ -246,33 +246,30 @@ export const authOptions: NextAuthOptions = {
   },
   cookies: {
     sessionToken: {
-      name: process.env.NODE_ENV === 'production' ? '__Secure-next-auth.session-token' : 'next-auth.session-token',
+      name: 'next-auth.session-token',
       options: {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
         secure: process.env.NODE_ENV === 'production',
-        domain: undefined, // Setting domain to undefined lets the browser handle it automatically
       },
     },
     callbackUrl: {
-      name: process.env.NODE_ENV === 'production' ? '__Secure-next-auth.callback-url' : 'next-auth.callback-url',
+      name: 'next-auth.callback-url',
       options: {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
         secure: process.env.NODE_ENV === 'production',
-        domain: undefined, // Setting domain to undefined lets the browser handle it automatically
       },
     },
     csrfToken: {
-      name: process.env.NODE_ENV === 'production' ? '__Host-next-auth.csrf-token' : 'next-auth.csrf-token',
+      name: 'next-auth.csrf-token',
       options: {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
-        secure: true, // Always true for __Host- prefix
-        domain: undefined, // Must be undefined for __Host- prefix in production
+        secure: process.env.NODE_ENV === 'production',
       },
     },
   },

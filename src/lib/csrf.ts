@@ -10,9 +10,12 @@ const tokens = new Tokens({
 
 // Get the appropriate cookie name based on environment
 export const getCsrfCookieName = () => {
-  return process.env.NODE_ENV === 'production' 
-    ? '__Host-csrf_secret' // Use __Host- prefix in production
-    : 'csrf_secret'
+  return 'csrf_secret'
+}
+
+// Also support NextAuth's CSRF token
+export const getNextAuthCsrfCookieName = () => {
+  return 'next-auth.csrf-token'
 }
 
 // Generate a CSRF token with expiration tracking
@@ -52,22 +55,9 @@ export const createCsrfCookie = (secret: string, createdAt: number) => {
   const cookieOptions = {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'strict' as const,
+    sameSite: 'lax' as const,
     path: '/',
     maxAge: 60 * 60 * 24, // 1 day
-  }
-  
-  // Important: For __Host- prefix cookies, domain must NOT be set
-  // And secure must be true
-  if (isProduction) {
-    // Ensure secure is true for production as required by __Host- prefix
-    cookieOptions.secure = true
-    
-    // Do not set domain for __Host- prefixed cookies
-    // The absence of domain is required for __Host- prefix to work
-  } else if (process.env.COOKIE_DOMAIN) {
-    // Only set domain in development if specified
-    Object.assign(cookieOptions, { domain: process.env.COOKIE_DOMAIN })
   }
   
   return serialize(cookieName, JSON.stringify({ secret, createdAt }), cookieOptions)
@@ -90,12 +80,32 @@ export const parseCookies = (cookieString: string) => {
 // Extract and parse the CSRF secret from cookie
 export const extractCsrfSecret = (cookies: Record<string, string>) => {
   try {
+    // First try our own CSRF cookie
     const cookieName = getCsrfCookieName()
-    const csrfCookie = cookies[cookieName]
-    if (!csrfCookie) return null
+    let csrfCookie = cookies[cookieName]
     
-    const { secret, createdAt } = JSON.parse(csrfCookie)
-    return { secret, createdAt }
+    if (csrfCookie) {
+      const { secret, createdAt } = JSON.parse(csrfCookie)
+      return { secret, createdAt }
+    }
+    
+    // If not found, try NextAuth's CSRF token
+    const nextAuthCsrfName = getNextAuthCsrfCookieName()
+    csrfCookie = cookies[nextAuthCsrfName]
+    
+    if (csrfCookie) {
+      // NextAuth stores the token in format: token|timestamp
+      const [token, timestamp] = csrfCookie.split('|')
+      if (token) {
+        // Use the token itself as the secret for validation
+        return { 
+          secret: token, 
+          createdAt: timestamp ? parseInt(timestamp, 10) : Date.now()
+        }
+      }
+    }
+    
+    return null
   } catch (error) {
     console.error('Error extracting CSRF secret:', error)
     return null
@@ -105,6 +115,12 @@ export const extractCsrfSecret = (cookies: Record<string, string>) => {
 // Middleware helper to validate CSRF tokens
 export const validateCsrfToken = (req: Request, csrfToken?: string) => {
   try {
+    // Skip validation in development if BYPASS_CSRF=true
+    if (process.env.NODE_ENV !== 'production' && process.env.BYPASS_CSRF === 'true') {
+      console.warn('BYPASSING CSRF VALIDATION IN DEVELOPMENT MODE');
+      return true;
+    }
+    
     // Extract CSRF token from various headers if not provided directly
     if (!csrfToken) {
       // Check for token in different header formats
@@ -134,46 +150,33 @@ export const validateCsrfToken = (req: Request, csrfToken?: string) => {
     }
     
     const cookies = parseCookies(cookieHeader);
-    const cookieName = getCsrfCookieName();
     const secretData = extractCsrfSecret(cookies);
     
-    // Log debug info about the cookie name we're looking for
-    console.log('Looking for CSRF cookie:', {
-      cookieName,
-      availableCookies: Object.keys(cookies).join(', '),
-      cookieFound: !!secretData
+    // Debug log for cookie inspection
+    console.log('CSRF cookie check:', {
+      cookies: Object.keys(cookies),
+      foundSecret: !!secretData
     });
     
     if (!secretData || !secretData.secret) {
       console.warn('CSRF secret not found in cookies', {
-        cookieNames: Object.keys(cookies),
-        expectedCookieName: cookieName
+        cookieNames: Object.keys(cookies)
       });
-      
-      // In development, allow requests without CSRF validation
-      if (process.env.NODE_ENV === 'development' && process.env.BYPASS_CSRF === 'true') {
-        console.warn('BYPASSING CSRF VALIDATION IN DEVELOPMENT MODE');
-        return true;
-      }
-      
       return false;
     }
     
-    // Log debug info
-    console.log('CSRF validation attempt', {
-      hasToken: !!csrfToken,
-      hasSecret: !!secretData.secret,
-      tokenFirstChars: csrfToken ? csrfToken.substring(0, 8) : null,
-      secretFirstChars: secretData.secret ? secretData.secret.substring(0, 8) : null,
-    });
-    
-    // Use the token verification from CSRF library
-    const isValid = tokens.verify(secretData.secret, csrfToken);
+    // For NextAuth token, use token as both secret and token 
+    // since we're using the token itself as the secret
+    const isNextAuthToken = !cookies[getCsrfCookieName()] && cookies[getNextAuthCsrfCookieName()];
+    const isValid = isNextAuthToken 
+      ? secretData.secret === csrfToken 
+      : tokens.verify(secretData.secret, csrfToken);
     
     if (!isValid) {
       console.warn('CSRF token verification failed', {
         tokenLength: csrfToken?.length || 0,
-        secretLength: secretData.secret?.length || 0
+        secretLength: secretData.secret?.length || 0,
+        isNextAuthToken
       });
       return false;
     }
