@@ -28,7 +28,12 @@ function externalResourceMiddleware(req: NextRequest) {
 // Main middleware without auth
 export function middleware(req: NextRequest) {
   // Set security headers
-  const response = NextResponse.next();
+  const response = NextResponse.next({
+    request: {
+      // Clone request headers to make sure they're preserved
+      headers: new Headers(req.headers)
+    }
+  });
   
   // Add security headers
   const headers = response.headers;
@@ -65,9 +70,10 @@ export function middleware(req: NextRequest) {
     req.nextUrl.pathname.endsWith('.jpeg') ||
     req.nextUrl.pathname.endsWith('.png') ||
     req.nextUrl.pathname.endsWith('.gif') ||
-    req.nextUrl.pathname.endsWith('.webp')
+    req.nextUrl.pathname.endsWith('.webp') ||
+    req.nextUrl.pathname.startsWith('/api/csrf') // Allow CSRF token endpoint to be accessible
   ) {
-    // Skip auth check for images and public assets
+    // Skip auth check for images, public assets, and CSRF endpoint
     return response;
   }
   
@@ -84,13 +90,27 @@ export function middleware(req: NextRequest) {
     return response;
   }
   
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    headers.set('Access-Control-Allow-Origin', req.headers.get('origin') || '*');
+    headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token');
+    headers.set('Access-Control-Max-Age', '86400'); // 24 hours
+    return response;
+  }
+  
   // For protected routes, apply auth check
   if (
     req.nextUrl.pathname.startsWith('/dashboard') ||
     req.nextUrl.pathname.startsWith('/profile') ||
     req.nextUrl.pathname.startsWith('/streams/create') ||
     req.nextUrl.pathname.match(/^\/streams\/[^\/]+\/host$/) ||
-    req.nextUrl.pathname.startsWith('/collection')
+    req.nextUrl.pathname.startsWith('/collection') ||
+    // API routes that require authentication
+    (req.nextUrl.pathname.startsWith('/api/') && 
+     !req.nextUrl.pathname.startsWith('/api/auth/') &&
+     !req.nextUrl.pathname.startsWith('/api/status') &&
+     !req.nextUrl.pathname.startsWith('/api/csrf'))
   ) {
     // Add cache control headers for protected routes
     headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -99,14 +119,32 @@ export function middleware(req: NextRequest) {
     
     // Check if the user is authenticated
     const authHeader = req.headers.get('authorization');
-    const cookie = req.cookies.get('next-auth.session-token')?.value || 
-                   req.cookies.get('__Secure-next-auth.session-token')?.value;
+    const sessionCookie = req.cookies.get('next-auth.session-token')?.value || 
+                         req.cookies.get('__Secure-next-auth.session-token')?.value;
     
-    if (!authHeader && !cookie) {
-      // Redirect to login page
+    if (!authHeader && !sessionCookie) {
+      // Return JSON error for API routes
+      if (req.nextUrl.pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          { error: 'Unauthorized - Not authenticated' },
+          { status: 401 }
+        );
+      }
+      
+      // Redirect to login page for non-API routes
       const url = new URL('/login', req.url);
       url.searchParams.set('callbackUrl', req.nextUrl.pathname);
       return NextResponse.redirect(url);
+    }
+    
+    // For API routes, make sure to preserve the cookies
+    if (req.nextUrl.pathname.startsWith('/api/')) {
+      // Clone cookies and add them to the new response
+      // Use getAll() for NextRequest cookies
+      const cookieList = req.cookies.getAll();
+      for (const cookie of cookieList) {
+        response.cookies.set(cookie.name, cookie.value);
+      }
     }
   }
   

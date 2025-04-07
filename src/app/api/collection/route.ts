@@ -7,6 +7,7 @@ import spiritCategories from '@/lib/spiritCategories';
 import { ZodError } from 'zod';
 import { collectionGetLimiter, collectionPostLimiter } from '@/lib/rate-limiters';
 import { createSupabaseBrowserClient } from '@/lib/supabase';
+import { validateCsrfToken } from '@/lib/csrf';
 
 // Improved session verification helper
 async function verifySession() {
@@ -14,6 +15,7 @@ async function verifySession() {
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.email) {
+      console.warn('Session verification failed: No user email in session');
       return { 
         authenticated: false, 
         error: 'Unauthorized - No user email in session', 
@@ -84,10 +86,22 @@ export async function GET(request: Request) {
 // POST /api/collection - Add new spirit to collection
 export async function POST(request: Request) {
   try {
+    // Validate CSRF token first
+    const csrfToken = request.headers.get('x-csrf-token');
+    
+    if (!csrfToken || !validateCsrfToken(request, csrfToken)) {
+      console.error('Invalid or missing CSRF token');
+      return NextResponse.json(
+        { error: 'Invalid or missing CSRF token' },
+        { status: 403 }
+      );
+    }
+    
     // Verify user session
     const { authenticated, user, session, error, statusCode } = await verifySession();
     
     if (!authenticated || !user) {
+      console.error(`Session verification failed: ${error}`);
       return NextResponse.json(
         { error },
         { status: statusCode }

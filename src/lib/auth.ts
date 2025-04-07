@@ -4,11 +4,10 @@ import GoogleProvider from 'next-auth/providers/google';
 import AppleProvider from 'next-auth/providers/apple';
 import GitHubProvider from 'next-auth/providers/github';
 import FacebookProvider from 'next-auth/providers/facebook';
-import { PrismaClient } from '@prisma/client';
 import { PrismaAdapter } from '@auth/prisma-adapter';
 import { PrismaClientInitializationError, PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import bcrypt from 'bcryptjs';
-import { prisma } from './prisma'; // Use the shared prisma instance
+import { prisma, getPrismaClient } from './prisma'; // Import getPrismaClient function
 import { logSecurityEvent } from './error-handlers';
 import { 
   isAccountLocked, 
@@ -17,8 +16,67 @@ import {
   resetFailedLoginAttempts 
 } from './login-security';
 
+// Create a special adapter that handles prepared statement errors
+function createPrismaAdapterWithErrorHandling() {
+  const baseAdapter = PrismaAdapter(prisma);
+  
+  // Wrap adapter methods that access the database to handle prepared statement errors
+  const enhancedAdapter = {
+    ...baseAdapter,
+    
+    // Override methods as needed to handle errors properly
+    // @ts-ignore: We know these methods exist in the base adapter
+    async getUserByEmail(email: string) {
+      try {
+        // @ts-ignore: We know this method exists in the base adapter
+        return await baseAdapter.getUserByEmail(email);
+      } catch (error: any) {
+        if (error && typeof error === 'object' && 'message' in error && 
+            typeof error.message === 'string' && error.message.includes('prepared statement')) {
+          console.log('Prepared statement error in getUserByEmail, trying fresh client');
+          // Use a fresh client for this operation
+          const freshPrisma = getPrismaClient();
+          return await freshPrisma.user.findUnique({
+            where: { email }
+          });
+        }
+        throw error;
+      }
+    },
+    
+    // @ts-ignore: We know these methods exist in the base adapter
+    async getUserByAccount(providerAccountId: { provider: string, providerAccountId: string }) {
+      try {
+        // @ts-ignore: We know this method exists in the base adapter
+        return await baseAdapter.getUserByAccount(providerAccountId);
+      } catch (error: any) {
+        if (error && typeof error === 'object' && 'message' in error && 
+            typeof error.message === 'string' && error.message.includes('prepared statement')) {
+          console.log('Prepared statement error in getUserByAccount, trying fresh client');
+          // Use a fresh client for this operation
+          const freshPrisma = getPrismaClient();
+          const account = await freshPrisma.account.findUnique({
+            where: {
+              provider_providerAccountId: {
+                provider: providerAccountId.provider,
+                providerAccountId: providerAccountId.providerAccountId,
+              },
+            },
+            select: { user: true },
+          });
+          return account?.user ?? null;
+        }
+        throw error;
+      }
+    },
+    // Add other overrides as needed
+  };
+  
+  return enhancedAdapter;
+}
+
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
+  adapter: createPrismaAdapterWithErrorHandling(),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || '',
@@ -80,7 +138,10 @@ export const authOptions: NextAuthOptions = {
         }
 
         try {
-          const user = await prisma.user.findUnique({
+          // Get a fresh Prisma client instance to avoid prepared statement conflicts
+          const freshPrisma = getPrismaClient();
+          
+          const user = await freshPrisma.user.findUnique({
             where: {
               email: email,
             },
@@ -170,29 +231,38 @@ export const authOptions: NextAuthOptions = {
         token.email = user.email;
       }
 
-      // Fetch the latest user data on each token refresh
-      if (token?.id) {
-        const latestUser = await prisma.user.findUnique({
-          where: { id: token.id as string },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
-            coverPhoto: true,
-            username: true,
-            location: true,
-            occupation: true,
-            education: true,
-            bio: true,
-            publicProfile: true,
+      try {
+        // Fetch the latest user data on each token refresh
+        if (token?.id) {
+          // Use a fresh Prisma client to avoid prepared statement errors
+          const freshPrisma = getPrismaClient();
+          
+          const latestUser = await freshPrisma.user.findUnique({
+            where: { id: token.id as string },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              coverPhoto: true,
+              username: true,
+              location: true,
+              occupation: true,
+              education: true,
+              bio: true,
+              publicProfile: true,
+            }
+          });
+          
+          if (latestUser) {
+            // Update token with fresh user data
+            token = { ...token, ...latestUser };
           }
-        });
-        
-        if (latestUser) {
-          // Update token with fresh user data
-          token = { ...token, ...latestUser };
         }
+      } catch (error) {
+        // Log the error but don't break authentication
+        console.error('Error refreshing user data in JWT callback:', error);
+        // Still return the token even if refresh failed
       }
       
       return token;
