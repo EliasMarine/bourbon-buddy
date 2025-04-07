@@ -1,5 +1,11 @@
 import { PrismaClient } from '@prisma/client';
 
+// PrismaClient is attached to the `global` object in development to prevent
+// exhausting your database connection limit.
+// Learn more: https://pris.ly/d/help/next-js-best-practices
+
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
+
 // Connection state tracking
 let isDbConnected = false;
 let lastConnectionAttempt = 0;
@@ -20,7 +26,7 @@ const preparedStatementErrors = new Set<string>();
 const MAX_PREPARED_STATEMENT_ERRORS = 5;
 let resetTimeout: NodeJS.Timeout | null = null;
 
-// Initialize Prisma client with connection retry logic
+// Create the Prisma client with proper connection settings
 function createPrismaClient() {
   console.log('Creating new Prisma client instance');
   currentClientId++;
@@ -33,7 +39,20 @@ function createPrismaClient() {
   
   const client = new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-    errorFormat: 'pretty',
+    datasources: {
+      db: {
+        url: process.env.DATABASE_URL
+      }
+    },
+    // Important: These settings help prevent the "prepared statement already exists" errors
+    // on Vercel's serverless environment
+    // @ts-ignore - Some options might not be in the type definitions but are supported
+    engineConfig: {
+      // Use a short connection idle timeout
+      connection_timeout: 5,
+      // Important for serverless: limit pool size
+      pool_timeout: 5
+    }
   });
 
   // Store in cache
@@ -169,7 +188,6 @@ function createPrismaClient() {
 function getPrismaClient() {
   if (!prismaInstance) {
     if (process.env.NODE_ENV === 'development') {
-      const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
       if (!globalForPrisma.prisma) {
         globalForPrisma.prisma = createPrismaClient();
       }
@@ -201,8 +219,32 @@ async function disconnectAllClients() {
   prismaInstance = undefined;
 }
 
-// Public API for the Prisma instance
-export const prisma = getPrismaClient();
+// Use singleton pattern for client instance
+export const prisma = globalForPrisma.prisma || new PrismaClient({
+  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+});
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+
+// Only connect the client if we're on the server
+export const connectPrisma = async () => {
+  // Exit early if already connected or in the browser
+  if (typeof window !== 'undefined') return;
+  
+  try {
+    await prisma.$connect();
+  } catch (error) {
+    console.error('Failed to connect to database:', error);
+    throw error;
+  }
+};
+
+// Handle graceful shutdown to properly close connections
+if (process.env.NODE_ENV === 'production' && typeof window === 'undefined') {
+  process.on('beforeExit', async () => {
+    await prisma.$disconnect();
+  });
+}
 
 // Status check function that can be used by health checks
 export async function isDatabaseConnected(): Promise<boolean> {

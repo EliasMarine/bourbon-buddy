@@ -112,6 +112,34 @@ npm run build
 npm run start
 ```
 
+### Vercel Deployment
+
+To deploy successfully on Vercel and prevent Prisma prepared statement conflicts:
+
+1. Configure the following environment variables on Vercel:
+
+```
+DATABASE_URL=postgresql://user:password@host:port/database?pgbouncer=true&connection_limit=1&pool_timeout=10
+DIRECT_DATABASE_URL=postgresql://user:password@host:port/database
+SHADOW_DATABASE_URL=postgresql://user:password@host:port/shadow_database
+```
+
+2. Ensure your build command uses `prisma generate`:
+
+```
+"vercel-build": "prisma generate && next build",
+```
+
+3. For Serverless deployment with Prisma, it's important to:
+   - Use connection pooling (PgBouncer recommended)
+   - Set appropriate connection limits
+   - Generate Prisma client during each build
+   
+4. If you continue to experience "prepared statement already exists" errors, try:
+   - Increase connection pool timeouts
+   - Configure Prisma's datasource to use a lower connection limit
+   - Add pooler configuration to your DATABASE_URL
+
 ## 📚 Documentation
 
 - [Deployment Guide](DEPLOYMENT.md)

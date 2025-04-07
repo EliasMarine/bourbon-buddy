@@ -129,6 +129,52 @@ Common issues and solutions:
    - Check Vercel build logs
    - Verify all dependencies are installed
 
+5. **Prisma "Prepared Statement Already Exists" Errors:**
+   - This is a common issue with Prisma in serverless environments like Vercel
+   - To fix this issue:
+     1. Configure your database URL with pooling parameters:
+        ```
+        DATABASE_URL=postgresql://user:password@host:port/database?pgbouncer=true&connection_limit=1&pool_timeout=10
+        ```
+     2. Add the directUrl and shadowDatabaseUrl in your Prisma schema:
+        ```prisma
+        datasource db {
+          provider          = "postgresql"
+          url               = env("DATABASE_URL")
+          directUrl         = env("DIRECT_DATABASE_URL")
+          shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+        }
+        ```
+     3. Update the Prisma client with preview features:
+        ```prisma
+        generator client {
+          provider        = "prisma-client-js"
+          previewFeatures = ["driverAdapters"]
+        }
+        ```
+     4. Ensure `prisma generate` runs during your build:
+        ```
+        "vercel-build": "prisma generate && next build"
+        ```
+     5. Add the following environment variables to your Vercel project:
+        ```
+        PRISMA_CLIENT_ENGINE_TYPE=dataproxy
+        PRISMA_FORCE_TRANSACTIONS=true
+        ```
+     6. Update your Prisma client implementation to use the singleton pattern:
+        ```typescript
+        import { PrismaClient } from '@prisma/client';
+
+        const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
+
+        export const prisma = globalForPrisma.prisma || new PrismaClient({
+          log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+        });
+
+        if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+        ```
+   - If problems persist, you may need to use a connection pooler like PgBouncer
+
 ## Monitoring
 
 1. Set up monitoring in Vercel dashboard
