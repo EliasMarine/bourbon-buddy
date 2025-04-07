@@ -1,9 +1,9 @@
 import { PrismaClient } from '@prisma/client';
+import { prisma } from '../src/lib/prisma';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 
-const prisma = new PrismaClient();
 const BACKUP_DIR = path.join(process.cwd(), 'database-backups');
 
 async function checkDatabase() {

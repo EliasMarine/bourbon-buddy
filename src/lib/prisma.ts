@@ -151,27 +151,18 @@ function createPrismaClient() {
 }
 
 // Get Prisma client (singleton pattern with reconnection logic)
-// For serverless environments, we'll create a new instance on each request
 function getPrismaClient() {
-  // In serverless environments, always create a new instance to avoid prepared statement conflicts
-  const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
-  
-  if (isServerless) {
-    console.log('Serverless environment detected, creating fresh Prisma client');
-    return createPrismaClient();
+  // For development, use global singleton to prevent connection exhaustion
+  if (process.env.NODE_ENV === 'development') {
+    if (!globalForPrisma.prisma) {
+      globalForPrisma.prisma = createPrismaClient();
+    }
+    return globalForPrisma.prisma;
   }
   
-  // For non-serverless, use singleton pattern
+  // For production and serverless environments
   if (!prismaInstance) {
-    if (process.env.NODE_ENV === 'development') {
-      if (!globalForPrisma.prisma) {
-        globalForPrisma.prisma = createPrismaClient();
-      }
-      prismaInstance = globalForPrisma.prisma;
-    } else {
-      // In production, always use a local instance for better isolation
-      prismaInstance = createPrismaClient();
-    }
+    prismaInstance = createPrismaClient();
   }
   
   return prismaInstance;
@@ -195,18 +186,8 @@ async function disconnectAllClients() {
   prismaInstance = undefined;
 }
 
-// For serverless environments, create a new instance each time
-// For other environments, use singleton pattern
-export const prisma = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME
-  ? createPrismaClient() // Serverless - new instance per request
-  : (globalForPrisma.prisma || new PrismaClient({
-      log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']
-    }));
-
-// Only set global singleton for non-serverless environments
-if (process.env.NODE_ENV !== 'production' && !(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)) {
-  globalForPrisma.prisma = prisma;
-}
+// Export a singleton instance of PrismaClient
+export const prisma = getPrismaClient();
 
 // Only connect the client if we're on the server
 export const connectPrisma = async () => {

@@ -1,9 +1,8 @@
 // Script to update bottle level values from 0-8 to 0-100 scale
 const { PrismaClient } = require('@prisma/client');
+const { prisma } = require('../src/lib/prisma');
 const fs = require('fs');
 const path = require('path');
-
-const prisma = new PrismaClient();
 
 async function main() {
   console.log('Starting bottle level scale update...');

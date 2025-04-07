@@ -4,8 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { SpiritSchema } from '@/lib/validations/spirit';
 import { ZodError } from 'zod';
-
-const prisma = new PrismaClient();
+import { prisma } from '@/lib/prisma';
 
 // GET /api/collection/[id] - Get specific spirit
 export async function GET(request: NextRequest) {
