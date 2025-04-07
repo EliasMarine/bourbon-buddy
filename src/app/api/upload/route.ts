@@ -6,8 +6,8 @@ import crypto from 'crypto';
 
 // Create Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-// Use SUPABASE_SERVICE_ROLE_KEY as primary, with SUPABASE_SERVICE_KEY as fallback
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+// Use SUPABASE_SERVICE_KEY as primary, with SUPABASE_SERVICE_ROLE_KEY as fallback
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 // Check if required environment variables are present
 if (!supabaseUrl || !supabaseKey) {
