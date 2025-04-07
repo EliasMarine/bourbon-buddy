@@ -1,42 +1,163 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 
 export default function HeroSection() {
-  // State to track if image loaded successfully
-  const [imageLoaded, setImageLoaded] = useState(true);
+  // Background images array with all available images from the directory
+  const backgroundImages = [
+    '/images/backgrounds/Homepage_background/bourbon_bg-optimized.png',
+    '/images/backgrounds/Homepage_background/geon-george-WKw5sOVf8XI-unsplash-optimized.jpg',
+    '/images/backgrounds/Homepage_background/getty-images-ZUxHYKX6ML8-unsplash-optimized.jpg',
+    '/images/backgrounds/Homepage_background/jon-tyson-nHBZT4Qi44Y-unsplash-optimized.jpg',
+    '/images/backgrounds/Homepage_background/vianney-cahen-MJYYiC228mY-unsplash.jpg',
+    '/images/backgrounds/Homepage_background/zhijian-dai-35R2-iOTmks-unsplash.jpg',
+  ];
   
-  // Create a cache buster for the image URL
-  const [cacheBuster] = useState(() => Date.now());
-  
-  // Image paths
-  const primaryImage = `/images/backgrounds/bourbon_bg.png?v=${cacheBuster}`;
   const fallbackImage = '/images/bourbon-hero.jpg';
   
-  // Current image being displayed
-  const [currentImage, setCurrentImage] = useState(primaryImage);
-
+  // State for control
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [visibleSlide, setVisibleSlide] = useState(0);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  
+  // Refs for timer management
+  const slideTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const transitionTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoplayRef = useRef<boolean>(true);
+  
+  // Preload images
+  useEffect(() => {
+    backgroundImages.forEach((src) => {
+      const img = new Image();
+      img.src = src;
+    });
+  }, []);
+  
+  // Clear all timers
+  const clearAllTimers = () => {
+    if (slideTimerRef.current) {
+      clearTimeout(slideTimerRef.current);
+      slideTimerRef.current = null;
+    }
+    if (transitionTimerRef.current) {
+      clearTimeout(transitionTimerRef.current);
+      transitionTimerRef.current = null;
+    }
+  };
+  
+  // Function to move to a specific slide
+  const goToSlide = (slideIndex: number) => {
+    if (isTransitioning || slideIndex === visibleSlide) return;
+    
+    // Clear any existing timers
+    clearAllTimers();
+    
+    // Set the slide we want to transition to
+    setActiveSlide(slideIndex);
+    
+    // Start the transition
+    setIsTransitioning(true);
+    
+    // After 2 seconds (transition duration), complete the slide change
+    transitionTimerRef.current = setTimeout(() => {
+      // Update the visible slide to match the active slide WITHOUT triggering additional transitions
+      setVisibleSlide(slideIndex);
+      
+      // Delay resetting transition state slightly to avoid flicker
+      setTimeout(() => {
+        setIsTransitioning(false);
+      }, 50);
+      
+      // If autoplay is active, set up the next slide
+      if (autoplayRef.current) {
+        // Wait 14 seconds before moving to next slide
+        slideTimerRef.current = setTimeout(() => {
+          // Calculate next slide index
+          const nextSlide = (slideIndex + 1) % backgroundImages.length;
+          goToSlide(nextSlide);
+        }, 14000);
+      }
+    }, 2000);
+  };
+  
+  // Initialize slideshow
+  useEffect(() => {
+    autoplayRef.current = true;
+    
+    // Start first transition after 14 seconds
+    slideTimerRef.current = setTimeout(() => {
+      goToSlide(1); // Go to second slide
+    }, 14000);
+    
+    // Cleanup on unmount
+    return () => {
+      autoplayRef.current = false;
+      clearAllTimers();
+    };
+  }, []);
+  
+  // Handle manual navigation
+  const handleSlideChange = (index: number) => {
+    if (index === visibleSlide || isTransitioning) return;
+    
+    // Pause autoplay temporarily
+    autoplayRef.current = false;
+    
+    // Go to selected slide
+    goToSlide(index);
+    
+    // Resume autoplay after transition
+    setTimeout(() => {
+      autoplayRef.current = true;
+    }, 2000);
+  };
+  
   // Handle image error
-  const handleImageError = () => {
-    console.error('Failed to load primary image, using fallback');
-    setImageLoaded(false);
-    setCurrentImage(fallbackImage);
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    console.error('Failed to load image, using fallback');
+    e.currentTarget.src = fallbackImage;
   };
 
   return (
     <section className="relative min-h-[100vh] flex items-center">
       {/* Background with overlay */}
       <div className="absolute inset-0 bg-black/30 z-10"></div>
+      
+      {/* Background images container */}
       <div className="absolute inset-0 overflow-hidden">
-        <img 
-          src={currentImage}
-          alt="Bourbon barrels" 
-          className="w-full h-full object-cover"
-          style={{ position: 'absolute' }}
-          onError={handleImageError}
-        />
+        {/* Both slides are always rendered, but with different opacity based on transition state */}
+        
+        {/* Current/Visible Slide */}
+        <div className="absolute inset-0 w-full h-full">
+          <img 
+            src={backgroundImages[visibleSlide]}
+            alt={`Background image ${visibleSlide + 1}`}
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{
+              opacity: isTransitioning ? 0 : 1,
+              transition: isTransitioning ? 'opacity 2s ease-in-out' : 'none',
+              zIndex: 1
+            }}
+            onError={handleImageError}
+          />
+        </div>
+        
+        {/* Next/Active Slide */}
+        <div className="absolute inset-0 w-full h-full">
+          <img 
+            src={backgroundImages[activeSlide]}
+            alt={`Background image ${activeSlide + 1}`}
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{
+              opacity: isTransitioning ? 1 : 0,
+              transition: isTransitioning ? 'opacity 2s ease-in-out' : 'none',
+              zIndex: 0
+            }}
+            onError={handleImageError}
+          />
+        </div>
       </div>
       
       {/* Hero Content - Apple-inspired centered and minimal */}
@@ -69,6 +190,20 @@ export default function HeroSection() {
         <div className="w-8 h-14 border-2 border-white/50 rounded-full flex justify-center pt-2">
           <div className="w-1.5 h-3 bg-white/70 rounded-full animate-pulse"></div>
         </div>
+      </div>
+      
+      {/* Image slider indicators */}
+      <div className="absolute bottom-5 left-1/2 transform -translate-x-1/2 z-20 flex space-x-2">
+        {backgroundImages.map((_, index) => (
+          <button 
+            key={index}
+            onClick={() => handleSlideChange(index)}
+            className={`w-2 h-2 rounded-full ${
+              visibleSlide === index ? 'bg-amber-500' : 'bg-white/40'
+            } transition-all duration-300`}
+            aria-label={`Show background image ${index + 1}`}
+          />
+        ))}
       </div>
     </section>
   );
