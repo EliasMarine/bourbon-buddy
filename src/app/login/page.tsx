@@ -38,14 +38,15 @@ export default function LoginPage() {
       });
 
       if (result?.error) {
-        setError('Invalid credentials');
+        setError('Invalid email or password. Please try again.');
         return;
       }
 
       router.push('/dashboard');
       router.refresh();
     } catch (error) {
-      setError('An error occurred. Please try again.');
+      console.error('Login error:', error);
+      setError('An authentication error occurred. Please try again later.');
     } finally {
       setIsLoading(false);
     }
@@ -67,7 +68,7 @@ export default function LoginPage() {
 
         if (error) {
           console.error('Supabase Facebook login error:', error);
-          setError(`Facebook login failed: ${error.message}`);
+          setError('Could not sign in with Facebook. Please try again later.');
         }
       } else {
         // For all other providers, use NextAuth
@@ -75,7 +76,7 @@ export default function LoginPage() {
       }
     } catch (error) {
       console.error(`${provider} sign-in error:`, error);
-      setError(`Failed to sign in with ${provider}`);
+      setError(`Could not sign in with ${provider}. Please try again later.`);
     } finally {
       setIsLoading(false);
     }

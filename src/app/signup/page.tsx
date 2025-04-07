@@ -33,8 +33,15 @@ export default function SignUp() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to create account');
+        const errorData = await response.json();
+        if (response.status === 400) {
+          // Client errors (like validation errors) can show specific messages
+          throw new Error(errorData.message || 'Please check your information and try again.');
+        } else {
+          // Server errors should use generic messages
+          console.error('Signup server error:', errorData);
+          throw new Error('Unable to create your account. Please try again later.');
+        }
       }
 
       router.push('/login?registered=true');

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
+import { handlePrismaError, handleAuthError } from '@/lib/error-handlers';
 
 export async function POST(request: Request) {
   try {
@@ -51,10 +52,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (error: any) {
-    console.error('Signup error:', error);
-    return NextResponse.json(
-      { message: error.message || 'Internal server error' },
-      { status: 500 }
-    );
+    // Use our shared error handler for Prisma errors
+    return handlePrismaError(error, 'user signup');
   }
 } 

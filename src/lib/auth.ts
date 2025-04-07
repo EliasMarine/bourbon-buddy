@@ -6,6 +6,7 @@ import GitHubProvider from 'next-auth/providers/github';
 import FacebookProvider from 'next-auth/providers/facebook';
 import { PrismaClient } from '@prisma/client';
 import { PrismaAdapter } from '@auth/prisma-adapter';
+import { PrismaClientInitializationError, PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import bcrypt from 'bcryptjs';
 import { prisma } from './prisma'; // Use the shared prisma instance
 
@@ -43,30 +44,51 @@ export const authOptions: NextAuthOptions = {
           throw new Error('Please enter an email and password');
         }
 
-        const user = await prisma.user.findUnique({
-          where: {
-            email: credentials.email,
-          },
-        });
+        try {
+          const user = await prisma.user.findUnique({
+            where: {
+              email: credentials.email,
+            },
+          });
 
-        if (!user) {
-          throw new Error('No user found with this email');
+          if (!user) {
+            throw new Error('Invalid email or password');
+          }
+
+          const isPasswordValid = await bcrypt.compare(
+            credentials.password,
+            user.password || '' // Ensure password isn't null
+          );
+
+          if (!isPasswordValid) {
+            throw new Error('Invalid email or password');
+          }
+
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+          };
+        } catch (error) {
+          // Log the full error for debugging but don't expose it to the client
+          console.error('Authentication error:', error);
+          
+          // Handle database connection issues
+          if (error instanceof PrismaClientInitializationError) {
+            throw new Error('Authentication service unavailable. Please try again later.');
+          } else if (error instanceof PrismaClientKnownRequestError) {
+            throw new Error('Authentication failed. Please try again later.');
+          } else if (error instanceof Error) {
+            // If it's our own thrown error, return it
+            if (error.message === 'Invalid email or password') {
+              throw error;
+            }
+            // Otherwise, provide a generic message
+            throw new Error('Authentication failed. Please try again later.');
+          }
+          
+          throw new Error('Authentication failed. Please try again later.');
         }
-
-        const isPasswordValid = await bcrypt.compare(
-          credentials.password,
-          user.password || '' // Ensure password isn't null
-        );
-
-        if (!isPasswordValid) {
-          throw new Error('Invalid password');
-        }
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-        };
       },
     }),
   ],
