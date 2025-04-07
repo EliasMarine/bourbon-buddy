@@ -43,18 +43,6 @@ function createPrismaClient() {
       db: {
         url: process.env.DATABASE_URL
       }
-    },
-    // Improved settings for serverless environments
-    // @ts-ignore - Some options might not be in the type definitions but are supported
-    engineConfig: {
-      // Aggressively close idle connections
-      connection_timeout: 2,
-      // Important for serverless: minimal pool size
-      pool_timeout: 2,
-      // Minimize connection count
-      max_connections: 5,
-      // Critical: disable prepared statements for serverless environments
-      prefer_simple_protocol: true
     }
   });
 
@@ -212,7 +200,7 @@ async function disconnectAllClients() {
 export const prisma = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME
   ? createPrismaClient() // Serverless - new instance per request
   : (globalForPrisma.prisma || new PrismaClient({
-      log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+      log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']
     }));
 
 // Only set global singleton for non-serverless environments
