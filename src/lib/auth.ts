@@ -21,8 +21,9 @@ const getCookieDomain = () => {
   // In development, we want to use localhost
   if (process.env.NODE_ENV !== 'production') return undefined;
   
-  // In production, determine the domain from the environment or use a default
-  return process.env.COOKIE_DOMAIN || undefined;
+  // Return undefined in production to let the browser set the domain automatically
+  // This is more compatible with prefixed cookies like __Host- and __Secure-
+  return undefined;
 };
 
 // Create a special adapter that handles prepared statement errors
@@ -250,8 +251,8 @@ export const authOptions: NextAuthOptions = {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
-        secure: process.env.NODE_ENV === 'production' ? true : process.env.NODE_ENV !== 'development',
-        domain: process.env.NODE_ENV === 'production' ? undefined : getCookieDomain(),
+        secure: process.env.NODE_ENV === 'production',
+        domain: undefined, // Setting domain to undefined lets the browser handle it automatically
       },
     },
     callbackUrl: {
@@ -260,8 +261,8 @@ export const authOptions: NextAuthOptions = {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
-        secure: process.env.NODE_ENV === 'production' ? true : process.env.NODE_ENV !== 'development',
-        domain: process.env.NODE_ENV === 'production' ? undefined : getCookieDomain(),
+        secure: process.env.NODE_ENV === 'production',
+        domain: undefined, // Setting domain to undefined lets the browser handle it automatically
       },
     },
     csrfToken: {

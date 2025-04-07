@@ -8,14 +8,10 @@ interface CookieInfo {
   name: string
   value: string
   hasSamePrefix: boolean
-  path?: string
-  secure?: boolean
-  httpOnly?: boolean
-  sameSite?: string
 }
 
 export default async function CookieTestPage() {
-  const cookieStore = cookies()
+  const cookieStore = await cookies()
   const allCookies = cookieStore.getAll()
   const csrfCookieName = getCsrfCookieName()
   const hasCsrfCookie = cookieStore.has(csrfCookieName)
@@ -26,29 +22,21 @@ export default async function CookieTestPage() {
       ? `${cookie.value.substring(0, 15)}...` 
       : '[hidden]',
     hasSamePrefix: cookie.name.startsWith('__Host-') || cookie.name.startsWith('__Secure-'),
-    path: cookie.path,
-    secure: cookie.secure,
-    httpOnly: cookie.httpOnly,
-    sameSite: cookie.sameSite,
   }))
   
   const setPrefixedCookieTest = async () => {
     'use server'
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     
     // Set a __Host- prefixed cookie for testing
-    cookieStore.set({
-      name: '__Host-test-cookie',
-      value: 'test-value',
+    cookieStore.set('__Host-test-cookie', 'test-value', {
       path: '/',
       secure: true,
       httpOnly: true,
     })
     
     // Set a __Secure- prefixed cookie for testing
-    cookieStore.set({
-      name: '__Secure-test-cookie',
-      value: 'test-value',
+    cookieStore.set('__Secure-test-cookie', 'test-value', {
       path: '/',
       secure: true,
       httpOnly: true,
@@ -77,10 +65,7 @@ export default async function CookieTestPage() {
                 <tr>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Partial Value</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Secure</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">HttpOnly</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Path</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SameSite</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prefixed</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -88,35 +73,23 @@ export default async function CookieTestPage() {
                   <tr key={index} className={cookie.hasSamePrefix ? 'bg-yellow-50' : ''}>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
                       {cookie.name}
-                      {cookie.hasSamePrefix && (
-                        <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                          Prefixed
-                        </span>
-                      )}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">{cookie.value}</td>
                     <td className="px-3 py-2 whitespace-nowrap">
-                      {cookie.secure ? (
-                        <span className="text-green-600">✓</span>
+                      {cookie.hasSamePrefix ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                          Yes
+                        </span>
                       ) : (
-                        <span className="text-red-600">✕</span>
+                        <span>No</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {cookie.httpOnly ? (
-                        <span className="text-green-600">✓</span>
-                      ) : (
-                        <span className="text-red-600">✕</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">{cookie.path || '/'}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">{cookie.sameSite || 'N/A'}</td>
                   </tr>
                 ))}
                 
                 {cookieList.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-2 text-center text-sm text-gray-500">
+                    <td colSpan={3} className="px-3 py-2 text-center text-sm text-gray-500">
                       No cookies found
                     </td>
                   </tr>
