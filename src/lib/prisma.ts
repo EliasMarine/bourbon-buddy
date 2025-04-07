@@ -6,216 +6,160 @@ import { PrismaClient } from '@prisma/client';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
-// Connection state tracking
-let isDbConnected = false;
-let lastConnectionAttempt = 0;
-const CONNECTION_RETRY_DELAY = 60000; // 1 minute between connection attempts
+// For serverless environments, create a new PrismaClient for each request
+// to avoid prepared statement conflicts
+let prismaInstanceCounter = 0;
+const prismaInstances = new Map<number, PrismaClient>();
 
-// Connection management
-let prismaInstance: PrismaClient | undefined;
-let connectionAttempts = 0;
-const MAX_CONNECTION_ATTEMPTS = 3;
-const RECONNECT_DELAY_MS = 1000;
+// Define event types for Prisma
+type QueryEvent = {
+  timestamp: Date;
+  query: string;
+  params: string;
+  duration: number;
+  target: string;
+};
 
-// Cache of PrismaClient instances
-const prismaClientCache = new Map<string, PrismaClient>();
-let currentClientId = 0;
+type LogEvent = {
+  message: string;
+  timestamp: Date;
+  target: string;
+  level: 'info' | 'warn' | 'error';
+};
 
-// Track prepared statement errors to prevent cascading failures
-const preparedStatementErrors = new Set<string>();
-const MAX_PREPARED_STATEMENT_ERRORS = 5;
-let resetTimeout: NodeJS.Timeout | null = null;
-
-// Create the Prisma client with proper connection settings
-function createPrismaClient(clientId?: string) {
-  console.log('Creating new Prisma client instance');
-  
-  // Generate a unique client ID if not provided
-  if (!clientId) {
-    currentClientId++;
-    clientId = `client_${currentClientId}`;
-  }
-  
-  // Check if DATABASE_URL is set
-  if (!process.env.DATABASE_URL) {
-    console.error('DATABASE_URL environment variable is not set. Database operations will fail.');
-  }
-  
-  // Create a unique Prisma client with a custom name to avoid prepared statement conflicts
-  const client = new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-    datasources: {
-      db: {
-        url: process.env.DATABASE_URL
-      }
-    },
-    // Add a unique name to the client to avoid prepared statement conflicts
-    // This is critical for serverless environments
-    // @ts-ignore - The __internal property is valid but not in the type definitions
-    __internal: {
-      clientName: clientId
-    }
-  });
-
-  // Store in cache
-  prismaClientCache.set(clientId, client);
-
-  // Enhanced error handling middleware
-  client.$use(async (params, next) => {
-    try {
-      // If we know the database is down, fail fast
-      if (!isDbConnected && Date.now() - lastConnectionAttempt < CONNECTION_RETRY_DELAY) {
-        throw new Error('Database connection is currently unavailable. Try again later.');
-      }
-      
-      const result = await next(params);
-      
-      // If we get here, the database is connected
-      if (!isDbConnected) {
-        console.log('Database connection restored');
-        isDbConnected = true;
-      }
-      
-      return result;
-    } catch (error: any) {
-      // Log database errors
-      console.error(`Prisma Error: ${params.model}.${params.action}`, error);
-      
-      // Check for connection errors
-      if (
-        error?.message?.includes("Can't reach database server") ||
-        error?.message?.includes("Connection refused") ||
-        error?.message?.includes("Connection terminated")
-      ) {
-        console.error(`Database connection error: ${error.message}`);
-        isDbConnected = false;
-        lastConnectionAttempt = Date.now();
-        
-        // For critical operations, attempt a retry with exponential backoff
-        if (params.action === 'create' || params.action === 'update' || params.action === 'delete') {
-          console.log('Critical operation failed. Will retry when connection is restored.');
-        }
-      }
-      
-      // Handle specific PostgreSQL errors
-      const isPreparedStatementError = 
-        error?.code === 'P2010' || 
-        error?.message?.includes('prepared statement') || 
-        (error?.meta?.cause && error?.meta?.cause.includes('prepared statement'));
-      
-      if (isPreparedStatementError) {
-        console.error('Prepared statement error detected:', error?.message);
-        
-        // Immediately disconnect and create a fresh client
-        try {
-          await client.$disconnect();
-          console.log('Disconnected client after prepared statement error');
-        } catch (e) {
-          console.error('Failed to disconnect client:', e);
-        }
-        
-        // Remove from cache to force creation of a new client
-        prismaClientCache.delete(clientId);
-        prismaInstance = undefined;
-        
-        // In serverless environment, this is critical to handle immediately
-        throw new Error('Database connection error: Prepared statement conflict. Please retry your request.');
-      }
-      
-      throw error;
-    }
-  });
-
-  // Test connection and handle reconnection logic
-  const testConnection = async () => {
-    try {
-      // Test a simple query to verify connection works
-      await client.$queryRaw`SELECT 1 as test`;
-      console.log('Prisma connection test successful');
-      isDbConnected = true;
-      connectionAttempts = 0;
-      return client;
-    } catch (e: any) {
-      connectionAttempts++;
-      console.error(`Prisma connection attempt ${connectionAttempts} failed:`, e);
-      isDbConnected = false;
-      lastConnectionAttempt = Date.now();
-      
-      if (connectionAttempts < MAX_CONNECTION_ATTEMPTS) {
-        console.log(`Retrying connection in ${RECONNECT_DELAY_MS}ms...`);
-        await new Promise(resolve => setTimeout(resolve, RECONNECT_DELAY_MS));
-        return testConnection();
-      } else {
-        console.error('Max connection attempts reached. Returning client anyway.');
-        connectionAttempts = 0;
-        return client;
-      }
-    }
-  };
-
-  // Test the connection immediately (but don't await it)
-  testConnection().catch(e => {
-    console.error('Background connection test failed:', e);
-  });
-
-  return client;
+// Error event from Prisma
+interface ErrorEvent {
+  message: string;
+  timestamp: Date;
+  target: string;
+  code?: string;
 }
 
-// Get Prisma client (singleton pattern with reconnection logic)
-function getPrismaClient() {
-  // For development, use global singleton to prevent connection exhaustion
+// Get Prisma client based on environment
+export function getPrismaClient(): PrismaClient {
+  // In development, use globalThis to avoid excessive connections
   if (process.env.NODE_ENV === 'development') {
     if (!globalForPrisma.prisma) {
-      globalForPrisma.prisma = createPrismaClient('dev_client');
+      globalForPrisma.prisma = new PrismaClient({
+        log: ['query', 'error', 'warn']
+      });
     }
     return globalForPrisma.prisma;
   }
-  
-  // For production and serverless environments
-  // In serverless environments, we need to create a new client for each function
-  // to avoid prepared statement conflicts
-  if (process.env.VERCEL_ENV === 'production' || process.env.VERCEL_ENV === 'preview') {
-    // Generate a unique client ID based on the function name and timestamp
-    const functionName = process.env.VERCEL_FUNCTION_NAME || 'unknown';
-    const timestamp = Date.now();
-    const uniqueClientId = `${functionName}_${timestamp}`;
+
+  // In Vercel serverless environment, create a new client for each request
+  if (process.env.VERCEL || process.env.VERCEL_ENV) {
+    // Increment counter to get a unique instance ID
+    prismaInstanceCounter++;
+    const instanceId = prismaInstanceCounter;
     
-    // Create a new client for this serverless function
-    return createPrismaClient(uniqueClientId);
+    // Create a new client instance
+    const prisma = new PrismaClient({
+      log: ['error'],
+      datasources: {
+        db: {
+          url: process.env.DATABASE_URL
+        }
+      }
+    });
+    
+    // Store in map to manage cleanup later
+    prismaInstances.set(instanceId, prisma);
+    
+    // Set up connection error handling and cleanup
+    // @ts-ignore: Prisma event types are not fully defined in TypeScript
+    prisma.$on('query', (e: QueryEvent) => {
+      if (e.duration > 2000) {
+        console.warn(`Slow query (${e.duration}ms): ${e.query}`);
+      }
+    });
+    
+    // @ts-ignore: Prisma event types are not fully defined in TypeScript
+    prisma.$on('error', (e: ErrorEvent) => {
+      console.error('Prisma Client Error:', e);
+      
+      // Handle prepared statement errors specifically
+      if (e.message && (
+        e.message.includes('prepared statement') || 
+        e.code === 'P2010'
+      )) {
+        console.error('Prepared statement error detected, cleaning up connection');
+        
+        // Clean up this instance
+        try {
+          prisma.$disconnect();
+          prismaInstances.delete(instanceId);
+        } catch (error) {
+          console.error('Error while disconnecting Prisma client:', error);
+        }
+      }
+    });
+    
+    return prisma;
   }
   
-  // For other production environments
-  if (!prismaInstance) {
-    prismaInstance = createPrismaClient('prod_client');
+  // For other environments (non-serverless production), use a singleton
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = new PrismaClient({
+      log: ['error']
+    });
   }
-  
-  return prismaInstance;
+  return globalForPrisma.prisma;
 }
 
-// Cleanup function to disconnect all clients
-async function disconnectAllClients() {
-  console.log(`Disconnecting ${prismaClientCache.size} Prisma clients`);
-  
-  // Use Array.from to convert Map entries to an array before iterating
-  for (const [id, client] of Array.from(prismaClientCache.entries())) {
-    try {
-      await client.$disconnect();
-      console.log(`Disconnected client ${id}`);
-    } catch (e) {
-      console.error(`Failed to disconnect client ${id}:`, e);
-    }
-  }
-  
-  prismaClientCache.clear();
-  prismaInstance = undefined;
-}
-
-// Export a singleton instance of PrismaClient
+// Export the prisma client
 export const prisma = getPrismaClient();
 
-// Only connect the client if we're on the server
-export const connectPrisma = async () => {
-  // Exit early if already connected or in the browser
+// Helper function to clean up all Prisma instances
+export async function disconnectAllPrismaInstances() {
+  console.log(`Disconnecting ${prismaInstances.size} Prisma clients`);
+  
+  // Use Array.from to convert Map entries to array before iterating
+  const entries = Array.from(prismaInstances.entries());
+  for (const [id, client] of entries) {
+    try {
+      await client.$disconnect();
+      console.log(`Disconnected Prisma client #${id}`);
+    } catch (error) {
+      console.error(`Failed to disconnect Prisma client #${id}:`, error);
+    }
+    prismaInstances.delete(id);
+  }
+}
+
+// Set up cleanup handlers for serverless environment
+if (typeof window === 'undefined') {
+  // Clean up before the process exits
+  process.on('beforeExit', async () => {
+    await disconnectAllPrismaInstances();
+  });
+  
+  // Handle SIGINT (e.g., when running locally and pressing Ctrl+C)
+  process.on('SIGINT', async () => {
+    await disconnectAllPrismaInstances();
+    process.exit(0);
+  });
+  
+  // Handle SIGTERM (e.g., when Vercel terminates the function)
+  process.on('SIGTERM', async () => {
+    await disconnectAllPrismaInstances();
+    process.exit(0);
+  });
+}
+
+// Status check function that can be used by health checks
+export async function isDatabaseConnected(): Promise<boolean> {
+  try {
+    await prisma.$queryRaw`SELECT 1 as connection_test`;
+    return true;
+  } catch (e) {
+    console.error('Database connection check failed:', e);
+    return false;
+  }
+}
+
+// Explicit connect function for use in server code
+export async function connectPrisma() {
   if (typeof window !== 'undefined') return;
   
   try {
@@ -224,49 +168,4 @@ export const connectPrisma = async () => {
     console.error('Failed to connect to database:', error);
     throw error;
   }
-};
-
-// Handle graceful shutdown to properly close connections
-if (process.env.NODE_ENV === 'production' && typeof window === 'undefined') {
-  process.on('beforeExit', async () => {
-    await prisma.$disconnect();
-  });
-}
-
-// Status check function that can be used by health checks
-export async function isDatabaseConnected(): Promise<boolean> {
-  // If we've recently checked and know it's down, return cached status
-  if (!isDbConnected && Date.now() - lastConnectionAttempt < CONNECTION_RETRY_DELAY) {
-    return false;
-  }
-  
-  try {
-    await prisma.$queryRaw`SELECT 1 as connection_test`;
-    isDbConnected = true;
-    return true;
-  } catch (e) {
-    isDbConnected = false;
-    lastConnectionAttempt = Date.now();
-    return false;
-  }
-}
-
-// Handle build-time disconnection
-// This ensures connections are properly closed during SSG/ISR
-if (typeof window === 'undefined') {
-  // For Next.js build-time (server-side)
-  process.on('beforeExit', async () => {
-    await disconnectAllClients();
-  });
-  
-  // Also handle SIGINT and SIGTERM
-  process.on('SIGINT', async () => {
-    await disconnectAllClients();
-    process.exit(0);
-  });
-  
-  process.on('SIGTERM', async () => {
-    await disconnectAllClients();
-    process.exit(0);
-  });
 } 
