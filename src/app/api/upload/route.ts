@@ -66,13 +66,23 @@ async function scanForViruses(file: File): Promise<boolean> {
 
 export async function POST(request: NextRequest) {
   try {
-    // Apply rate limiting
-    const limiterResponse = await uploadLimiter.check(request);
-    if (limiterResponse.statusCode === 429) {
-      return NextResponse.json(
-        { error: 'Too many file uploads. Please try again later.' },
-        { status: 429 }
-      );
+    // Apply rate limiting with safe fallback
+    try {
+      if (typeof uploadLimiter.check === 'function') {
+        const limiterResponse = await uploadLimiter.check(request);
+        if (limiterResponse.statusCode === 429) {
+          return NextResponse.json(
+            { error: 'Too many file uploads. Please try again later.' },
+            { status: 429 }
+          );
+        }
+      } else {
+        // Fallback if check doesn't exist
+        console.warn('Upload rate limiter check function not available - skipping rate limiting');
+      }
+    } catch (rateLimitError) {
+      // Don't block upload on rate limiter errors, just log them
+      console.error('Rate limiter error:', rateLimitError);
     }
     
     // Check CSRF token

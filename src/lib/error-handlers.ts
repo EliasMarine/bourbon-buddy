@@ -40,22 +40,40 @@ export function logSecurityEvent(eventType: string, details: any, severity: 'low
   
   console.log(`${severityColors[severity]}[SECURITY ${severity.toUpperCase()}]\x1b[0m ${timestamp} - ${eventType} - ${JSON.stringify(details)}`);
   
-  // Skip file logging in environments that might have read-only filesystems (like Vercel)
-  if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+  // Skip file logging in environments that might have read-only filesystems (like Vercel or serverless)
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
     return;
   }
   
-  // Log to file in development environments
+  // Log to file only in development environments with writable filesystem
   try {
-    const logFile = path.join(process.cwd(), 'logs', 'security.log');
+    // First check if we can write to the filesystem
+    const logDir = path.join(process.cwd(), 'logs');
+    const canWrite = (() => {
+      try {
+        // Test if we can write to this directory
+        const testFile = path.join(logDir, '.write-test');
+        fs.writeFileSync(testFile, 'test');
+        fs.unlinkSync(testFile);
+        return true;
+      } catch (e) {
+        console.warn('Skipping file logging - filesystem appears to be read-only');
+        return false;
+      }
+    })();
+    
+    if (!canWrite) return;
+    
+    const logFile = path.join(logDir, 'security.log');
     fs.appendFileSync(logFile, logEntry + '\n');
     
     // For critical events, also write to a separate file
     if (severity === 'critical') {
-      const criticalLogFile = path.join(process.cwd(), 'logs', 'critical-security.log');
+      const criticalLogFile = path.join(logDir, 'critical-security.log');
       fs.appendFileSync(criticalLogFile, logEntry + '\n');
     }
   } catch (error) {
+    // Just log to console instead of throwing which would cause a 500 error
     console.error('Error writing to security log file:', error);
   }
 }
@@ -69,12 +87,34 @@ export function handlePrismaError(error: unknown, context = 'operation', userId?
   console.error(`Prisma error in ${context}:`, error);
 
   // Provide sanitized error messages for client
-  if (error instanceof PrismaClientInitializationError) {
-    logSecurityEvent('database_connection_error', { context, errorType: 'initialization' }, 'high');
+  if (error instanceof PrismaClientInitializationError || 
+      (error instanceof Error && 
+       (error.message.includes("Can't reach database server") || 
+        error.message.includes("Connection refused") || 
+        error.message.includes("Connection terminated") ||
+        error.message.includes("database connection is currently unavailable")))) {
+    
+    logSecurityEvent('database_connection_error', { 
+      context, 
+      errorType: 'initialization',
+      message: error instanceof Error ? error.message : 'Unknown connection error'
+    }, 'high');
     
     return NextResponse.json(
-      { message: 'Database connection error. Please try again later.' },
-      { status: 503 } // Service Unavailable
+      { 
+        message: 'Database service is temporarily unavailable. Please try again later.',
+        isDbConnectionIssue: true,
+        retryAfter: 60, // Suggest retry after 60 seconds
+      },
+      { 
+        status: 503, // Service Unavailable
+        headers: {
+          'Retry-After': '60',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        }
+      }
     );
   } 
   

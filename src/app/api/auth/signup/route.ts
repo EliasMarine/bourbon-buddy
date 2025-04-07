@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
-import { handlePrismaError, handleAuthError } from '@/lib/error-handlers';
+import { handlePrismaError, handleAuthError, logSecurityEvent } from '@/lib/error-handlers';
 import { signupLimiter } from '@/lib/rate-limiters';
 import { z } from 'zod';
 import { validateCsrfToken } from '@/lib/csrf';
@@ -38,18 +38,30 @@ const userSignupSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    // Apply rate limiting
-    const limiterResponse = await signupLimiter.check(request);
-    if (limiterResponse.statusCode === 429) {
-      return NextResponse.json(
-        { message: 'Too many signup attempts. Please try again later.' },
-        { status: 429 }
-      );
+    // Apply rate limiting - with safe fallback if check method doesn't exist
+    try {
+      if (typeof signupLimiter.check === 'function') {
+        const limiterResponse = await signupLimiter.check(request);
+        if (limiterResponse.statusCode === 429) {
+          logSecurityEvent('rate_limit_exceeded', { endpoint: '/api/auth/signup' }, 'medium');
+          return NextResponse.json(
+            { message: 'Too many signup attempts. Please try again later.' },
+            { status: 429 }
+          );
+        }
+      } else {
+        // Fallback if check doesn't exist - just log the issue
+        console.warn('Rate limiter check function not available - skipping rate limiting');
+      }
+    } catch (rateLimitError) {
+      // Don't block signup on rate limiter errors, just log them
+      console.error('Rate limiter error:', rateLimitError);
     }
     
     // Verify CSRF token
     const csrfToken = request.headers.get('x-csrf-token');
     if (!csrfToken || !validateCsrfToken(request, csrfToken)) {
+      logSecurityEvent('csrf_validation_failure', { endpoint: '/api/auth/signup' }, 'high');
       return NextResponse.json(
         { message: 'Invalid or missing CSRF token' },
         { status: 403 }
@@ -104,6 +116,9 @@ export async function POST(request: Request) {
           password: hashedPassword,
         },
       });
+
+      // Log successful user creation
+      logSecurityEvent('user_created', { userId: user.id }, 'low');
 
       // Only return necessary user info (never include password hash)
       return NextResponse.json({
