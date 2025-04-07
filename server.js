@@ -3,6 +3,29 @@ const { parse } = require('url');
 const next = require('next');
 const { Server } = require('socket.io');
 
+// Add security verification (this will dynamically require our TS files)
+const securityCheck = async () => {
+  try {
+    // Only run in production mode
+    if (process.env.NODE_ENV === 'production') {
+      console.log('Running security checks...');
+      
+      // Dynamically import the TS module (works with ts-node)
+      const { ensureNoTestEndpoints } = require('./src/lib/login-security');
+      
+      // Run the check
+      ensureNoTestEndpoints();
+      
+      console.log('Security checks completed.');
+    }
+  } catch (error) {
+    console.error('Error during security checks:', error);
+  }
+};
+
+// Run security check
+securityCheck();
+
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
 const handle = app.getRequestHandler();

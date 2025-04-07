@@ -16,7 +16,6 @@ export async function PUT(request: Request) {
       username,
       location,
       occupation,
-      education,
       bio,
     } = await request.json();
 
@@ -28,7 +27,6 @@ export async function PUT(request: Request) {
         username: username || undefined,
         location: location || undefined,
         occupation: occupation || undefined,
-        education: education || undefined,
         bio: bio || undefined,
       },
     });

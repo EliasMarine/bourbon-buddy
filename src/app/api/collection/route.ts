@@ -6,25 +6,72 @@ import { SpiritSchema } from '@/lib/validations/spirit';
 import spiritCategories from '@/lib/spiritCategories';
 import { ZodError } from 'zod';
 import { collectionGetLimiter, collectionPostLimiter } from '@/lib/rate-limiters';
+import { createSupabaseBrowserClient } from '@/lib/supabase';
+
+// Improved session verification helper
+async function verifySession() {
+  try {
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user?.email) {
+      return { 
+        authenticated: false, 
+        error: 'Unauthorized - No user email in session', 
+        statusCode: 401 
+      };
+    }
+    
+    // Find user in database
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+    });
+    
+    // Handle missing user
+    if (!user) {
+      console.warn(`User not found in database: ${session.user.email}`);
+      return { 
+        authenticated: false, 
+        error: 'User not found in database', 
+        statusCode: 401,
+        session
+      };
+    }
+    
+    return { 
+      authenticated: true, 
+      user,
+      session
+    };
+  } catch (error) {
+    console.error('Session verification error:', error);
+    return { 
+      authenticated: false, 
+      error: 'Session verification failed', 
+      statusCode: 500 
+    };
+  }
+}
 
 // GET /api/collection - Get user's collection
 export async function GET(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user?.email) {
+    // Verify user session
+    const { authenticated, user, error, statusCode } = await verifySession();
+    
+    if (!authenticated || !user) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
+        { error },
+        { status: statusCode }
       );
     }
-
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      include: { spirits: true },
+    
+    // Reconnect to database if needed
+    const spirits = await prisma.spirit.findMany({
+      where: { ownerId: user.id },
+      orderBy: { updatedAt: 'desc' }
     });
 
-    return NextResponse.json({ spirits: user?.spirits || [] });
+    return NextResponse.json({ spirits });
   } catch (error) {
     console.error('Collection GET error:', error);
     return NextResponse.json(
@@ -37,13 +84,13 @@ export async function GET(request: Request) {
 // POST /api/collection - Add new spirit to collection
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
+    // Verify user session
+    const { authenticated, user, session, error, statusCode } = await verifySession();
     
-    // Check authentication
-    if (!session?.user?.email) {
+    if (!authenticated || !user) {
       return NextResponse.json(
-        { error: 'Unauthorized - No user email in session' },
-        { status: 401 }
+        { error },
+        { status: statusCode }
       );
     }
 
@@ -107,44 +154,6 @@ export async function POST(request: Request) {
     try {
       const validatedData = SpiritSchema.parse(parsedData);
       
-      // Look up the user by email
-      let user = await prisma.user.findUnique({
-        where: { email: session.user.email },
-      });
-
-      // If user doesn't exist, create a new one with the session data
-      if (!user && session.user.email) {
-        try {
-          user = await prisma.user.create({
-            data: {
-              email: session.user.email,
-              name: session.user.name || 'New User',
-              // Only include ID if provided by session
-              ...(session.user.id ? { id: session.user.id } : {}),
-              username: session.user.email.split('@')[0], // Generate username from email
-              password: '', // Add empty password
-            },
-          });
-        } catch (createError) {
-          // Try a simpler approach without ID
-          user = await prisma.user.create({
-            data: {
-              email: session.user.email,
-              name: session.user.name || 'New User',
-              username: session.user.email.split('@')[0],
-              password: '',
-            },
-          });
-        }
-      }
-
-      if (!user) {
-        return NextResponse.json(
-          { error: 'Unable to find or create user account' },
-          { status: 500 }
-        );
-      }
-
       // Create the spirit
       const createSpirit = {
         name: validatedData.name,
@@ -162,7 +171,7 @@ export async function POST(request: Request) {
         rating: validatedData.rating,
         isFavorite: validatedData.isFavorite || false,
         bottleLevel: validatedData.bottleLevel !== undefined ? validatedData.bottleLevel : 100, // Default to full bottle (100)
-        ownerId: user.id // Use ownerId instead of userId to match Prisma schema
+        ownerId: user.id
       };
 
       const spirit = await prisma.spirit.create({

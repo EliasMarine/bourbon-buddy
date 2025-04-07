@@ -37,13 +37,35 @@ export function middleware(req: NextRequest) {
   headers.set('X-Frame-Options', 'DENY');
   headers.set('Referrer-Policy', 'no-referrer');
   headers.set('Permissions-Policy', 'geolocation=(), microphone=()');
-  headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com");
   
-  // Check if the path is for an image
+  // Update Content Security Policy to allow more image sources
+  headers.set('Content-Security-Policy', 
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: blob: https: http:; " + // Allow both HTTP and HTTPS images 
+    "font-src 'self' data:; " +
+    "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://bourbonbuddy.live"
+  );
+  
+  // Apply protocol upgrade for HTTP requests
+  if (req.nextUrl.href.startsWith('http:') && req.headers.get('x-forwarded-proto') !== 'http') {
+    const newUrl = req.nextUrl.clone();
+    newUrl.protocol = 'https:';
+    return NextResponse.redirect(newUrl);
+  }
+  
+  // Check if the path is for an image or static asset
   if (
     req.nextUrl.pathname.includes('/images/') || 
     req.nextUrl.pathname.includes('/favicon.ico') ||
-    req.nextUrl.pathname.includes('/socket.io')
+    req.nextUrl.pathname.includes('/socket.io') ||
+    req.nextUrl.pathname.startsWith('/_next/') ||
+    req.nextUrl.pathname.endsWith('.jpg') ||
+    req.nextUrl.pathname.endsWith('.jpeg') ||
+    req.nextUrl.pathname.endsWith('.png') ||
+    req.nextUrl.pathname.endsWith('.gif') ||
+    req.nextUrl.pathname.endsWith('.webp')
   ) {
     // Skip auth check for images and public assets
     return response;

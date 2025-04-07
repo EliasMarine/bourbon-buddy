@@ -1,35 +1,91 @@
-Copyright (c) 2025 Elias Bou Zeid
+# Elias Bou Zeid Software License
+**Version 1.2 – Effective Date: April 7, 2025**
+
+Copyright © 2025 Elias Bou Zeid
 
 All rights reserved.
 
-This software, including all associated files and documentation (collectively, "the Software"), is the intellectual property of Elias Bou Zeid ("the Author"). Use of the Software is governed by the following terms:
+---
 
-1. Ownership and Intellectual Property
-   - The Author retains full copyright and intellectual property rights to the Software.
-   - Any and all rights not expressly granted herein are reserved by the Author.
+## Preamble
 
-2. Permitted Use
-   - You are permitted to view, download, and use the Software for personal, educational, or non-commercial purposes only.
-   - Modification and redistribution for non-commercial purposes are allowed only if full attribution is given to the Author and this license remains intact and included.
+This license governs the use of software, including source code, binaries, documentation, and associated files (collectively, "the Software"), created by Elias Bou Zeid ("the Author"). The purpose of this license is to grant limited rights for personal modification and use, while strictly prohibiting redistribution, unauthorized sharing, and commercial exploitation.
 
-3. Commercial Use
-   - Commercial use is strictly prohibited without a separate, written license agreement signed by the Author.
-   - Commercial use includes, but is not limited to: using the Software in a business setting, integrating it into a product or service for sale or subscription, or using it to generate revenue directly or indirectly.
-   - Parties interested in commercial licensing must contact the Author at: bourbonbuddy@bitspec.co
+---
 
-4. Attribution
-   - All public and redistributed versions of the Software must clearly credit the Author as the original creator/inventor.
-   - Attribution must include the Author's name and a link to the original repository (if applicable).
+## Terms and Conditions
 
-5. No Warranty
-   - The Software is provided "as is", without warranty of any kind, express or implied.
-   - The Author shall not be liable for any damages, losses, or legal issues arising from the use or misuse of the Software.
+### 1. Definitions
+- **Software**: Any and all source code, binaries, executables, documentation, assets, configurations, and other associated materials authored by Elias Bou Zeid.
+- **Commercial Use**: Any use of the Software within or related to a business context, including integration into commercial products, software, or services, or use resulting directly or indirectly in financial gain.
+- **Licensee ("You")**: Any individual or entity receiving, accessing, or utilizing the Software under this license.
 
-6. Termination
-   - Any violation of the terms in this license automatically terminates your right to use the Software.
-   - Upon termination, you must delete all copies of the Software in your possession.
+---
 
-7. Jurisdiction
-   - This license shall be governed by and interpreted in accordance with the laws of the State of California, United States.
+### 2. Ownership and Intellectual Property
+- The Author retains full and exclusive ownership, copyright, and intellectual property rights to the Software.
+- This license grants no transfer of ownership. All rights not explicitly granted herein remain reserved by the Author.
 
-For commercial licensing or further questions, please contact the Author.
+---
+
+### 3. Permitted Use
+Under this license, you are granted a limited, revocable, non-exclusive right to:
+- Access, download, install, run, and use the Software for strictly personal, educational, or non-commercial purposes only.
+- Modify or adapt the Software exclusively for your own personal, non-commercial use.
+
+---
+
+### 4. Restrictions and Prohibited Activities
+You explicitly agree **NOT** to:
+- Redistribute, sublicense, publicly share, sell, transfer, or otherwise disseminate the Software (modified or unmodified), in whole or in part, by any means.
+- Share or distribute modified versions of the Software in any medium or form.
+- Use or permit use of the Software for commercial purposes without a separate, explicit written commercial licensing agreement signed by the Author.
+
+---
+
+### 5. Commercial Licensing
+- Commercial use of the Software is strictly prohibited without explicit prior written consent and a commercial license agreement signed by the Author.
+- Interested parties must contact the Author directly at: [bourbonbuddy@bitspec.co](mailto:bourbonbuddy@bitspec.co).
+
+---
+
+### 6. Attribution
+- Any authorized use of the Software must include clear attribution to the Author as its original creator.
+- Attribution must include the Author’s name ("Elias Bou Zeid") and a reference link or contact email provided herein, wherever practically applicable.
+
+---
+
+### 7. Disclaimer of Warranty
+- THE SOFTWARE IS PROVIDED "AS IS," WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT.
+- THE AUTHOR DISCLAIMS ANY LIABILITY FOR DAMAGES OR LOSSES RESULTING FROM USE OR MISUSE OF THE SOFTWARE.
+
+---
+
+### 8. Limitation of Liability
+- IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, CONSEQUENTIAL, SPECIAL, EXEMPLARY, OR PUNITIVE DAMAGES ARISING FROM OR RELATED TO YOUR USE OR INABILITY TO USE THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+---
+
+### 9. Termination
+- Violation or breach of any terms of this license automatically terminates your rights without prior notice.
+- Upon termination, you must cease all use immediately and destroy all copies of the Software in your possession or control.
+
+---
+
+### 10. Governing Law and Jurisdiction
+- This license shall be governed by and construed in accordance with the laws of the State of California, United States of America.
+- Any disputes or claims arising from or related to this license shall be resolved exclusively in the courts located in the State of California, USA.
+
+---
+
+## Contact
+For commercial licensing inquiries, clarifications, or further questions, please contact:
+
+**Elias Bou Zeid**  
+Email: [bourbonbuddy@bitspec.co](mailto:bourbonbuddy@bitspec.co)
+
+---
+
+Copyright © 2025 Elias Bou Zeid
+
+All rights reserved.

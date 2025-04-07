@@ -9,8 +9,13 @@ const nextConfig = {
   // Updated for modern Next.js standards
   serverExternalPackages: ['argon2'],
   images: {
-    unoptimized: false,
+    unoptimized: true,
     remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'hjodvataujilredguzig.supabase.co',
+        pathname: '/storage/v1/object/public/**',
+      },
       {
         protocol: 'https',
         hostname: 'bourbonbuddy.s3.ca-west-1.s4.mega.io',
@@ -41,9 +46,45 @@ const nextConfig = {
         hostname: 'www.blantonsbourbon.com',
         pathname: '**',
       },
+      {
+        protocol: 'https',
+        hostname: 'barbank.com',
+        pathname: '**',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.redd.it',
+        pathname: '**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'preview.redd.it',
+        pathname: '**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'i.redd.it',
+        pathname: '**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'woodencork.com',
+        pathname: '**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'whiskeycaviar.com',
+        pathname: '**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'bdliquorwine.com',
+        pathname: '**',
+      },
     ],
     domains: [
       'localhost',
+      'hjodvataujilredguzig.supabase.co',
       'avatars.githubusercontent.com',
       'lh3.googleusercontent.com',
       'images.unsplash.com',
@@ -51,6 +92,12 @@ const nextConfig = {
       'bourbon-buddy.s3.us-east-1.amazonaws.com',
       'www.buffalotracedistillery.com',
       'www.blantonsbourbon.com',
+      'barbank.com',
+      'preview.redd.it',
+      'i.redd.it',
+      'woodencork.com',
+      'whiskeycaviar.com',
+      'bdliquorwine.com',
     ]
   },
   // Set a custom webpack config for Socket.IO

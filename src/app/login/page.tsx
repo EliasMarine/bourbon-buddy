@@ -31,6 +31,25 @@ export default function LoginPage() {
     setError('');
 
     try {
+      // First check if the account is locked before attempting to login
+      const checkLockResponse = await fetch('/api/auth/check-lockout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+      
+      const lockStatus = await checkLockResponse.json();
+      
+      // If account is locked, show lockout message and don't attempt login
+      if (lockStatus?.isLocked) {
+        setError(`Your account has been temporarily locked due to multiple failed login attempts. Please try again in ${lockStatus.remainingTime ? lockStatus.remainingTime + ' minutes' : 'a few minutes'}.`);
+        setIsLoading(false);
+        return;
+      }
+      
+      // Proceed with normal login if not locked
       const result = await signIn('credentials', {
         email,
         password,
@@ -38,8 +57,48 @@ export default function LoginPage() {
       });
 
       if (result?.error) {
-        setError('Invalid email or password. Please try again.');
+        // Handle account lockout errors with a better user experience
+        if (result.error.includes('temporarily locked')) {
+          setError('Your account has been temporarily locked due to multiple failed login attempts. Please try again later or reset your password.');
+        } else if (result.error.includes('temporarily unavailable')) {
+          setError('Login is temporarily unavailable. Please try again later.');
+        } else {
+          setError('Invalid email or password. Please try again.');
+          
+          // Record the failed attempt in our security system
+          // This is a backup to the NextAuth recording in case that fails
+          try {
+            await fetch('/api/auth/record-attempt', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                email,
+                success: false
+              }),
+            });
+          } catch (e) {
+            console.error('Failed to record login attempt:', e);
+          }
+        }
         return;
+      }
+
+      // Record successful login
+      try {
+        await fetch('/api/auth/record-attempt', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email,
+            success: true
+          }),
+        });
+      } catch (e) {
+        console.error('Failed to record successful login:', e);
       }
 
       router.push('/dashboard');
@@ -177,6 +236,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-700 placeholder-gray-400 text-white bg-gray-800 rounded-t-md focus:outline-none focus:ring-amber-500 focus:border-amber-500 focus:z-10 sm:text-sm"
                 placeholder="Email address"
+                autoComplete="username email"
               />
             </div>
             <div>
@@ -192,6 +252,7 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-700 placeholder-gray-400 text-white bg-gray-800 rounded-b-md focus:outline-none focus:ring-amber-500 focus:border-amber-500 focus:z-10 sm:text-sm"
                 placeholder="Password"
+                autoComplete="current-password"
               />
             </div>
           </div>

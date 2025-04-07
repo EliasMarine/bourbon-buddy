@@ -9,6 +9,13 @@ import { PrismaAdapter } from '@auth/prisma-adapter';
 import { PrismaClientInitializationError, PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import bcrypt from 'bcryptjs';
 import { prisma } from './prisma'; // Use the shared prisma instance
+import { logSecurityEvent } from './error-handlers';
+import { 
+  isAccountLocked, 
+  isIPBlocked, 
+  recordFailedLoginAttempt, 
+  resetFailedLoginAttempts 
+} from './login-security';
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
@@ -39,30 +46,73 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" }
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) {
           throw new Error('Please enter an email and password');
+        }
+        
+        // Normalize email and get IP for security tracking
+        const email = credentials.email.toLowerCase().trim();
+        // Get the IP from request headers (might be in different places depending on hosting)
+        const ip = 
+          req?.headers?.['x-forwarded-for'] ||
+          req?.headers?.['x-real-ip'] ||
+          'unknown';
+        
+        // Check if IP is blocked due to suspicious activity
+        if (isIPBlocked(ip.toString())) {
+          logSecurityEvent(
+            'blocked_ip_login_attempt',
+            { email, ip },
+            'high'
+          );
+          throw new Error('Login temporarily unavailable. Please try again later.');
+        }
+        
+        // Check if account is locked due to too many failed attempts
+        if (isAccountLocked(email)) {
+          logSecurityEvent(
+            'login_attempt_on_locked_account',
+            { email, ip },
+            'high'
+          );
+          throw new Error('Your account has been temporarily locked due to multiple failed login attempts. Please try again later or reset your password.');
         }
 
         try {
           const user = await prisma.user.findUnique({
             where: {
-              email: credentials.email,
+              email: email,
             },
           });
 
+          // Use the same error message whether user exists or not
+          // to prevent user enumeration
           if (!user) {
+            // Record failed attempt but keep error message generic
+            recordFailedLoginAttempt(email, ip.toString());
+            logSecurityEvent('failed_login_attempt', { reason: 'user_not_found', email, ip }, 'medium');
             throw new Error('Invalid email or password');
           }
 
+          // Check if password matches
           const isPasswordValid = await bcrypt.compare(
             credentials.password,
             user.password || '' // Ensure password isn't null
           );
 
           if (!isPasswordValid) {
+            // Record failed attempt
+            recordFailedLoginAttempt(email, ip.toString());
+            logSecurityEvent('failed_login_attempt', { reason: 'invalid_password', userId: user.id, ip }, 'medium');
             throw new Error('Invalid email or password');
           }
+          
+          // Reset failed attempts on successful login
+          resetFailedLoginAttempts(email);
+          
+          // Log successful login
+          logSecurityEvent('successful_login', { userId: user.id, ip }, 'low');
 
           return {
             id: user.id,
@@ -80,7 +130,9 @@ export const authOptions: NextAuthOptions = {
             throw new Error('Authentication failed. Please try again later.');
           } else if (error instanceof Error) {
             // If it's our own thrown error, return it
-            if (error.message === 'Invalid email or password') {
+            if (error.message === 'Invalid email or password' || 
+                error.message.includes('Your account has been temporarily locked') ||
+                error.message.includes('Login temporarily unavailable')) {
               throw error;
             }
             // Otherwise, provide a generic message

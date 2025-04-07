@@ -1,20 +1,31 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
-import Image from 'next/image';
 import Link from 'next/link';
-import { Camera, MapPin, Briefcase, GraduationCap, Calendar, Edit, Settings, Share2, Wine, Users } from 'lucide-react';
+import { Camera, MapPin, Briefcase, Calendar, Edit, Settings, Share2, Wine, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { getCoverPhotoUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
+import { getProfileImageUrl, getCoverPhotoUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
+import SafeImage from '@/components/ui/SafeImage';
 
 export default function ProfilePage() {
   const { data: session, status, update: updateSession } = useSession();
   const [activeTab, setActiveTab] = useState('collection');
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadType, setUploadType] = useState<'profile' | 'cover' | null>(null);
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+
+  // Log session updates
+  useEffect(() => {
+    if (session) {
+      console.log('Session updated:', {
+        profileImage: session.user?.image,
+        coverPhoto: session.user?.coverPhoto
+      });
+    }
+  }, [session]);
 
   if (status === 'loading') {
     return (
@@ -33,6 +44,7 @@ export default function ProfilePage() {
 
     try {
       setIsUploading(true);
+      setUploadType(type);
       
       // First, upload the file to get a URL
       const formData = new FormData();
@@ -44,7 +56,8 @@ export default function ProfilePage() {
       });
 
       if (!uploadResponse.ok) {
-        throw new Error('Failed to upload image');
+        const errorData = await uploadResponse.json();
+        throw new Error(errorData.error || 'Failed to upload image');
       }
 
       const { url: imageUrl } = await uploadResponse.json();
@@ -62,7 +75,8 @@ export default function ProfilePage() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update profile');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update profile');
       }
 
       const { user } = await response.json();
@@ -73,9 +87,10 @@ export default function ProfilePage() {
       toast.success(`${type === 'profile' ? 'Profile' : 'Cover'} photo updated successfully`);
     } catch (error) {
       console.error('Error uploading image:', error);
-      toast.error(`Failed to update ${type === 'profile' ? 'profile' : 'cover'} photo`);
+      toast.error(`Failed to update ${type === 'profile' ? 'profile' : 'cover'} photo: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsUploading(false);
+      setUploadType(null);
     }
   };
 
@@ -92,6 +107,10 @@ export default function ProfilePage() {
     { id: 'about', label: 'About' },
     { id: 'friends', label: 'Friends' },
   ];
+
+  // Prepare profile and cover image URLs
+  const profileImageUrl = getProfileImageUrl(session.user?.image);
+  const coverPhotoUrl = getCoverPhotoUrl(session.user?.coverPhoto);
 
   return (
     <div className="min-h-screen bg-gray-900">
@@ -114,12 +133,13 @@ export default function ProfilePage() {
       {/* Cover Photo Section */}
       <div className="relative h-[300px] md:h-[400px]">
         <div className="absolute inset-0 bg-gradient-to-b from-transparent to-gray-900/90">
-          <Image
-            src={getCoverPhotoUrl(session.user?.coverPhoto)}
+          <SafeImage
+            src={coverPhotoUrl}
             alt="Cover"
             fill
             className="object-cover"
             priority
+            fallbackClassName="bg-gray-800"
           />
         </div>
         <button 
@@ -128,7 +148,7 @@ export default function ProfilePage() {
           disabled={isUploading}
         >
           <Camera size={18} />
-          <span>{isUploading ? 'Uploading...' : 'Edit Cover Photo'}</span>
+          <span>{isUploading && uploadType === 'cover' ? 'Uploading...' : 'Edit Cover Photo'}</span>
         </button>
       </div>
 
@@ -138,20 +158,18 @@ export default function ProfilePage() {
           {/* Profile Picture */}
           <div className="relative">
             <div className="w-[168px] h-[168px] rounded-full border-4 border-gray-900 overflow-hidden relative bg-gray-800">
-              {session.user?.image ? (
-                <Image
-                  src={`${session.user.image}${session.user.image?.includes('?') ? '&' : '?'}_cb=${Date.now()}`}
-                  alt={session.user.name || 'Profile'}
-                  fill
-                  className="object-cover"
-                  priority={true}
-                  unoptimized={true}
-                />
-              ) : (
-                <div className={`w-full h-full flex items-center justify-center ${DEFAULT_AVATAR_BG} text-white text-4xl font-bold`}>
-                  {getInitialLetter(session.user?.name)}
-                </div>
-              )}
+              <SafeImage
+                src={profileImageUrl}
+                alt={session.user?.name || 'Profile'}
+                fill
+                className="object-cover"
+                priority
+                fallback={
+                  <div className={`w-full h-full flex items-center justify-center ${DEFAULT_AVATAR_BG} text-white text-4xl font-bold`}>
+                    {getInitialLetter(session.user?.name)}
+                  </div>
+                }
+              />
             </div>
             <button 
               className="absolute bottom-2 right-2 bg-white/10 hover:bg-white/20 p-2 rounded-full backdrop-blur-sm transition-all disabled:opacity-50"
@@ -159,6 +177,11 @@ export default function ProfilePage() {
               disabled={isUploading}
             >
               <Camera size={20} className="text-white" />
+              {isUploading && uploadType === 'profile' && (
+                <span className="absolute inset-0 flex items-center justify-center bg-gray-900/60 rounded-full">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                </span>
+              )}
             </button>
           </div>
 
@@ -181,10 +204,10 @@ export default function ProfilePage() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
+                <Link href="/profile/edit" className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
                   <Edit size={18} />
                   <span>Edit Profile</span>
-                </button>
+                </Link>
                 <button className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
                   <Settings size={18} />
                   <span>Settings</span>
@@ -210,10 +233,6 @@ export default function ProfilePage() {
                   </div>
                 </div>
                 <div className="space-y-4">
-                  <div className="flex items-center gap-3 text-gray-300">
-                    <GraduationCap size={18} className="text-amber-500" />
-                    <span>Studied at University of Kentucky</span>
-                  </div>
                   <div className="flex items-center gap-3 text-gray-300">
                     <Calendar size={18} className="text-amber-500" />
                     <span>Joined March 2024</span>

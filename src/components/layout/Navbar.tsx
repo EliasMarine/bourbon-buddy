@@ -12,6 +12,8 @@ import {
   Globe, DollarSign, HelpCircle
 } from 'lucide-react';
 import GlencairnGlass from '../ui/icons/GlencairnGlass';
+import { getProfileImageUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
+import SafeImage from '@/components/ui/SafeImage';
 
 export default function Navbar() {
   const { data: session, status } = useSession();
@@ -20,7 +22,7 @@ export default function Navbar() {
   const [showFloatingNav, setShowFloatingNav] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const profileDropdownRef = useRef<HTMLDivElement>(null);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const profileButtonRef = useRef<HTMLButtonElement>(null);
   const lastScrollY = useRef(0);
 
@@ -62,20 +64,19 @@ export default function Navbar() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
-        profileDropdownRef.current && 
-        profileButtonRef.current && 
-        !profileDropdownRef.current.contains(event.target as Node) && 
+        isProfileOpen &&
+        profileMenuRef.current &&
+        profileButtonRef.current &&
+        !profileMenuRef.current.contains(event.target as Node) &&
         !profileButtonRef.current.contains(event.target as Node)
       ) {
         setIsProfileOpen(false);
       }
     };
-
+    
     document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isProfileOpen]);
 
   const navLinks = [
     { name: 'Home', href: '/', icon: <Home size={18} /> },
@@ -91,53 +92,204 @@ export default function Navbar() {
     return pathname.startsWith(path);
   };
 
-  // Get user profile picture
-  const getProfileImage = () => {
-    if (session?.user?.image) {
-      return (
-        <Image 
-          src={`${session.user.image}${session.user.image?.includes('?') ? '&' : '?'}_cb=${Date.now()}`}
-          alt="Profile" 
-          width={32} 
-          height={32} 
-          className="w-8 h-8 rounded-full object-cover"
-        />
-      );
-    }
-    
+  // Profile menu component
+  function ProfileMenu() {
+    if (!session) return null;
+
     return (
-      <div className="w-8 h-8 rounded-full bg-amber-600/20 flex items-center justify-center text-amber-500 font-bold">
-        {session?.user?.name?.[0].toUpperCase() || 'U'}
+      <div 
+        ref={profileMenuRef}
+        className="absolute right-0 mt-2 w-72 bg-gray-800 rounded-lg shadow-lg border border-gray-700 z-[100] overflow-hidden"
+      >
+        <div className="px-4 py-4 border-b border-gray-700 flex items-center gap-3">
+          <ProfileAvatar size="large" />
+          <div className="overflow-hidden">
+            <p className="text-sm text-white font-medium truncate max-w-[180px]">
+              {session.user?.name || 'User'}
+            </p>
+            <p className="text-xs text-gray-400 truncate max-w-[180px]">
+              {session.user?.email || ''}
+            </p>
+            <Link 
+              href="/profile"
+              className="text-xs text-amber-500 hover:text-amber-400 mt-1 inline-block"
+              onClick={() => setIsProfileOpen(false)}
+            >
+              View Full Profile
+            </Link>
+          </div>
+        </div>
+        
+        <div className="py-1">
+          <h3 className="px-4 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Collection
+          </h3>
+          <MenuLink href="/collection" icon={<User size={16} />} label="My Collection" />
+          <MenuLink href="/explore" icon={<Globe size={16} />} label="Explore Collections" />
+        </div>
+        
+        <div className="py-1 border-t border-gray-700">
+          <h3 className="px-4 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Profile Settings
+          </h3>
+          <MenuLink href="/profile/edit" icon={<Edit size={16} />} label="Edit Profile Details" />
+          <MenuLink href="/profile/about" icon={<UserCircle size={16} />} label="Customize Bio & Info" />
+          <MenuLink href="/profile/photo" icon={<Camera size={16} />} label="Change Profile Picture" />
+          <MenuLink href="/profile/appearance" icon={<Palette size={16} />} label="Profile Appearance" />
+        </div>
+        
+        <div className="py-1 border-t border-gray-700">
+          <h3 className="px-4 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Account & Security
+          </h3>
+          <MenuLink href="/profile/security" icon={<Shield size={16} />} label="Security Settings" />
+          <MenuLink href="/profile/reset-credentials" icon={<RefreshCw size={16} />} label="Reset Credentials" />
+        </div>
+        
+        <div className="py-1 border-t border-gray-700">
+          <button 
+            className="w-full px-4 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-gray-700 flex items-center gap-2"
+            onClick={() => {
+              setIsProfileOpen(false);
+              signOut({ callbackUrl: '/' });
+            }}
+          >
+            <LogOut size={16} />
+            Sign Out
+          </button>
+        </div>
       </div>
     );
-  };
-  
-  // Mobile version of profile image
-  const getMobileProfileImage = () => {
-    if (session?.user?.image) {
-      return (
-        <Image 
-          src={`${session.user.image}${session.user.image?.includes('?') ? '&' : '?'}_cb=${Date.now()}`}
-          alt="Profile" 
-          width={40} 
-          height={40} 
-          className="w-10 h-10 rounded-full object-cover"
-        />
-      );
-    }
+  }
+
+  // Menu link component
+  function MenuLink({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
+    return (
+      <Link 
+        href={href}
+        className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
+        onClick={() => setIsProfileOpen(false)}
+      >
+        <span className="flex items-center gap-2">
+          {icon}
+          {label}
+        </span>
+      </Link>
+    );
+  }
+
+  // Profile avatar component with error handling
+  function ProfileAvatar({ size = "normal" }: { size?: "normal" | "large" | "mobile" }) {
+    if (!session?.user) return null;
+    
+    const sizeClasses = {
+      normal: "w-8 h-8",
+      large: "w-12 h-12 border-2 border-amber-500",
+      mobile: "w-10 h-10"
+    };
+    
+    const dimensions = {
+      normal: { width: 32, height: 32 },
+      large: { width: 50, height: 50 },
+      mobile: { width: 40, height: 40 }
+    };
+    
+    // Get profile image URL using the same utility function as profile page
+    const profileImageUrl = getProfileImageUrl(session.user.image);
     
     return (
-      <div className="w-10 h-10 rounded-full bg-amber-600/20 flex items-center justify-center text-amber-500 font-bold">
-        {session?.user?.name?.[0].toUpperCase() || 'U'}
+      <div className={`${sizeClasses[size]} relative overflow-hidden rounded-full`}>
+        <SafeImage 
+          src={profileImageUrl}
+          alt={`${session.user.name || 'User'}'s profile`}
+          width={dimensions[size].width}
+          height={dimensions[size].height}
+          className={`${sizeClasses[size]} object-cover`}
+          priority
+          fallback={
+            <div className={`w-full h-full flex items-center justify-center ${DEFAULT_AVATAR_BG} text-white font-bold`}>
+              {getInitialLetter(session.user.name)}
+            </div>
+          }
+        />
       </div>
     );
-  };
+  }
+
+  // Mobile menu profile section
+  function MobileProfileSection() {
+    if (!session) return null;
+    
+    return (
+      <div className="mt-4 border-t border-gray-800 pt-4">
+        <div className="flex items-center gap-3 px-3 py-2 mb-4">
+          <ProfileAvatar size="mobile" />
+          <div className="overflow-hidden max-w-[70%]">
+            <p className="font-medium text-white truncate max-w-full">{session.user?.name}</p>
+            <p className="text-xs text-gray-400 truncate max-w-full">{session.user?.email}</p>
+            <Link 
+              href="/profile"
+              className="text-xs text-amber-500 hover:text-amber-400 mt-1 inline-block"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              View Full Profile
+            </Link>
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <h3 className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Profile Settings
+          </h3>
+          
+          <MobileMenuLink href="/profile/edit" icon={<Edit size={18} />} label="Edit Profile Details" />
+          <MobileMenuLink href="/profile/about" icon={<UserCircle size={18} />} label="Customize Bio & Info" />
+          <MobileMenuLink href="/profile/photo" icon={<Camera size={18} />} label="Change Profile Picture" />
+          <MobileMenuLink href="/profile/appearance" icon={<Palette size={18} />} label="Profile Appearance" />
+        </div>
+        
+        <div className="mb-3">
+          <h3 className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Account & Security
+          </h3>
+          
+          <MobileMenuLink href="/profile/security" icon={<Shield size={18} />} label="Security Settings" />
+          <MobileMenuLink href="/profile/reset-credentials" icon={<RefreshCw size={18} />} label="Reset Credentials" />
+        </div>
+        
+        <button
+          className="w-full mt-2 px-3 py-2.5 rounded-lg font-medium flex items-center text-red-400 hover:text-red-300 hover:bg-gray-800/50"
+          onClick={() => {
+            setIsMobileMenuOpen(false);
+            signOut({ callbackUrl: '/' });
+          }}
+        >
+          <LogOut className="mr-3" size={18} />
+          Sign Out
+        </button>
+      </div>
+    );
+  }
+
+  // Mobile menu link component
+  function MobileMenuLink({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
+    return (
+      <Link
+        href={href}
+        className="px-3 py-2.5 rounded-lg font-medium flex items-center text-gray-300 hover:text-white hover:bg-gray-800/50"
+        onClick={() => setIsMobileMenuOpen(false)}
+      >
+        <span className="mr-3">{icon}</span>
+        {label}
+      </Link>
+    );
+  }
 
   return (
     <>
       {/* Main Navbar */}
       <header 
-        className={`fixed w-full top-0 z-50 transition-all duration-300 ${
+        className={`fixed w-full top-0 z-[9999] transition-all duration-300 ${
           isScrolled || isMobileMenuOpen 
             ? 'bg-gray-900/95 backdrop-blur-md shadow-md' 
             : 'bg-gray-900/0'
@@ -193,169 +345,20 @@ export default function Navbar() {
                         : 'bg-gray-900/50 hover:bg-gray-800/70'
                     } px-3 py-1.5 rounded-lg text-sm font-medium transition-colors`}
                     onClick={() => setIsProfileOpen(!isProfileOpen)}
+                    aria-expanded={isProfileOpen}
+                    aria-haspopup="true"
                   >
-                    {getProfileImage()}
+                    <ProfileAvatar />
                     <span className="text-white max-w-[120px] truncate">
                       {session.user?.name || 'User'}
                     </span>
-                    <ChevronDown size={16} className={`transition-transform ${isProfileOpen ? 'rotate-180' : ''}`} />
+                    <ChevronDown 
+                      size={16} 
+                      className={`transition-transform ${isProfileOpen ? 'rotate-180' : ''}`} 
+                    />
                   </button>
 
-                  {isProfileOpen && (
-                    <div 
-                      ref={profileDropdownRef}
-                      className="absolute right-0 mt-2 w-72 bg-gray-800 rounded-lg shadow-lg py-1 z-10 border border-gray-700"
-                    >
-                      <div className="px-4 py-4 border-b border-gray-700 flex items-center gap-3">
-                        {session.user?.image ? (
-                          <Image 
-                            src={`${session.user.image}${session.user.image?.includes('?') ? '&' : '?'}_cb=${Date.now()}`}
-                            alt="Profile" 
-                            width={50} 
-                            height={50} 
-                            className="w-12 h-12 rounded-full object-cover border-2 border-amber-500"
-                            unoptimized={true}
-                            priority={true}
-                          />
-                        ) : (
-                          <div className="w-12 h-12 rounded-full bg-amber-600/20 flex items-center justify-center text-amber-500 font-bold text-xl">
-                            {session.user?.name?.[0].toUpperCase() || 'U'}
-                          </div>
-                        )}
-                        <div className="w-full overflow-hidden">
-                          <p className="text-sm text-white font-medium truncate max-w-[180px]">{session.user?.name}</p>
-                          <p className="text-xs text-gray-400 truncate max-w-[180px]">{session.user?.email}</p>
-                          <Link 
-                            href="/profile"
-                            className="text-xs text-amber-500 hover:text-amber-400 mt-1 inline-block"
-                            onClick={() => setIsProfileOpen(false)}
-                          >
-                            View Full Profile
-                          </Link>
-                        </div>
-                      </div>
-                      
-                      <div className="py-1">
-                        <h3 className="px-4 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                          Collection
-                        </h3>
-                        <Link 
-                          href="/collection"
-                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
-                          onClick={() => setIsProfileOpen(false)}
-                        >
-                          <span className="flex items-center gap-2">
-                            <User size={16} />
-                            My Collection
-                          </span>
-                        </Link>
-                        
-                        <Link 
-                          href="/explore"
-                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
-                          onClick={() => setIsProfileOpen(false)}
-                        >
-                          <span className="flex items-center gap-2">
-                            <Globe size={16} />
-                            Explore Collections
-                          </span>
-                        </Link>
-                      </div>
-                      
-                      <div className="py-1 border-t border-gray-700">
-                        <h3 className="px-4 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                          Profile Settings
-                        </h3>
-                        
-                        <Link 
-                          href="/profile/edit"
-                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
-                          onClick={() => setIsProfileOpen(false)}
-                        >
-                          <span className="flex items-center gap-2">
-                            <Edit size={16} />
-                            Edit Profile Details
-                          </span>
-                        </Link>
-                        
-                        <Link 
-                          href="/profile/about"
-                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
-                          onClick={() => setIsProfileOpen(false)}
-                        >
-                          <span className="flex items-center gap-2">
-                            <UserCircle size={16} />
-                            Customize Bio & Info
-                          </span>
-                        </Link>
-                        
-                        <Link 
-                          href="/profile/photo"
-                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
-                          onClick={() => setIsProfileOpen(false)}
-                        >
-                          <span className="flex items-center gap-2">
-                            <Camera size={16} />
-                            Change Profile Picture
-                          </span>
-                        </Link>
-                        
-                        <Link 
-                          href="/profile/appearance"
-                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
-                          onClick={() => setIsProfileOpen(false)}
-                        >
-                          <span className="flex items-center gap-2">
-                            <Palette size={16} />
-                            Profile Appearance
-                          </span>
-                        </Link>
-                      </div>
-                      
-                      <div className="py-1 border-t border-gray-700">
-                        <h3 className="px-4 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                          Account & Security
-                        </h3>
-                        
-                        <Link 
-                          href="/profile/security"
-                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
-                          onClick={() => setIsProfileOpen(false)}
-                        >
-                          <span className="flex items-center gap-2">
-                            <Shield size={16} />
-                            Security Settings
-                          </span>
-                        </Link>
-                        
-                        <Link 
-                          href="/profile/reset-credentials"
-                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
-                          onClick={() => setIsProfileOpen(false)}
-                        >
-                          <span className="flex items-center gap-2">
-                            <RefreshCw size={16} />
-                            Reset Credentials
-                          </span>
-                        </Link>
-                      </div>
-                      
-                      <div className="border-t border-gray-700 mt-1 pt-1">
-                        <button
-                          className="block w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300"
-                          onClick={() => {
-                            signOut({ callbackUrl: '/' });
-                            setIsProfileOpen(false);
-                          }}
-                        >
-                          <span className="flex items-center gap-2">
-                            <LogOut size={16} />
-                            Sign Out
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  {isProfileOpen && <ProfileMenu />}
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
@@ -387,6 +390,8 @@ export default function Navbar() {
                   : 'hover:bg-gray-800/50'
               }`}
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-expanded={isMobileMenuOpen}
+              aria-label="Toggle menu"
             >
               {isMobileMenuOpen ? <X size={28} /> : <Menu size={28} />}
             </button>
@@ -433,96 +438,7 @@ export default function Navbar() {
                         </Link>
                       </div>
                     ) : (
-                      <div className="mt-4 border-t border-gray-800 pt-4">
-                        <div className="flex items-center gap-3 px-3 py-2 mb-4">
-                          {getMobileProfileImage()}
-                          <div className="overflow-hidden max-w-[70%]">
-                            <p className="font-medium text-white truncate max-w-full">{session.user?.name}</p>
-                            <p className="text-xs text-gray-400 truncate max-w-full">{session.user?.email}</p>
-                            <Link 
-                              href="/profile"
-                              className="text-xs text-amber-500 hover:text-amber-400 mt-1 inline-block"
-                              onClick={() => setIsMobileMenuOpen(false)}
-                            >
-                              View Full Profile
-                            </Link>
-                          </div>
-                        </div>
-
-                        <div className="mb-3">
-                          <h3 className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                            Profile Settings
-                          </h3>
-                          
-                          <Link
-                            href="/profile/edit"
-                            className="px-3 py-2.5 rounded-lg font-medium flex items-center text-gray-300 hover:text-white hover:bg-gray-800/50"
-                            onClick={() => setIsMobileMenuOpen(false)}
-                          >
-                            <Edit className="mr-3" size={18} />
-                            Edit Profile Details
-                          </Link>
-                          
-                          <Link
-                            href="/profile/about"
-                            className="px-3 py-2.5 rounded-lg font-medium flex items-center text-gray-300 hover:text-white hover:bg-gray-800/50"
-                            onClick={() => setIsMobileMenuOpen(false)}
-                          >
-                            <UserCircle className="mr-3" size={18} />
-                            Customize Bio & Info
-                          </Link>
-                          
-                          <Link
-                            href="/profile/photo"
-                            className="px-3 py-2.5 rounded-lg font-medium flex items-center text-gray-300 hover:text-white hover:bg-gray-800/50"
-                            onClick={() => setIsMobileMenuOpen(false)}
-                          >
-                            <Camera className="mr-3" size={18} />
-                            Change Profile Picture
-                          </Link>
-                          
-                          <Link
-                            href="/profile/appearance"
-                            className="px-3 py-2.5 rounded-lg font-medium flex items-center text-gray-300 hover:text-white hover:bg-gray-800/50"
-                            onClick={() => setIsMobileMenuOpen(false)}
-                          >
-                            <Palette className="mr-3" size={18} />
-                            Profile Appearance
-                          </Link>
-                        </div>
-                        
-                        <div className="mb-3">
-                          <h3 className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                            Account & Security
-                          </h3>
-                          
-                          <Link
-                            href="/profile/security"
-                            className="px-3 py-2.5 rounded-lg font-medium flex items-center text-gray-300 hover:text-white hover:bg-gray-800/50"
-                            onClick={() => setIsMobileMenuOpen(false)}
-                          >
-                            <Shield className="mr-3" size={18} />
-                            Security Settings
-                          </Link>
-                          
-                          <Link
-                            href="/profile/reset-credentials"
-                            className="px-3 py-2.5 rounded-lg font-medium flex items-center text-gray-300 hover:text-white hover:bg-gray-800/50"
-                            onClick={() => setIsMobileMenuOpen(false)}
-                          >
-                            <RefreshCw className="mr-3" size={18} />
-                            Reset Credentials
-                          </Link>
-                        </div>
-                        
-                        <button
-                          className="w-full mt-2 px-3 py-2.5 rounded-lg font-medium flex items-center text-red-400 hover:text-red-300 hover:bg-gray-800/50"
-                          onClick={() => signOut({ callbackUrl: '/' })}
-                        >
-                          <LogOut className="mr-3" size={18} />
-                          Sign Out
-                        </button>
-                      </div>
+                      <MobileProfileSection />
                     )}
                   </>
                 )}
@@ -534,7 +450,7 @@ export default function Navbar() {
 
       {/* Floating Navigation */}
       <div 
-        className={`fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 transition-all duration-500 ${
+        className={`fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[9998] transition-all duration-500 ${
           showFloatingNav 
             ? 'translate-y-0 opacity-100' 
             : 'translate-y-20 opacity-0 pointer-events-none'
@@ -556,17 +472,6 @@ export default function Navbar() {
               <span className="sr-only">{link.name}</span>
             </Link>
           ))}
-          
-          {session && (
-            <button
-              className="p-2 rounded-full mx-1 flex items-center justify-center text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
-              title="Profile"
-              onClick={() => setIsProfileOpen(!isProfileOpen)}
-            >
-              <User size={22} />
-              <span className="sr-only">Profile</span>
-            </button>
-          )}
         </nav>
       </div>
     </>

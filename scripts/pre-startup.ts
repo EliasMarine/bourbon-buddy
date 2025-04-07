@@ -4,17 +4,10 @@ import path from 'path';
 import { execSync } from 'child_process';
 
 const prisma = new PrismaClient();
-const DB_PATH = path.join(process.cwd(), 'prisma/dev.db');
 const BACKUP_DIR = path.join(process.cwd(), 'database-backups');
 
 async function checkDatabase() {
   console.log('🔍 Checking database integrity...');
-  
-  // Check if the database file exists
-  if (!fs.existsSync(DB_PATH)) {
-    console.error('❌ Database file not found!');
-    return false;
-  }
   
   try {
     // Test database connection
@@ -36,47 +29,10 @@ async function checkDatabase() {
 }
 
 async function createBackup() {
-  try {
-    // Create backup directory if it doesn't exist
-    if (!fs.existsSync(BACKUP_DIR)) {
-      fs.mkdirSync(BACKUP_DIR, { recursive: true });
-      console.log(`📁 Created backup directory at ${BACKUP_DIR}`);
-    }
-    
-    // Generate backup filename with timestamp
-    const date = new Date();
-    const timestamp = date.toISOString().replace(/[:.]/g, '-');
-    const backupFileName = `backup-${timestamp}.db`;
-    const backupPath = path.join(BACKUP_DIR, backupFileName);
-    
-    // Copy the database file
-    fs.copyFileSync(DB_PATH, backupPath);
-    console.log(`💾 Database backed up to ${backupFileName}`);
-    
-    // Clean up old backups (keep only 10 most recent)
-    const files = fs.readdirSync(BACKUP_DIR)
-      .filter(file => file.endsWith('.db'))
-      .map(file => ({
-        name: file,
-        path: path.join(BACKUP_DIR, file),
-        ctime: fs.statSync(path.join(BACKUP_DIR, file)).ctime.getTime()
-      }))
-      .sort((a, b) => b.ctime - a.ctime); // newest first
-    
-    const MAX_BACKUPS = 10;
-    if (files.length > MAX_BACKUPS) {
-      const filesToRemove = files.slice(MAX_BACKUPS);
-      for (const file of filesToRemove) {
-        fs.unlinkSync(file.path);
-        console.log(`🗑️ Removed old backup: ${file.name}`);
-      }
-    }
-    
-    return true;
-  } catch (error) {
-    console.error('❌ Error creating backup:', error);
-    return false;
-  }
+  // Note: Database backups for PostgreSQL require pg_dump
+  // This is a simplified version that doesn't actually backup for PostgreSQL
+  console.log('💾 PostgreSQL backups not implemented in dev mode');
+  return true;
 }
 
 async function seedIfNeeded() {
@@ -116,27 +72,8 @@ async function main() {
   } else {
     console.log('⚠️ Database check failed, skipping backup');
     
-    // Try to find and restore the most recent backup
-    try {
-      const backups = fs.readdirSync(BACKUP_DIR)
-        .filter(file => file.endsWith('.db'))
-        .map(file => ({
-          name: file,
-          path: path.join(BACKUP_DIR, file),
-          ctime: fs.statSync(path.join(BACKUP_DIR, file)).ctime.getTime()
-        }))
-        .sort((a, b) => b.ctime - a.ctime); // newest first
-      
-      if (backups.length > 0) {
-        console.log(`🔄 Attempting to restore from last backup: ${backups[0].name}`);
-        fs.copyFileSync(backups[0].path, DB_PATH);
-        console.log('✅ Database restored from backup');
-      } else {
-        console.error('❌ No backups found. Will attempt to seed database.');
-      }
-    } catch (error) {
-      console.error('❌ Error restoring from backup:', error);
-    }
+    // For PostgreSQL, we can't easily restore from a file backup in this script
+    console.log('⚠️ PostgreSQL restore not implemented in dev mode. Will attempt to seed database.');
   }
   
   // Step 3: Seed database if needed

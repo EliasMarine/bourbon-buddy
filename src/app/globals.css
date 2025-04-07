@@ -69,4 +69,33 @@ body {
 /* Selection color */
 ::selection {
   @apply bg-amber-600/30 text-white;
+}
+
+/* Fix for unwanted profile circles */
+body > div[class^="fixed"] > div[class*="rounded-full"],
+body > div[class*="fixed right"] > div[class*="rounded-full"],
+body > div[class*="z-50"] > div[class*="rounded-full"] {
+  display: none !important;
+}
+
+/* Additional rule to target elements containing 'E' outside our components */
+body > div:not([class*="container"]) > div:not([class*="container"]) > div.rounded-full:has(span:only-child),
+div[class*="fixed right"] > div.rounded-full:has(span:only-child),
+div.fixed:not([class*="container"]) > div.rounded-full {
+  display: none !important;
+}
+
+/* More aggressive targeting of duplicate profile avatars */
+.rounded-full:has(span:only-child):not([class*="navbar"]):not([class*="header"]):not([class*="navigation"]),
+body > div.fixed > div.rounded-full,
+[class*="fixed bottom"] div.rounded-full,
+[class*="fixed right"] div.rounded-full,
+body > div[class*="z-50"] .rounded-full:has(span:only-child) {
+  display: none !important;
+}
+
+/* Target specifically vertical series of avatars */
+body > div > div > div.rounded-full + div.rounded-full,
+body > div.fixed div.rounded-full ~ div.rounded-full {
+  display: none !important;
 } 

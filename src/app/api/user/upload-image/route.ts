@@ -1,69 +1,70 @@
-import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
-export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
+export async function POST(request: NextRequest) {
   try {
-    const { imageUrl, type } = await request.json();
-
-    if (!imageUrl || !type || !['profile', 'cover'].includes(type)) {
-      return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+    // Check authentication
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
     }
 
-    // Add a cache-busting parameter to the image URL
-    let finalImageUrl = imageUrl;
-    if (!imageUrl.includes('?')) {
-      finalImageUrl = `${imageUrl}?_cb=${Date.now()}`;
-    } else if (!imageUrl.includes('_cb=')) {
-      finalImageUrl = `${imageUrl}&_cb=${Date.now()}`;
+    // Get data from request
+    const data = await request.json();
+    const { imageUrl, type } = data;
+
+    // Validate parameters
+    if (!imageUrl) {
+      return NextResponse.json(
+        { error: 'No image URL provided' },
+        { status: 400 }
+      );
     }
 
-    // Update the user record with the new image URL
+    if (type !== 'profile' && type !== 'cover') {
+      return NextResponse.json(
+        { error: 'Invalid image type. Must be "profile" or "cover"' },
+        { status: 400 }
+      );
+    }
+
+    // Update user in database
     const updateData = type === 'profile' 
-      ? { image: finalImageUrl }
-      : { coverPhoto: finalImageUrl };
+      ? { image: imageUrl } 
+      : { coverPhoto: imageUrl };
 
-    const updatedUser = await prisma.user.update({
+    const user = await prisma.user.update({
       where: { id: session.user.id },
       data: updateData,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        image: true,
-        coverPhoto: true,
-        username: true,
-        location: true,
-        occupation: true,
-        education: true,
-        bio: true,
-        publicProfile: true,
-      }
     });
 
-    // Return response with cache control headers
-    const response = NextResponse.json({ 
-      success: true, 
-      user: updatedUser
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Failed to update user' },
+        { status: 500 }
+      );
+    }
+
+    // Return success
+    return NextResponse.json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        image: user.image,
+        coverPhoto: user.coverPhoto
+      }
     });
-    
-    // Add cache control headers to prevent browser caching
-    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    response.headers.set('Pragma', 'no-cache');
-    response.headers.set('Expires', '0');
-    
-    return response;
   } catch (error) {
     console.error('Error updating user image:', error);
     return NextResponse.json(
-      { error: 'Failed to update image' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

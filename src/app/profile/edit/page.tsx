@@ -34,7 +34,6 @@ export default function EditProfilePage() {
         username: formData.get('username'),
         location: formData.get('location'),
         occupation: formData.get('occupation'),
-        education: formData.get('education'),
         bio: formData.get('bio'),
       };
 
@@ -142,20 +141,6 @@ export default function EditProfilePage() {
                         defaultValue={session.user?.occupation || ''}
                         className="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500"
                         placeholder="What do you do?"
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="education" className="block text-sm font-medium text-gray-300 mb-2">
-                        Education
-                      </label>
-                      <input
-                        type="text"
-                        id="education"
-                        name="education"
-                        defaultValue={session.user?.education || ''}
-                        className="w-full bg-gray-900/50 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500"
-                        placeholder="Where did you study?"
                       />
                     </div>
                   </div>

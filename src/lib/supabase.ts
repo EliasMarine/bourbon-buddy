@@ -1,7 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Supabase client for browser usage (with anon key)
+// Global singleton for browser client
+let supabaseBrowserClientInstance: ReturnType<typeof createClient> | null = null;
+
+// Helper function to safely check if we're on the server side
+export const isServer = () => typeof window === 'undefined';
+
+// Supabase client for browser usage (with anon key) using singleton pattern
 export const createSupabaseBrowserClient = () => {
+  // Return the existing instance if it exists
+  if (supabaseBrowserClientInstance !== null) {
+    return supabaseBrowserClientInstance;
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -10,7 +21,8 @@ export const createSupabaseBrowserClient = () => {
     throw new Error('Missing required environment variables for Supabase');
   }
 
-  return createClient(supabaseUrl, supabaseAnonKey);
+  supabaseBrowserClientInstance = createClient(supabaseUrl, supabaseAnonKey);
+  return supabaseBrowserClientInstance;
 };
 
 // Supabase client for server usage (with service key)
@@ -36,7 +48,7 @@ export const getStoragePublicUrl = (bucket: string, path: string) => {
 // Admin client - only use on server-side
 export const supabaseAdmin = (() => {
   // Only initialize on the server side
-  if (typeof window !== 'undefined') {
+  if (!isServer()) {
     // Return a mock client or null for client side
     return null as any; // This prevents the client-side from trying to access environment variables
   }
@@ -51,9 +63,6 @@ export const supabaseAdmin = (() => {
   
   return createClient(supabaseUrl, serviceKey);
 })();
-
-// Helper function to safely check if we're on the server side
-export const isServer = () => typeof window === 'undefined';
 
 // Safe wrapper for using the admin client
 export const withSupabaseAdmin = async <T>(

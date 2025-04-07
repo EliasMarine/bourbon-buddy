@@ -1,18 +1,91 @@
 // Default gradient cover photo
 export const DEFAULT_COVER_PHOTO = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0iZ3JhZCIgeDI9IjAlIiB5Mj0iMTAwJSI+PHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzJkMzc0OCIvPjxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzFhMjAyYyIvPjwvbGluZWFyR3JhZGllbnQ+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JhZCkiLz48L3N2Zz4=';
 
-// Default avatar background color
-export const DEFAULT_AVATAR_BG = 'bg-amber-600';
+// Default avatar background for fallback
+export const DEFAULT_AVATAR_BG = 'bg-gradient-to-br from-amber-500 to-orange-700';
 
-// Get cover photo URL with fallback
-export const getCoverPhotoUrl = (coverPhoto?: string | null) => {
-  return coverPhoto || DEFAULT_COVER_PHOTO;
-};
+// Enable this flag to bypass the image API and use direct Supabase URLs
+// Useful when troubleshooting image API issues
+const USE_DIRECT_URLS = false;
 
-// Get initial letter for avatar
-export const getInitialLetter = (name?: string | null) => {
-  return name?.[0]?.toUpperCase() || '?';
-};
+/**
+ * Gets the first letter of a name for avatar fallback
+ */
+export function getInitialLetter(name?: string | null): string {
+  if (!name) return '?';
+  return name.charAt(0).toUpperCase();
+}
+
+/**
+ * Parse a Supabase URL to extract bucket and path
+ */
+export function parseSupabaseUrl(url?: string | null): { bucket: string, path: string } | null {
+  if (!url) return null;
+  
+  try {
+    // Check if it's a Supabase URL
+    if (!url.includes('supabase.co') || !url.includes('/storage/v1/object/public/')) {
+      return null;
+    }
+
+    // Extract the part after /storage/v1/object/public/
+    const parts = url.split('/storage/v1/object/public/');
+    if (parts.length !== 2) return null;
+
+    // Split the remaining path into bucket and path
+    const pathParts = parts[1].split('/');
+    if (pathParts.length < 2) return null;
+
+    const bucket = pathParts[0];
+    // Join the rest of the path parts and remove any query parameters
+    const path = pathParts.slice(1).join('/').split('?')[0];
+
+    return { bucket, path };
+  } catch (e) {
+    console.error('Failed to parse Supabase URL:', e);
+    return null;
+  }
+}
+
+/**
+ * Prepares a Supabase storage URL for direct use or via our image API
+ */
+export function getStorageUrl(url?: string | null, useDirectUrl = USE_DIRECT_URLS): string {
+  if (!url) return '';
+  
+  // If already using our image API, return as is
+  if (url.startsWith('/api/images')) return url;
+  
+  // If using direct URLs, just add cache buster to Supabase URLs
+  if (useDirectUrl && url.includes('supabase.co')) {
+    const baseUrl = url.split('?')[0];
+    return `${baseUrl}?t=${Date.now()}`;
+  }
+  
+  // Try to parse as Supabase URL
+  const parsed = parseSupabaseUrl(url);
+  if (parsed) {
+    // Use our image API with cache buster
+    return `/api/images?bucket=${parsed.bucket}&path=${parsed.path}&t=${Date.now()}`;
+  }
+  
+  // Return any other URL as is
+  return url;
+}
+
+/**
+ * Gets a properly formatted cover photo URL
+ */
+export function getCoverPhotoUrl(url?: string | null): string {
+  return getStorageUrl(url);
+}
+
+/**
+ * Gets a properly formatted profile image URL
+ */
+export function getProfileImageUrl(url?: string | null): string {
+  return getStorageUrl(url);
+}
 
 // File validation constants
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB

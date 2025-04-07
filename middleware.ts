@@ -35,23 +35,56 @@ export function middleware(req: NextRequest) {
   // Set security headers
   const response = NextResponse.next();
   
-  // Add security headers
+  // Add comprehensive security headers
   const headers = response.headers;
-  headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
+  headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
-  headers.set('Referrer-Policy', 'no-referrer');
-  headers.set('Permissions-Policy', 'geolocation=(), microphone=()');
-  headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com");
+  headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  headers.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=(), usb=()');
   
-  // Check if the path is for an image
-  if (
-    req.nextUrl.pathname.includes('/images/') || 
-    req.nextUrl.pathname.includes('/favicon.ico') ||
-    req.nextUrl.pathname.includes('/socket.io') ||
-    req.nextUrl.pathname.startsWith('/_next/')
-  ) {
-    // Skip auth check for images and public assets
+  // More restrictive and safer CSP policy
+  const cspDirectives = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Consider removing unsafe-* for increased security
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:", 
+    "font-src 'self' data:",
+    "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com",
+    "frame-ancestors 'none'", // Prevent your site from being framed
+    "base-uri 'self'", // Restrict base URIs
+    "form-action 'self'", // Restrict form targets
+    "upgrade-insecure-requests", // Upgrade HTTP to HTTPS
+    "block-all-mixed-content" // Block mixed content
+  ];
+  
+  headers.set('Content-Security-Policy', cspDirectives.join('; '));
+  
+  // Add XSS Protection header for older browsers
+  headers.set('X-XSS-Protection', '1; mode=block');
+  
+  // Public assets and static paths to skip auth checks
+  const publicPaths = [
+    '/images/',
+    '/favicon.ico',
+    '/socket.io',
+    '/_next/',
+    '/api/auth/',
+    '/login',
+    '/register',
+    '/reset-password',
+    '/verify-email',
+    '/api/csrf/',
+    '/static/',
+    '/public/'
+  ];
+  
+  // Check if the path matches any public path
+  if (publicPaths.some(path => req.nextUrl.pathname.includes(path))) {
+    // Add cache control for static assets 
+    if (req.nextUrl.pathname.startsWith('/_next/') || req.nextUrl.pathname.includes('/images/')) {
+      headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+    }
     return response;
   }
   
@@ -68,18 +101,33 @@ export function middleware(req: NextRequest) {
     return response;
   }
   
-  // For protected routes, apply auth check
-  if (
-    req.nextUrl.pathname.startsWith('/dashboard') ||
-    req.nextUrl.pathname.startsWith('/profile') ||
-    req.nextUrl.pathname.startsWith('/streams/create') ||
-    req.nextUrl.pathname.match(/^\/streams\/[^\/]+\/host$/) ||
-    req.nextUrl.pathname.startsWith('/collection')
-  ) {
-    // Add cache control headers for protected routes
+  // Protected routes requiring authentication
+  const protectedRoutes = [
+    '/dashboard',
+    '/profile',
+    '/streams/create',
+    '/collection',
+    '/api/collection',
+    '/api/spirits',
+    '/api/user',
+    '/api/upload',
+    '/api/protected'
+  ];
+
+  // Regular expression for routes like /streams/{id}/host
+  const streamHostRegex = /^\/streams\/[^\/]+\/host$/;
+  
+  // Check if current path requires authentication
+  const requiresAuth = 
+    protectedRoutes.some(route => req.nextUrl.pathname.startsWith(route)) ||
+    streamHostRegex.test(req.nextUrl.pathname);
+  
+  if (requiresAuth) {
+    // Add security headers for authenticated routes
     headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     headers.set('Pragma', 'no-cache');
     headers.set('Expires', '0');
+    headers.set('Surrogate-Control', 'no-store');
     
     // Check if the user is authenticated
     const authHeader = req.headers.get('authorization');
@@ -87,7 +135,7 @@ export function middleware(req: NextRequest) {
                    req.cookies.get('__Secure-next-auth.session-token')?.value;
     
     if (!authHeader && !cookie) {
-      // Redirect to login page
+      // Redirect to login page with callback URL
       const url = new URL('/login', req.url);
       url.searchParams.set('callbackUrl', req.nextUrl.pathname);
       return NextResponse.redirect(url);
