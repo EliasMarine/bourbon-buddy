@@ -16,6 +16,15 @@ import {
   resetFailedLoginAttempts 
 } from './login-security';
 
+// Define cookie domain based on environment
+const getCookieDomain = () => {
+  // In development, we want to use localhost
+  if (process.env.NODE_ENV !== 'production') return undefined;
+  
+  // In production, determine the domain from the environment or use a default
+  return process.env.COOKIE_DOMAIN || undefined;
+};
+
 // Create a special adapter that handles prepared statement errors
 function createPrismaAdapterWithErrorHandling() {
   const baseAdapter = PrismaAdapter(prisma);
@@ -238,6 +247,27 @@ export const authOptions: NextAuthOptions = {
         sameSite: 'lax',
         path: '/',
         secure: process.env.NODE_ENV === 'production',
+        domain: getCookieDomain(),
+      },
+    },
+    callbackUrl: {
+      name: process.env.NODE_ENV === 'production' ? '__Secure-next-auth.callback-url' : 'next-auth.callback-url',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        domain: getCookieDomain(),
+      },
+    },
+    csrfToken: {
+      name: process.env.NODE_ENV === 'production' ? '__Host-next-auth.csrf-token' : 'next-auth.csrf-token',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        domain: process.env.NODE_ENV === 'production' ? undefined : getCookieDomain(), // Must be undefined for __Host- prefix in production
       },
     },
   },

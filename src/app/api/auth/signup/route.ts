@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { handlePrismaError, handleAuthError, logSecurityEvent } from '@/lib/error-handlers';
 import { signupLimiter } from '@/lib/rate-limiters';
 import { z } from 'zod';
-import { validateCsrfToken } from '@/lib/csrf';
+import { validateCsrfToken, extractCsrfSecret, parseCookies } from '@/lib/csrf';
 
 // Define validation schema for user signup
 const userSignupSchema = z.object({
@@ -55,12 +55,66 @@ export async function POST(request: Request) {
       console.error('Rate limiter error:', rateLimitError);
     }
     
-    // Verify CSRF token
+    // Verify CSRF token - enhanced error handling
     const csrfToken = request.headers.get('x-csrf-token');
-    if (!csrfToken || !validateCsrfToken(request, csrfToken)) {
-      logSecurityEvent('csrf_validation_failure', { endpoint: '/api/auth/signup' }, 'high');
+    
+    if (!csrfToken) {
+      logSecurityEvent('csrf_validation_failure', { endpoint: '/api/auth/signup', reason: 'missing_token' }, 'high');
       return NextResponse.json(
-        { message: 'Invalid or missing CSRF token' },
+        { message: 'Missing CSRF token' },
+        { status: 403 }
+      );
+    }
+    
+    // Log cookie information for debugging
+    const cookieHeader = request.headers.get('cookie');
+    let cookieDebugInfo = {
+      hasCookieHeader: !!cookieHeader,
+      cookieNames: [] as string[]
+    };
+    
+    if (cookieHeader) {
+      const cookies = parseCookies(cookieHeader);
+      cookieDebugInfo.cookieNames = Object.keys(cookies);
+      
+      // Additional debugging for CSRF cookies specifically
+      const secretData = extractCsrfSecret(cookies);
+      if (!secretData) {
+        console.log('CSRF secret not found in cookies', cookieDebugInfo);
+        logSecurityEvent('csrf_validation_failure', { 
+          endpoint: '/api/auth/signup',
+          reason: 'missing_csrf_cookie',
+          cookieInfo: cookieDebugInfo
+        }, 'high');
+        
+        return NextResponse.json(
+          { message: 'CSRF protection unavailable', debug: cookieDebugInfo },
+          { status: 403 }
+        );
+      }
+    } else {
+      console.log('No cookies present in request');
+      logSecurityEvent('csrf_validation_failure', { 
+        endpoint: '/api/auth/signup',
+        reason: 'no_cookies'
+      }, 'high');
+      
+      return NextResponse.json(
+        { message: 'Authentication cookies required' },
+        { status: 403 }
+      );
+    }
+    
+    // Final CSRF validation
+    if (!validateCsrfToken(request, csrfToken)) {
+      logSecurityEvent('csrf_validation_failure', { 
+        endpoint: '/api/auth/signup',
+        reason: 'invalid_token',
+        cookieInfo: cookieDebugInfo
+      }, 'high');
+      
+      return NextResponse.json(
+        { message: 'Invalid CSRF token' },
         { status: 403 }
       );
     }

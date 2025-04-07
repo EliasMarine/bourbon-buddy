@@ -41,7 +41,11 @@ export function CsrfToken({ children, onTokenLoad }: CsrfTokenProps) {
         onTokenLoad(data.csrfToken)
       }
       
-      console.log('CSRF token loaded successfully')
+      // Enhanced logging with response details
+      console.log(`CSRF token loaded successfully ${data.status ? data.status : ''}`, {
+        cookieName: data.cookieName,
+        tokenAvailable: !!data.csrfToken
+      })
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Unknown error'))
@@ -72,28 +76,32 @@ export function CsrfToken({ children, onTokenLoad }: CsrfTokenProps) {
       // Only add CSRF token to same-origin requests
       let requestUrl: URL
       
-      if (typeof input === 'string') {
-        requestUrl = new URL(input, window.location.origin)
-      } else if (input instanceof URL) {
-        requestUrl = input
-      } else {
-        // It's a Request object
-        requestUrl = new URL(input.url)
-      }
-      
-      const isSameOrigin = requestUrl.origin === window.location.origin
-      
-      // Skip for GET, HEAD, OPTIONS requests
-      const method = init?.method?.toUpperCase() || 'GET'
-      const shouldAddToken = isSameOrigin && !['GET', 'HEAD', 'OPTIONS'].includes(method)
-      
-      if (shouldAddToken) {
-        init = init || {}
-        init.headers = new Headers(init.headers || {})
-        init.headers.set('x-csrf-token', csrfToken)
+      try {
+        if (typeof input === 'string') {
+          requestUrl = new URL(input, window.location.origin)
+        } else if (input instanceof URL) {
+          requestUrl = input
+        } else {
+          // It's a Request object
+          requestUrl = new URL(input.url)
+        }
         
-        // For debugging
-        console.log(`Adding CSRF token to ${method} request to ${requestUrl.pathname}`)
+        const isSameOrigin = requestUrl.origin === window.location.origin
+        
+        // Skip for GET, HEAD, OPTIONS requests
+        const method = init?.method?.toUpperCase() || 'GET'
+        const shouldAddToken = isSameOrigin && !['GET', 'HEAD', 'OPTIONS'].includes(method)
+        
+        if (shouldAddToken) {
+          init = init || {}
+          init.headers = new Headers(init.headers || {})
+          init.headers.set('x-csrf-token', csrfToken)
+          
+          // For debugging
+          console.log(`Adding CSRF token to ${method} request to ${requestUrl.pathname}`)
+        }
+      } catch (error) {
+        console.error('Error in CSRF fetch override:', error)
       }
       
       return originalFetch.call(window, input, init)

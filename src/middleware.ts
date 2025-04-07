@@ -1,6 +1,7 @@
 import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { nanoid } from 'nanoid';
 
 // Handle HTTP to HTTPS upgrade for external resources
 function externalResourceMiddleware(req: NextRequest) {
@@ -52,6 +53,34 @@ export function middleware(req: NextRequest) {
     "font-src 'self' data:; " +
     "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://bourbonbuddy.live"
   );
+
+  // Fix issues with cookie prefixes in production by ensuring cookie is properly set
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isSecure = req.nextUrl.protocol === 'https:' || isProduction;
+
+  // Set CSRF token cookie if not exists for non-API routes
+  if (!req.nextUrl.pathname.startsWith('/api/') && req.method === 'GET') {
+    const csrfCookieName = isProduction ? '__Host-next-auth.csrf-token' : 'next-auth.csrf-token';
+    const hasCsrfToken = req.cookies.has(csrfCookieName);
+    
+    if (!hasCsrfToken) {
+      // Generate new CSRF token
+      const csrfToken = nanoid(32);
+      const csrfTokenValue = `${csrfToken}|${Date.now()}`;
+      
+      // Set cookie with proper parameters
+      response.cookies.set(csrfCookieName, csrfTokenValue, {
+        httpOnly: true,
+        secure: isSecure,
+        sameSite: 'lax',
+        path: '/',
+        // Important: Don't set domain for __Host- prefixed cookies
+        domain: isProduction ? undefined : undefined,
+      });
+      
+      console.log(`Set new CSRF token: ${csrfCookieName}`);
+    }
+  }
   
   // Apply protocol upgrade for HTTP requests
   if (req.nextUrl.href.startsWith('http:') && req.headers.get('x-forwarded-proto') !== 'http') {
@@ -119,8 +148,8 @@ export function middleware(req: NextRequest) {
     
     // Check if the user is authenticated
     const authHeader = req.headers.get('authorization');
-    const sessionCookie = req.cookies.get('next-auth.session-token')?.value || 
-                         req.cookies.get('__Secure-next-auth.session-token')?.value;
+    const sessionCookieName = isProduction ? '__Secure-next-auth.session-token' : 'next-auth.session-token';
+    const sessionCookie = req.cookies.get(sessionCookieName)?.value;
     
     if (!authHeader && !sessionCookie) {
       // Return JSON error for API routes

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createCsrfCookie, generateCsrfToken } from '@/lib/csrf'
+import { createCsrfCookie, generateCsrfToken, getCsrfCookieName } from '@/lib/csrf'
 
 // GET /api/csrf - Generate a new CSRF token
 export async function GET(request: NextRequest) {
@@ -11,7 +11,11 @@ export async function GET(request: NextRequest) {
     const cookieHeader = createCsrfCookie(secret, createdAt)
     
     // Return the token in the response
-    const response = NextResponse.json({ csrfToken: token })
+    const response = NextResponse.json({ 
+      csrfToken: token,
+      cookieName: getCsrfCookieName(),
+      status: 'success'
+    })
     
     // Set the cookie
     response.headers.set('Set-Cookie', cookieHeader)

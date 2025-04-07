@@ -1,5 +1,6 @@
 import { serialize } from 'cookie'
 import Tokens from 'csrf'
+import { nanoid } from 'nanoid'
 
 // Uses a stronger algorithm and longer secret
 const tokens = new Tokens({
@@ -7,9 +8,17 @@ const tokens = new Tokens({
   saltLength: 24,   // Longer salt
 });
 
+// Get the appropriate cookie name based on environment
+export const getCsrfCookieName = () => {
+  return process.env.NODE_ENV === 'production' 
+    ? '__Host-csrf_secret' // Use __Host- prefix in production
+    : 'csrf_secret'
+}
+
 // Generate a CSRF token with expiration tracking
 export const generateCsrfToken = () => {
-  const secret = tokens.secretSync()
+  // Use nanoid for more secure tokens
+  const secret = nanoid(64) || tokens.secretSync()
   const token = tokens.create(secret)
   
   return { 
@@ -37,14 +46,23 @@ export const verifyCsrfToken = (secret: string, token: string, maxAge = 3600000)
 
 // Create a more secure cookie with the CSRF secret
 export const createCsrfCookie = (secret: string, createdAt: number) => {
-  return serialize('csrf_secret', JSON.stringify({ secret, createdAt }), {
+  const isProduction = process.env.NODE_ENV === 'production'
+  const cookieName = getCsrfCookieName()
+  
+  const cookieOptions = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    secure: isProduction,
+    sameSite: 'strict' as const,
     path: '/',
     maxAge: 60 * 60 * 24, // 1 day
-    domain: process.env.COOKIE_DOMAIN || undefined,
-  })
+  }
+  
+  // Important: For __Host- prefix cookies, domain must NOT be set
+  if (!isProduction && process.env.COOKIE_DOMAIN) {
+    Object.assign(cookieOptions, { domain: process.env.COOKIE_DOMAIN })
+  }
+  
+  return serialize(cookieName, JSON.stringify({ secret, createdAt }), cookieOptions)
 }
 
 // Parse cookies from string
@@ -64,7 +82,8 @@ export const parseCookies = (cookieString: string) => {
 // Extract and parse the CSRF secret from cookie
 export const extractCsrfSecret = (cookies: Record<string, string>) => {
   try {
-    const csrfCookie = cookies['csrf_secret']
+    const cookieName = getCsrfCookieName()
+    const csrfCookie = cookies[cookieName]
     if (!csrfCookie) return null
     
     const { secret, createdAt } = JSON.parse(csrfCookie)
