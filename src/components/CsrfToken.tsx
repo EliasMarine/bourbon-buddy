@@ -50,6 +50,10 @@ export function CsrfToken({ children, onTokenLoad }: CsrfTokenProps) {
       // Store token in sessionStorage for persistence across page navigations
       try {
         sessionStorage.setItem('csrfToken', data.csrfToken)
+        // Also store the cookie name for debugging
+        if (data.cookieName) {
+          sessionStorage.setItem('csrfCookieName', data.cookieName)
+        }
       } catch (err) {
         console.warn('Unable to store CSRF token in sessionStorage', err)
       }
@@ -57,7 +61,8 @@ export function CsrfToken({ children, onTokenLoad }: CsrfTokenProps) {
       // Enhanced logging with response details
       console.log(`CSRF token loaded successfully ${data.status ? data.status : ''}`, {
         cookieName: data.cookieName,
-        tokenAvailable: !!data.csrfToken
+        tokenAvailable: !!data.csrfToken,
+        tokenLength: data.csrfToken?.length
       })
       setError(null)
     } catch (err) {
@@ -142,7 +147,6 @@ export function CsrfToken({ children, onTokenLoad }: CsrfTokenProps) {
           init.headers.set('csrf-token', csrfToken)
           init.headers.set('X-CSRF-Token', csrfToken)
           
-          // For debugging
           console.log(`Adding CSRF token to ${method} request to ${requestUrl.pathname}`)
         }
       } catch (error) {

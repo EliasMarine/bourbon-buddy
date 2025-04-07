@@ -58,7 +58,15 @@ export const createCsrfCookie = (secret: string, createdAt: number) => {
   }
   
   // Important: For __Host- prefix cookies, domain must NOT be set
-  if (!isProduction && process.env.COOKIE_DOMAIN) {
+  // And secure must be true
+  if (isProduction) {
+    // Ensure secure is true for production as required by __Host- prefix
+    cookieOptions.secure = true
+    
+    // Do not set domain for __Host- prefixed cookies
+    // The absence of domain is required for __Host- prefix to work
+  } else if (process.env.COOKIE_DOMAIN) {
+    // Only set domain in development if specified
     Object.assign(cookieOptions, { domain: process.env.COOKIE_DOMAIN })
   }
   
@@ -108,7 +116,9 @@ export const validateCsrfToken = (req: Request, csrfToken?: string) => {
       
       if (!csrfToken) {
         console.warn('CSRF token missing from request headers', {
-          headers: Array.from(req.headers.keys())
+          headers: Array.from(req.headers.keys()),
+          url: req.url,
+          method: req.method
         });
         return false;
       }
@@ -124,11 +134,20 @@ export const validateCsrfToken = (req: Request, csrfToken?: string) => {
     }
     
     const cookies = parseCookies(cookieHeader);
+    const cookieName = getCsrfCookieName();
     const secretData = extractCsrfSecret(cookies);
+    
+    // Log debug info about the cookie name we're looking for
+    console.log('Looking for CSRF cookie:', {
+      cookieName,
+      availableCookies: Object.keys(cookies).join(', '),
+      cookieFound: !!secretData
+    });
     
     if (!secretData || !secretData.secret) {
       console.warn('CSRF secret not found in cookies', {
-        cookieNames: Object.keys(cookies)
+        cookieNames: Object.keys(cookies),
+        expectedCookieName: cookieName
       });
       
       // In development, allow requests without CSRF validation
@@ -153,7 +172,8 @@ export const validateCsrfToken = (req: Request, csrfToken?: string) => {
     
     if (!isValid) {
       console.warn('CSRF token verification failed', {
-        tokenLength: csrfToken?.length || 0
+        tokenLength: csrfToken?.length || 0,
+        secretLength: secretData.secret?.length || 0
       });
       return false;
     }

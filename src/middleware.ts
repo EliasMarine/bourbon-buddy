@@ -68,14 +68,13 @@ export function middleware(req: NextRequest) {
       const csrfToken = nanoid(32);
       const csrfTokenValue = `${csrfToken}|${Date.now()}`;
       
-      // Set cookie with proper parameters
+      // Set cookie with proper parameters - critical for __Host- prefix
       response.cookies.set(csrfCookieName, csrfTokenValue, {
         httpOnly: true,
-        secure: isSecure,
+        secure: true, // Must be true for __Host- prefix
         sameSite: 'lax',
         path: '/',
-        // Important: Don't set domain for __Host- prefixed cookies
-        domain: isProduction ? undefined : undefined,
+        // Important: Do NOT set domain for __Host- prefixed cookies
       });
       
       console.log(`Set new CSRF token: ${csrfCookieName}`);
@@ -150,6 +149,14 @@ export function middleware(req: NextRequest) {
     const authHeader = req.headers.get('authorization');
     const sessionCookieName = isProduction ? '__Secure-next-auth.session-token' : 'next-auth.session-token';
     const sessionCookie = req.cookies.get(sessionCookieName)?.value;
+    
+    // If we're in production and using __Secure- prefix, make sure we're on HTTPS
+    // as required by the prefix
+    if (isProduction && !isSecure) {
+      const newUrl = req.nextUrl.clone();
+      newUrl.protocol = 'https:';
+      return NextResponse.redirect(newUrl);
+    }
     
     if (!authHeader && !sessionCookie) {
       // Return JSON error for API routes

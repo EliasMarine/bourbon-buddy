@@ -250,8 +250,8 @@ export const authOptions: NextAuthOptions = {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        domain: getCookieDomain(),
+        secure: process.env.NODE_ENV === 'production' ? true : process.env.NODE_ENV !== 'development',
+        domain: process.env.NODE_ENV === 'production' ? undefined : getCookieDomain(),
       },
     },
     callbackUrl: {
@@ -260,8 +260,8 @@ export const authOptions: NextAuthOptions = {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        domain: getCookieDomain(),
+        secure: process.env.NODE_ENV === 'production' ? true : process.env.NODE_ENV !== 'development',
+        domain: process.env.NODE_ENV === 'production' ? undefined : getCookieDomain(),
       },
     },
     csrfToken: {
@@ -270,8 +270,8 @@ export const authOptions: NextAuthOptions = {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
-        secure: process.env.NODE_ENV === 'production',
-        domain: process.env.NODE_ENV === 'production' ? undefined : getCookieDomain(), // Must be undefined for __Host- prefix in production
+        secure: true, // Always true for __Host- prefix
+        domain: undefined, // Must be undefined for __Host- prefix in production
       },
     },
   },

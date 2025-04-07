@@ -1,6 +1,7 @@
 import { getRecentSecurityEvents } from '@/lib/security-monitoring'
 import { prisma } from '@/lib/prisma'
 import { formatDistanceToNow } from 'date-fns'
+import { CsrfClientTest } from './client-test'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -37,6 +38,9 @@ export default async function CsrfMonitoringPage() {
   return (
     <div className="container mx-auto py-8 px-4">
       <h1 className="text-2xl font-bold mb-6">CSRF Security Monitoring</h1>
+      
+      {/* Client Side CSRF Test */}
+      <CsrfClientTest />
       
       {/* Stats Overview */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
