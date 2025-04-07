@@ -5,7 +5,7 @@ import AppleProvider from 'next-auth/providers/apple';
 import GitHubProvider from 'next-auth/providers/github';
 import FacebookProvider from 'next-auth/providers/facebook';
 import { PrismaAdapter } from '@auth/prisma-adapter';
-import { PrismaClientInitializationError, PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { PrismaClientInitializationError, PrismaClientKnownRequestError, PrismaClientUnknownRequestError } from '@prisma/client/runtime/library';
 import bcrypt from 'bcryptjs';
 import { prisma, getPrismaClient } from './prisma'; // Import getPrismaClient function
 import { logSecurityEvent } from './error-handlers';
@@ -32,7 +32,8 @@ function createPrismaAdapterWithErrorHandling() {
         return await baseAdapter.getUserByEmail(email);
       } catch (error: any) {
         if (error && typeof error === 'object' && 'message' in error && 
-            typeof error.message === 'string' && error.message.includes('prepared statement')) {
+            typeof error.message === 'string' && 
+            (error.message.includes('prepared statement') || error instanceof PrismaClientUnknownRequestError)) {
           console.log('Prepared statement error in getUserByEmail, trying fresh client');
           // Use a fresh client for this operation
           const freshPrisma = getPrismaClient();
@@ -51,7 +52,8 @@ function createPrismaAdapterWithErrorHandling() {
         return await baseAdapter.getUserByAccount(providerAccountId);
       } catch (error: any) {
         if (error && typeof error === 'object' && 'message' in error && 
-            typeof error.message === 'string' && error.message.includes('prepared statement')) {
+            typeof error.message === 'string' && 
+            (error.message.includes('prepared statement') || error instanceof PrismaClientUnknownRequestError)) {
           console.log('Prepared statement error in getUserByAccount, trying fresh client');
           // Use a fresh client for this operation
           const freshPrisma = getPrismaClient();
@@ -73,6 +75,21 @@ function createPrismaAdapterWithErrorHandling() {
   };
   
   return enhancedAdapter;
+}
+
+// Additional utility function to handle database operations with retry logic
+async function safeDbOperation<T>(operation: (client: any) => Promise<T>): Promise<T> {
+  try {
+    return await operation(prisma);
+  } catch (error: any) {
+    if (error instanceof PrismaClientUnknownRequestError || 
+        (error.message && error.message.includes('prepared statement'))) {
+      console.log('Prepared statement error detected, retrying with fresh client');
+      const freshPrisma = getPrismaClient();
+      return await operation(freshPrisma);
+    }
+    throw error;
+  }
 }
 
 export const authOptions: NextAuthOptions = {
@@ -187,7 +204,7 @@ export const authOptions: NextAuthOptions = {
           // Handle database connection issues
           if (error instanceof PrismaClientInitializationError) {
             throw new Error('Authentication service unavailable. Please try again later.');
-          } else if (error instanceof PrismaClientKnownRequestError) {
+          } else if (error instanceof PrismaClientKnownRequestError || error instanceof PrismaClientUnknownRequestError) {
             throw new Error('Authentication failed. Please try again later.');
           } else if (error instanceof Error) {
             // If it's our own thrown error, return it
@@ -234,24 +251,25 @@ export const authOptions: NextAuthOptions = {
       try {
         // Fetch the latest user data on each token refresh
         if (token?.id) {
-          // Use a fresh Prisma client to avoid prepared statement errors
-          const freshPrisma = getPrismaClient();
-          
-          const latestUser = await freshPrisma.user.findUnique({
-            where: { id: token.id as string },
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true,
-              coverPhoto: true,
-              username: true,
-              location: true,
-              occupation: true,
-              education: true,
-              bio: true,
-              publicProfile: true,
-            }
+          // Always use a fresh Prisma client to avoid prepared statement errors
+          // and wrap in safeDbOperation for additional safety
+          const latestUser = await safeDbOperation(async (client) => {
+            return await client.user.findUnique({
+              where: { id: token.id as string },
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                image: true,
+                coverPhoto: true,
+                username: true,
+                location: true,
+                occupation: true,
+                education: true,
+                bio: true,
+                publicProfile: true,
+              }
+            });
           });
           
           if (latestUser) {
