@@ -27,22 +27,33 @@ const MAX_PREPARED_STATEMENT_ERRORS = 5;
 let resetTimeout: NodeJS.Timeout | null = null;
 
 // Create the Prisma client with proper connection settings
-function createPrismaClient() {
+function createPrismaClient(clientId?: string) {
   console.log('Creating new Prisma client instance');
-  currentClientId++;
-  const clientId = `client_${currentClientId}`;
+  
+  // Generate a unique client ID if not provided
+  if (!clientId) {
+    currentClientId++;
+    clientId = `client_${currentClientId}`;
+  }
   
   // Check if DATABASE_URL is set
   if (!process.env.DATABASE_URL) {
     console.error('DATABASE_URL environment variable is not set. Database operations will fail.');
   }
   
+  // Create a unique Prisma client with a custom name to avoid prepared statement conflicts
   const client = new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
     datasources: {
       db: {
         url: process.env.DATABASE_URL
       }
+    },
+    // Add a unique name to the client to avoid prepared statement conflicts
+    // This is critical for serverless environments
+    // @ts-ignore - The __internal property is valid but not in the type definitions
+    __internal: {
+      clientName: clientId
     }
   });
 
@@ -155,14 +166,27 @@ function getPrismaClient() {
   // For development, use global singleton to prevent connection exhaustion
   if (process.env.NODE_ENV === 'development') {
     if (!globalForPrisma.prisma) {
-      globalForPrisma.prisma = createPrismaClient();
+      globalForPrisma.prisma = createPrismaClient('dev_client');
     }
     return globalForPrisma.prisma;
   }
   
   // For production and serverless environments
+  // In serverless environments, we need to create a new client for each function
+  // to avoid prepared statement conflicts
+  if (process.env.VERCEL_ENV === 'production' || process.env.VERCEL_ENV === 'preview') {
+    // Generate a unique client ID based on the function name and timestamp
+    const functionName = process.env.VERCEL_FUNCTION_NAME || 'unknown';
+    const timestamp = Date.now();
+    const uniqueClientId = `${functionName}_${timestamp}`;
+    
+    // Create a new client for this serverless function
+    return createPrismaClient(uniqueClientId);
+  }
+  
+  // For other production environments
   if (!prismaInstance) {
-    prismaInstance = createPrismaClient();
+    prismaInstance = createPrismaClient('prod_client');
   }
   
   return prismaInstance;
