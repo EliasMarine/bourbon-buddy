@@ -38,6 +38,22 @@
     "NEXT_PUBLIC_SOCKET_PATH": "/api/socketio",
     "NEXT_PUBLIC_SOCKET_CREDENTIALS": "false",
     "PRISMA_CLIENT_ENGINE_TYPE": "dataproxy",
-    "PRISMA_FORCE_TRANSACTIONS": "true"
-  }
+    "PRISMA_FORCE_TRANSACTIONS": "true",
+    "NODE_ENV": "production",
+    "TZ": "UTC",
+    "DEPLOYMENTHOST": "vercel",
+    "LOG_TO_CONSOLE": "true",
+    "LOG_TO_FILE": "false"
+  },
+  "redirects": [
+    { "source": "/app", "destination": "/dashboard", "permanent": true },
+    { "source": "/account", "destination": "/profile", "permanent": true },
+    { "source": "/settings", "destination": "/profile", "permanent": true },
+    { "source": "/whiskey/:path*", "destination": "/spirits/:path*", "permanent": true },
+    { "source": "/bourbon/:path*", "destination": "/spirits/:path*", "permanent": true }
+  ],
+  "crons": [{
+    "path": "/api/cron/newsletter",
+    "schedule": "0 10 * * *"
+  }]
 } 

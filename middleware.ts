@@ -35,30 +35,13 @@ export function middleware(req: NextRequest) {
   // Set security headers
   const response = NextResponse.next();
   
-  // Add comprehensive security headers
+  // Add security headers (CSP is now centralized in next.config.js)
   const headers = response.headers;
   headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   headers.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=(), usb=()');
-  
-  // More restrictive and safer CSP policy
-  const cspDirectives = [
-    "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Consider removing unsafe-* for increased security
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https:", 
-    "font-src 'self' data:",
-    "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com",
-    "frame-ancestors 'none'", // Prevent your site from being framed
-    "base-uri 'self'", // Restrict base URIs
-    "form-action 'self'", // Restrict form targets
-    "upgrade-insecure-requests", // Upgrade HTTP to HTTPS
-    "block-all-mixed-content" // Block mixed content
-  ];
-  
-  headers.set('Content-Security-Policy', cspDirectives.join('; '));
   
   // Add XSS Protection header for older browsers
   headers.set('X-XSS-Protection', '1; mode=block');
@@ -70,6 +53,7 @@ export function middleware(req: NextRequest) {
     '/socket.io',
     '/_next/',
     '/api/auth/',
+    '/api/csrf', // Add CSRF API route
     '/login',
     '/register',
     '/reset-password',

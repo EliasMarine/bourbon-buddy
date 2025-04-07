@@ -44,14 +44,17 @@ function createPrismaClient() {
         url: process.env.DATABASE_URL
       }
     },
-    // Important: These settings help prevent the "prepared statement already exists" errors
-    // on Vercel's serverless environment
+    // Improved settings for serverless environments
     // @ts-ignore - Some options might not be in the type definitions but are supported
     engineConfig: {
-      // Use a short connection idle timeout
-      connection_timeout: 5,
-      // Important for serverless: limit pool size
-      pool_timeout: 5
+      // Aggressively close idle connections
+      connection_timeout: 2,
+      // Important for serverless: minimal pool size
+      pool_timeout: 2,
+      // Minimize connection count
+      max_connections: 5,
+      // Critical: disable prepared statements for serverless environments
+      prefer_simple_protocol: true
     }
   });
 
@@ -102,47 +105,22 @@ function createPrismaClient() {
         (error?.meta?.cause && error?.meta?.cause.includes('prepared statement'));
       
       if (isPreparedStatementError) {
-        const errorId = `${params.model}.${params.action}`;
-        preparedStatementErrors.add(errorId);
-        console.warn(`Detected prepared statement conflict (${preparedStatementErrors.size}/${MAX_PREPARED_STATEMENT_ERRORS}): ${errorId}`);
+        console.error('Prepared statement error detected:', error?.message);
         
-        // If we've hit too many prepared statement errors, reset the client pool
-        if (preparedStatementErrors.size >= MAX_PREPARED_STATEMENT_ERRORS && !resetTimeout) {
-          console.warn('Too many prepared statement errors, scheduling client pool reset');
-          
-          // Schedule a reset of the entire client pool
-          resetTimeout = setTimeout(async () => {
-            console.log('Resetting Prisma client pool due to prepared statement errors');
-            await disconnectAllClients();
-            prismaInstance = undefined;
-            preparedStatementErrors.clear();
-            resetTimeout = null;
-          }, 100); // Minimal delay to allow current operations to complete
-        }
-        
-        // Disconnect this client
+        // Immediately disconnect and create a fresh client
         try {
           await client.$disconnect();
+          console.log('Disconnected client after prepared statement error');
         } catch (e) {
           console.error('Failed to disconnect client:', e);
         }
         
-        // Remove from cache and force creation of a new client
+        // Remove from cache to force creation of a new client
         prismaClientCache.delete(clientId);
-        
-        // Create a fresh client for future operations
         prismaInstance = undefined;
         
-        // In serverless environments, we need to be more aggressive about reconnection
-        if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-          console.log('Serverless environment detected, forcing immediate client reset');
-          // Force immediate client pool reset in serverless environments
-          clearTimeout(resetTimeout as NodeJS.Timeout);
-          await disconnectAllClients();
-          prismaInstance = undefined;
-          preparedStatementErrors.clear();
-          resetTimeout = null;
-        }
+        // In serverless environment, this is critical to handle immediately
+        throw new Error('Database connection error: Prepared statement conflict. Please retry your request.');
       }
       
       throw error;
@@ -185,7 +163,17 @@ function createPrismaClient() {
 }
 
 // Get Prisma client (singleton pattern with reconnection logic)
+// For serverless environments, we'll create a new instance on each request
 function getPrismaClient() {
+  // In serverless environments, always create a new instance to avoid prepared statement conflicts
+  const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
+  
+  if (isServerless) {
+    console.log('Serverless environment detected, creating fresh Prisma client');
+    return createPrismaClient();
+  }
+  
+  // For non-serverless, use singleton pattern
   if (!prismaInstance) {
     if (process.env.NODE_ENV === 'development') {
       if (!globalForPrisma.prisma) {
@@ -219,12 +207,18 @@ async function disconnectAllClients() {
   prismaInstance = undefined;
 }
 
-// Use singleton pattern for client instance
-export const prisma = globalForPrisma.prisma || new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-});
+// For serverless environments, create a new instance each time
+// For other environments, use singleton pattern
+export const prisma = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME
+  ? createPrismaClient() // Serverless - new instance per request
+  : (globalForPrisma.prisma || new PrismaClient({
+      log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+    }));
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+// Only set global singleton for non-serverless environments
+if (process.env.NODE_ENV !== 'production' && !(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)) {
+  globalForPrisma.prisma = prisma;
+}
 
 // Only connect the client if we're on the server
 export const connectPrisma = async () => {

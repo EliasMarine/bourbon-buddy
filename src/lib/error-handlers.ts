@@ -3,8 +3,13 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
-// Create a logs directory if it doesn't exist (skip in production environments)
-if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+// Environment variables for logging config
+const LOG_TO_FILE = process.env.LOG_TO_FILE !== 'false';
+const LOG_TO_CONSOLE = process.env.LOG_TO_CONSOLE !== 'false';
+const IS_SERVERLESS = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+
+// Create a logs directory if it doesn't exist (skip in serverless environments)
+if (!IS_SERVERLESS && LOG_TO_FILE) {
   try {
     if (!fs.existsSync(path.join(process.cwd(), 'logs'))) {
       fs.mkdirSync(path.join(process.cwd(), 'logs'));
@@ -15,7 +20,7 @@ if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
 }
 
 /**
- * Logs security events to both console and file
+ * Logs security events to console and/or file based on environment
  */
 export function logSecurityEvent(eventType: string, details: any, severity: 'low' | 'medium' | 'high' | 'critical' = 'medium', userId?: string) {
   const timestamp = new Date().toISOString();
@@ -30,40 +35,40 @@ export function logSecurityEvent(eventType: string, details: any, severity: 'low
     environment: process.env.NODE_ENV || 'development'
   });
   
-  // Console log with severity-based formatting
-  const severityColors = {
-    low: '\x1b[34m', // blue
-    medium: '\x1b[33m', // yellow
-    high: '\x1b[31m', // red
-    critical: '\x1b[41m\x1b[37m', // white on red background
-  };
+  // Console logging (can be disabled with LOG_TO_CONSOLE=false)
+  if (LOG_TO_CONSOLE) {
+    // Severity-based formatting
+    const severityColors = {
+      low: '\x1b[34m', // blue
+      medium: '\x1b[33m', // yellow
+      high: '\x1b[31m', // red
+      critical: '\x1b[41m\x1b[37m', // white on red background
+    };
+    
+    console.log(`${severityColors[severity]}[SECURITY ${severity.toUpperCase()}]\x1b[0m ${timestamp} - ${eventType} - ${JSON.stringify(details)}`);
+  }
   
-  console.log(`${severityColors[severity]}[SECURITY ${severity.toUpperCase()}]\x1b[0m ${timestamp} - ${eventType} - ${JSON.stringify(details)}`);
-  
-  // Skip file logging in environments that might have read-only filesystems (like Vercel or serverless)
-  if (process.env.NODE_ENV === 'production' || process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  // Skip file logging in serverless environments or if explicitly disabled
+  if (IS_SERVERLESS || !LOG_TO_FILE) {
     return;
   }
   
-  // Log to file only in development environments with writable filesystem
+  // File logging for development environments with writable filesystem
   try {
-    // First check if we can write to the filesystem
     const logDir = path.join(process.cwd(), 'logs');
-    const canWrite = (() => {
-      try {
-        // Test if we can write to this directory
-        const testFile = path.join(logDir, '.write-test');
-        fs.writeFileSync(testFile, 'test');
-        fs.unlinkSync(testFile);
-        return true;
-      } catch (e) {
-        console.warn('Skipping file logging - filesystem appears to be read-only');
-        return false;
-      }
-    })();
     
-    if (!canWrite) return;
+    // Test if filesystem is writable
+    try {
+      const testFile = path.join(logDir, '.write-test');
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+    } catch (e) {
+      // If we can't write, just return silently rather than causing an additional error
+      console.warn('Skipping file logging - filesystem appears to be read-only');
+      return;
+    }
     
+    // Write to security log file
     const logFile = path.join(logDir, 'security.log');
     fs.appendFileSync(logFile, logEntry + '\n');
     
@@ -73,7 +78,7 @@ export function logSecurityEvent(eventType: string, details: any, severity: 'low
       fs.appendFileSync(criticalLogFile, logEntry + '\n');
     }
   } catch (error) {
-    // Just log to console instead of throwing which would cause a 500 error
+    // Just log the error without throwing to prevent 500 errors
     console.error('Error writing to security log file:', error);
   }
 }
