@@ -6,7 +6,7 @@
       "use": "@vercel/next",
       "config": {
         "installCommand": "npm install --production=false",
-        "buildCommand": "npm run vercel-build",
+        "buildCommand": "next build",
         "devCommand": "npm run dev",
         "outputDirectory": ".next"
       }
@@ -31,6 +31,27 @@
         { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
         { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version" }
       ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
     }
   ],
   "env": {
@@ -40,7 +61,6 @@
     "PRISMA_CLIENT_ENGINE_TYPE": "dataproxy",
     "PRISMA_FORCE_TRANSACTIONS": "true",
     "NODE_ENV": "production",
-    "TZ": "UTC",
     "DEPLOYMENTHOST": "vercel",
     "LOG_TO_CONSOLE": "true",
     "LOG_TO_FILE": "false"
