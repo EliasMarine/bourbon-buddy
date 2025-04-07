@@ -56,10 +56,18 @@ export async function POST(request: Request) {
     }
     
     // Verify CSRF token - enhanced error handling
-    const csrfToken = request.headers.get('x-csrf-token');
+    const xCsrfToken = request.headers.get('x-csrf-token');
+    const csrfTokenHeader = request.headers.get('csrf-token');
+    const xCsrfTokenUpper = request.headers.get('X-CSRF-Token');
+    const csrfToken = xCsrfToken || csrfTokenHeader || xCsrfTokenUpper;
     
     if (!csrfToken) {
-      logSecurityEvent('csrf_validation_failure', { endpoint: '/api/auth/signup', reason: 'missing_token' }, 'high');
+      logSecurityEvent('csrf_validation_failure', { 
+        endpoint: '/api/auth/signup', 
+        reason: 'missing_token',
+        headers: Array.from(request.headers.keys())
+      }, 'high');
+      
       return NextResponse.json(
         { message: 'Missing CSRF token' },
         { status: 403 }

@@ -95,15 +95,86 @@ export const extractCsrfSecret = (cookies: Record<string, string>) => {
 }
 
 // Middleware helper to validate CSRF tokens
-export const validateCsrfToken = (req: Request, csrfToken: string) => {
-  const cookieHeader = req.headers.get('cookie')
-  if (!cookieHeader) return false
-  
-  const cookies = parseCookies(cookieHeader)
-  const secretData = extractCsrfSecret(cookies)
-  
-  if (!secretData || !secretData.secret) return false
-  
-  // Check if token is valid and not expired (1 hour max age)
-  return verifyCsrfToken(secretData.secret, csrfToken, 3600000)
+export const validateCsrfToken = (req: Request, csrfToken?: string) => {
+  try {
+    // Extract CSRF token from various headers if not provided directly
+    if (!csrfToken) {
+      // Check for token in different header formats
+      const xCsrfToken = req.headers.get('x-csrf-token');
+      const csrfTokenHeader = req.headers.get('csrf-token');
+      const xCsrfTokenUpper = req.headers.get('X-CSRF-Token');
+      
+      csrfToken = xCsrfToken || csrfTokenHeader || xCsrfTokenUpper || undefined;
+      
+      if (!csrfToken) {
+        console.warn('CSRF token missing from request headers', {
+          headers: Array.from(req.headers.keys())
+        });
+        return false;
+      }
+    }
+    
+    const cookieHeader = req.headers.get('cookie');
+    if (!cookieHeader) {
+      console.warn('No cookies found in request', {
+        url: req.url,
+        method: req.method
+      });
+      return false;
+    }
+    
+    const cookies = parseCookies(cookieHeader);
+    const secretData = extractCsrfSecret(cookies);
+    
+    if (!secretData || !secretData.secret) {
+      console.warn('CSRF secret not found in cookies', {
+        cookieNames: Object.keys(cookies)
+      });
+      
+      // In development, allow requests without CSRF validation
+      if (process.env.NODE_ENV === 'development' && process.env.BYPASS_CSRF === 'true') {
+        console.warn('BYPASSING CSRF VALIDATION IN DEVELOPMENT MODE');
+        return true;
+      }
+      
+      return false;
+    }
+    
+    // Log debug info
+    console.log('CSRF validation attempt', {
+      hasToken: !!csrfToken,
+      hasSecret: !!secretData.secret,
+      tokenFirstChars: csrfToken ? csrfToken.substring(0, 8) : null,
+      secretFirstChars: secretData.secret ? secretData.secret.substring(0, 8) : null,
+    });
+    
+    // Use the token verification from CSRF library
+    const isValid = tokens.verify(secretData.secret, csrfToken);
+    
+    if (!isValid) {
+      console.warn('CSRF token verification failed', {
+        tokenLength: csrfToken?.length || 0
+      });
+      return false;
+    }
+    
+    // Check expiration (if createdAt is available)
+    if (secretData.createdAt) {
+      const tokenAge = Date.now() - secretData.createdAt;
+      const isExpired = tokenAge > 3600000 * 24; // 24 hours
+      
+      if (isExpired) {
+        console.warn('CSRF token expired', {
+          age: tokenAge,
+          createdAt: new Date(secretData.createdAt).toISOString()
+        });
+        return false;
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error validating CSRF token:', error);
+    return false;
+  }
 }

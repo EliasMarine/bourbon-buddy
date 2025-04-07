@@ -14,18 +14,19 @@ export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState('collection');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadType, setUploadType] = useState<'profile' | 'cover' | null>(null);
+  const [imageUpdateTimestamp, setImageUpdateTimestamp] = useState<number | null>(null);
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   // Log session updates
-  useEffect(() => {
-    if (session) {
-      console.log('Session updated:', {
-        profileImage: session.user?.image,
-        coverPhoto: session.user?.coverPhoto
-      });
-    }
-  }, [session]);
+  // useEffect(() => {
+  //   if (session) {
+  //     console.log('Session updated:', {
+  //       profileImage: session.user?.image,
+  //       coverPhoto: session.user?.coverPhoto
+  //     });
+  //   }
+  // }, [session]);
 
   if (status === 'loading') {
     return (
@@ -81,8 +82,19 @@ export default function ProfilePage() {
 
       const { user } = await response.json();
       
-      // Force a session update with the new user data
-      await updateSession({ user });
+      // Force a session update with the new user data but only update what changed
+      // to prevent unnecessary rerenders
+      const updateData = {
+        user: {
+          ...session.user,
+          ...(type === 'profile' ? { image: imageUrl } : { coverPhoto: imageUrl })
+        }
+      };
+      
+      await updateSession(updateData);
+      
+      // Update timestamp to bust the cache only for the specific image that changed
+      setImageUpdateTimestamp(Date.now());
       
       toast.success(`${type === 'profile' ? 'Profile' : 'Cover'} photo updated successfully`);
     } catch (error) {
@@ -108,9 +120,20 @@ export default function ProfilePage() {
     { id: 'friends', label: 'Friends' },
   ];
 
-  // Prepare profile and cover image URLs
-  const profileImageUrl = getProfileImageUrl(session.user?.image);
-  const coverPhotoUrl = getCoverPhotoUrl(session.user?.coverPhoto);
+  // Prepare profile and cover image URLs using memoization to prevent regeneration on each render
+  const profileImageUrl = React.useMemo(() => {
+    if (!session.user?.image) return '';
+    // Only use timestamp for cache busting when the profile image was just updated
+    const useTimestamp = uploadType === 'profile' && imageUpdateTimestamp !== null;
+    return getProfileImageUrl(session.user.image, useTimestamp);
+  }, [session.user?.image, uploadType, imageUpdateTimestamp]);
+  
+  const coverPhotoUrl = React.useMemo(() => {
+    if (!session.user?.coverPhoto) return '';
+    // Only use timestamp for cache busting when the cover photo was just updated
+    const useTimestamp = uploadType === 'cover' && imageUpdateTimestamp !== null;
+    return getCoverPhotoUrl(session.user.coverPhoto, useTimestamp);
+  }, [session.user?.coverPhoto, uploadType, imageUpdateTimestamp]);
 
   return (
     <div className="min-h-screen bg-gray-900">
@@ -139,6 +162,7 @@ export default function ProfilePage() {
             fill
             className="object-cover"
             priority
+            useTimestamp={false}
             fallbackClassName="bg-gray-800"
           />
         </div>
@@ -164,6 +188,7 @@ export default function ProfilePage() {
                 fill
                 className="object-cover"
                 priority
+                useTimestamp={false}
                 fallback={
                   <div className={`w-full h-full flex items-center justify-center ${DEFAULT_AVATAR_BG} text-white text-4xl font-bold`}>
                     {getInitialLetter(session.user?.name)}

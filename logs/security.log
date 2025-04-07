@@ -66,3 +66,12 @@
 {"timestamp":"2025-04-07T18:23:16.043Z","type":"account_lock_status_check","severity":"low","userId":"unknown","details":{"email":"eliasbouzeid@pm.me","ip":"::1","isLocked":false},"environment":"development"}
 {"timestamp":"2025-04-07T18:23:16.312Z","type":"successful_login","severity":"low","userId":"unknown","details":{"userId":"cm930hbi50000x739mok5pk6u","ip":"::1"},"environment":"development"}
 {"timestamp":"2025-04-07T18:23:16.333Z","type":"login_attempt_reset","severity":"low","userId":"unknown","details":{"email":"eliasbouzeid@pm.me","ip":"::1"},"environment":"development"}
+{"timestamp":"2025-04-07T21:00:44.124Z","type":"account_lock_status_check","severity":"low","userId":"unknown","details":{"email":"eliasbouzeid@pm.me","ip":"::1","isLocked":false},"environment":"development"}
+{"timestamp":"2025-04-07T21:00:44.400Z","type":"successful_login","severity":"low","userId":"unknown","details":{"userId":"cm930hbi50000x739mok5pk6u","ip":"::1"},"environment":"development"}
+{"timestamp":"2025-04-07T21:00:44.814Z","type":"login_attempt_reset","severity":"low","userId":"unknown","details":{"email":"eliasbouzeid@pm.me","ip":"::1"},"environment":"development"}
+{"timestamp":"2025-04-07T21:04:44.400Z","type":"account_lock_status_check","severity":"low","userId":"unknown","details":{"email":"eliasbouzeid@pm.me","ip":"::1","isLocked":false},"environment":"development"}
+{"timestamp":"2025-04-07T21:04:44.648Z","type":"successful_login","severity":"low","userId":"unknown","details":{"userId":"cm930hbi50000x739mok5pk6u","ip":"::1"},"environment":"development"}
+{"timestamp":"2025-04-07T21:04:44.954Z","type":"login_attempt_reset","severity":"low","userId":"unknown","details":{"email":"eliasbouzeid@pm.me","ip":"::1"},"environment":"development"}
+{"timestamp":"2025-04-07T21:24:53.858Z","type":"account_lock_status_check","severity":"low","userId":"unknown","details":{"email":"eliasbouzeid@pm.me","ip":"::1","isLocked":false},"environment":"development"}
+{"timestamp":"2025-04-07T21:24:54.118Z","type":"successful_login","severity":"low","userId":"unknown","details":{"userId":"cm930hbi50000x739mok5pk6u","ip":"::1"},"environment":"development"}
+{"timestamp":"2025-04-07T21:24:54.331Z","type":"login_attempt_reset","severity":"low","userId":"unknown","details":{"email":"eliasbouzeid@pm.me","ip":"::1"},"environment":"development"}

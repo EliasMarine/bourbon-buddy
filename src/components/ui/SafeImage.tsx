@@ -7,6 +7,7 @@ interface SafeImageProps extends Omit<ImageProps, 'onError'> {
   fallback?: React.ReactNode;
   fallbackClassName?: string;
   useDirectUrl?: boolean;
+  useTimestamp?: boolean;
 }
 
 /**
@@ -45,6 +46,7 @@ export default function SafeImage({
   fallbackClassName,
   className,
   useDirectUrl = false,
+  useTimestamp = false,
   ...props
 }: SafeImageProps) {
   const [error, setError] = useState(false);
@@ -71,18 +73,17 @@ export default function SafeImage({
       // Check if it's a Supabase storage URL
       const parsedUrl = parseSupabaseUrl(src);
       if (parsedUrl && !useDirectUrl && !useFallbackUrl) {
-        // Convert to our API format
-        const timestamp = Date.now(); // Prevent caching
-        setImageUrl(`/api/images?bucket=${parsedUrl.bucket}&path=${parsedUrl.path}&t=${timestamp}`);
+        // Convert to our API format, only add timestamp if explicitly requested
+        const url = `/api/images?bucket=${parsedUrl.bucket}&path=${parsedUrl.path}`;
+        setImageUrl(useTimestamp ? `${url}&t=${Date.now()}` : url);
         return;
       }
       
-      // For direct URLs or fallbacks, add a cache buster
+      // For direct URLs or fallbacks, only add a cache buster if explicitly requested
       if (src.includes('supabase.co')) {
-        // Remove any existing query params and add a cache buster
+        // Remove any existing query params
         const baseUrl = src.split('?')[0];
-        const timestamp = Date.now();
-        setImageUrl(`${baseUrl}?t=${timestamp}`);
+        setImageUrl(useTimestamp ? `${baseUrl}?t=${Date.now()}` : baseUrl);
         return;
       }
       
@@ -93,7 +94,7 @@ export default function SafeImage({
     
     // For non-string values (e.g., StaticImageData), use as is
     setImageUrl(src as any);
-  }, [src, useDirectUrl, useFallbackUrl]);
+  }, [src, useDirectUrl, useFallbackUrl, useTimestamp]);
 
   // Handle API errors by falling back to direct URL
   const handleApiError = () => {

@@ -7,6 +7,12 @@ interface CsrfTokenProps {
   onTokenLoad?: (token: string | null) => void
 }
 
+// Define a custom interface to extend XMLHttpRequest
+interface ExtendedXMLHttpRequest extends XMLHttpRequest {
+  _csrfMethod?: string
+  _csrfUrl?: string | URL
+}
+
 export function CsrfToken({ children, onTokenLoad }: CsrfTokenProps) {
   const [csrfToken, setCsrfToken] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -41,6 +47,13 @@ export function CsrfToken({ children, onTokenLoad }: CsrfTokenProps) {
         onTokenLoad(data.csrfToken)
       }
       
+      // Store token in sessionStorage for persistence across page navigations
+      try {
+        sessionStorage.setItem('csrfToken', data.csrfToken)
+      } catch (err) {
+        console.warn('Unable to store CSRF token in sessionStorage', err)
+      }
+
       // Enhanced logging with response details
       console.log(`CSRF token loaded successfully ${data.status ? data.status : ''}`, {
         cookieName: data.cookieName,
@@ -50,6 +63,21 @@ export function CsrfToken({ children, onTokenLoad }: CsrfTokenProps) {
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Unknown error'))
       console.error('Error fetching CSRF token:', err)
+      
+      // Try to retrieve from sessionStorage if available
+      try {
+        const storedToken = sessionStorage.getItem('csrfToken')
+        if (storedToken) {
+          console.log('Retrieved CSRF token from sessionStorage')
+          setCsrfToken(storedToken)
+          if (onTokenLoad) onTokenLoad(storedToken)
+          setError(null)
+          setIsLoading(false)
+          return
+        }
+      } catch (storageErr) {
+        console.warn('Unable to access sessionStorage', storageErr)
+      }
       
       // Retry logic
       if (retryCount < MAX_RETRIES) {
@@ -63,9 +91,22 @@ export function CsrfToken({ children, onTokenLoad }: CsrfTokenProps) {
     }
   }, [onTokenLoad, retryCount])
 
+  // Try to get token from sessionStorage on initial load
   useEffect(() => {
+    try {
+      const storedToken = sessionStorage.getItem('csrfToken')
+      if (storedToken) {
+        console.log('Using CSRF token from sessionStorage')
+        setCsrfToken(storedToken)
+        if (onTokenLoad) onTokenLoad(storedToken)
+        setIsLoading(false)
+      }
+    } catch (err) {
+      console.warn('Unable to access sessionStorage', err)
+    }
+    
     fetchCsrfToken()
-  }, [fetchCsrfToken])
+  }, [fetchCsrfToken, onTokenLoad])
 
   // Add CSRF token to all non-GET fetch requests
   useEffect(() => {
@@ -95,7 +136,11 @@ export function CsrfToken({ children, onTokenLoad }: CsrfTokenProps) {
         if (shouldAddToken) {
           init = init || {}
           init.headers = new Headers(init.headers || {})
+          
+          // Add token in multiple formats to ensure compatibility
           init.headers.set('x-csrf-token', csrfToken)
+          init.headers.set('csrf-token', csrfToken)
+          init.headers.set('X-CSRF-Token', csrfToken)
           
           // For debugging
           console.log(`Adding CSRF token to ${method} request to ${requestUrl.pathname}`)
@@ -109,6 +154,53 @@ export function CsrfToken({ children, onTokenLoad }: CsrfTokenProps) {
 
     return () => {
       window.fetch = originalFetch
+    }
+  }, [csrfToken])
+
+  // Add CSRF token to XMLHttpRequest
+  useEffect(() => {
+    if (!csrfToken) return
+
+    const originalXhrOpen = XMLHttpRequest.prototype.open
+    const originalXhrSend = XMLHttpRequest.prototype.send
+
+    XMLHttpRequest.prototype.open = function(this: ExtendedXMLHttpRequest, method: string, url: string | URL, async: boolean = true, username?: string | null, password?: string | null) {
+      try {
+        // Store method and URL for later use
+        this._csrfMethod = method.toUpperCase()
+        this._csrfUrl = url
+      } catch (error) {
+        console.error('Error in XMLHttpRequest open override:', error)
+      }
+      return originalXhrOpen.call(this, method, url, async, username || null, password || null)
+    } as typeof XMLHttpRequest.prototype.open
+
+    XMLHttpRequest.prototype.send = function(this: ExtendedXMLHttpRequest, body: Document | XMLHttpRequestBodyInit | null) {
+      try {
+        // Only add for non-GET requests to same origin
+        const method = this._csrfMethod || 'GET'
+        let isSameOrigin = true
+
+        if (this._csrfUrl) {
+          const requestUrl = new URL(typeof this._csrfUrl === 'string' ? this._csrfUrl : this._csrfUrl.toString(), window.location.origin)
+          isSameOrigin = requestUrl.origin === window.location.origin
+        }
+
+        if (isSameOrigin && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+          this.setRequestHeader('x-csrf-token', csrfToken)
+          this.setRequestHeader('csrf-token', csrfToken)
+          this.setRequestHeader('X-CSRF-Token', csrfToken)
+          console.log(`Adding CSRF token to XHR ${method} request`)
+        }
+      } catch (error) {
+        console.error('Error in XMLHttpRequest send override:', error)
+      }
+      return originalXhrSend.apply(this, [body])
+    }
+
+    return () => {
+      XMLHttpRequest.prototype.open = originalXhrOpen
+      XMLHttpRequest.prototype.send = originalXhrSend
     }
   }, [csrfToken])
 

@@ -50,23 +50,25 @@ export function parseSupabaseUrl(url?: string | null): { bucket: string, path: s
 /**
  * Prepares a Supabase storage URL for direct use or via our image API
  */
-export function getStorageUrl(url?: string | null, useDirectUrl = USE_DIRECT_URLS): string {
+export function getStorageUrl(url?: string | null, useDirectUrl = USE_DIRECT_URLS, useTimestamp = false): string {
   if (!url) return '';
   
   // If already using our image API, return as is
   if (url.startsWith('/api/images')) return url;
   
-  // If using direct URLs, just add cache buster to Supabase URLs
+  // If using direct URLs, only add cache buster when explicitly requested
   if (useDirectUrl && url.includes('supabase.co')) {
     const baseUrl = url.split('?')[0];
-    return `${baseUrl}?t=${Date.now()}`;
+    return useTimestamp ? `${baseUrl}?t=${Date.now()}` : baseUrl;
   }
   
   // Try to parse as Supabase URL
   const parsed = parseSupabaseUrl(url);
   if (parsed) {
-    // Use our image API with cache buster
-    return `/api/images?bucket=${parsed.bucket}&path=${parsed.path}&t=${Date.now()}`;
+    // Use our image API with optional cache buster
+    return useTimestamp 
+      ? `/api/images?bucket=${parsed.bucket}&path=${parsed.path}&t=${Date.now()}`
+      : `/api/images?bucket=${parsed.bucket}&path=${parsed.path}`;
   }
   
   // Return any other URL as is
@@ -76,15 +78,15 @@ export function getStorageUrl(url?: string | null, useDirectUrl = USE_DIRECT_URL
 /**
  * Gets a properly formatted cover photo URL
  */
-export function getCoverPhotoUrl(url?: string | null): string {
-  return getStorageUrl(url);
+export function getCoverPhotoUrl(url?: string | null, useTimestamp = false): string {
+  return getStorageUrl(url, USE_DIRECT_URLS, useTimestamp);
 }
 
 /**
  * Gets a properly formatted profile image URL
  */
-export function getProfileImageUrl(url?: string | null): string {
-  return getStorageUrl(url);
+export function getProfileImageUrl(url?: string | null, useTimestamp = false): string {
+  return getStorageUrl(url, USE_DIRECT_URLS, useTimestamp);
 }
 
 // File validation constants

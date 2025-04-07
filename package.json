@@ -27,6 +27,7 @@
     "db:check": "ts-node scripts/check-db.ts",
     "db:migrate": "ts-node scripts/safe-migrate.ts",
     "db:cron-backup": "ts-node scripts/cron-backup.ts",
+    "db:add-security-events": "prisma migrate resolve --applied add_security_events && prisma db push",
     "vercel-build": "prisma generate && next build",
     "deploy": "next build && vercel deploy --prod",
     "deploy:socket": "vercel deploy --prod"
@@ -55,6 +56,7 @@
     "clsx": "^2.1.1",
     "cookie": "^1.0.2",
     "csrf": "^3.1.0",
+    "date-fns": "^4.1.0",
     "emoji-mart": "^5.6.0",
     "express-rate-limit": "^7.5.0",
     "framer-motion": "^12.6.2",

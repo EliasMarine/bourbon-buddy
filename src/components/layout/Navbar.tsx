@@ -194,8 +194,14 @@ export default function Navbar() {
       mobile: { width: 40, height: 40 }
     };
     
-    // Get profile image URL using the same utility function as profile page
-    const profileImageUrl = getProfileImageUrl(session.user.image);
+    // Use image directly from the session to avoid regenerating the URL
+    const profileImageUrl = React.useMemo(() => {
+      if (!session.user.image) return '';
+      // If already using our image API format, use it directly
+      if (session.user.image.startsWith('/api/images')) return session.user.image;
+      // Otherwise, use the utility function but without timestamp
+      return getProfileImageUrl(session.user.image, false);
+    }, [session.user.image]);
     
     return (
       <div className={`${sizeClasses[size]} relative overflow-hidden rounded-full`}>
@@ -206,6 +212,7 @@ export default function Navbar() {
           height={dimensions[size].height}
           className={`${sizeClasses[size]} object-cover`}
           priority
+          useTimestamp={false}
           fallback={
             <div className={`w-full h-full flex items-center justify-center ${DEFAULT_AVATAR_BG} text-white font-bold`}>
               {getInitialLetter(session.user.name)}

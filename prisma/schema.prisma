@@ -222,3 +222,20 @@ model Follows {
 
   @@id([followerId, followingId])
 }
+
+model SecurityEvent {
+  id        String   @id @default(uuid())
+  type      String
+  severity  String
+  timestamp DateTime @default(now())
+  userId    String?
+  ip        String?
+  userAgent String?
+  metadata  String?  // JSON stringified metadata
+  createdAt DateTime @default(now())
+
+  @@index([type])
+  @@index([timestamp])
+  @@index([ip])
+  @@index([userId])
+}
