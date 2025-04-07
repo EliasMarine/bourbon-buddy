@@ -53,7 +53,7 @@ export function getPrismaClient(): PrismaClient {
     prismaInstanceCounter++;
     const instanceId = prismaInstanceCounter;
     
-    // Create a new client instance
+    // Create a new client instance with pgBouncer compatibility
     const prisma = new PrismaClient({
       log: ['error'],
       datasources: {
@@ -62,6 +62,19 @@ export function getPrismaClient(): PrismaClient {
         }
       }
     });
+    
+    // Recommended connection settings - managed separately since they're not directly
+    // supported in the PrismaClient constructor type
+    // For serverless environments:
+    // - Limit connections
+    // - Use short timeouts
+    // - Disconnect quickly after use
+    try {
+      // @ts-ignore - These are internal Prisma pool settings
+      prisma.$connect({ connectionLimit: 1, maxWait: 5000 });
+    } catch (error) {
+      console.warn('Could not apply custom connection settings to Prisma client:', error);
+    }
     
     // Store in map to manage cleanup later
     prismaInstances.set(instanceId, prisma);
@@ -81,7 +94,8 @@ export function getPrismaClient(): PrismaClient {
       // Handle prepared statement errors specifically
       if (e.message && (
         e.message.includes('prepared statement') || 
-        e.code === 'P2010'
+        e.code === 'P2010' ||
+        e.code === '42P05' // PostgreSQL code for "prepared statement already exists"
       )) {
         console.error('Prepared statement error detected, cleaning up connection');
         

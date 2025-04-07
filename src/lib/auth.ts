@@ -5,6 +5,7 @@ import AppleProvider from 'next-auth/providers/apple';
 import GitHubProvider from 'next-auth/providers/github';
 import FacebookProvider from 'next-auth/providers/facebook';
 import { PrismaAdapter } from '@auth/prisma-adapter';
+import type { Adapter, AdapterUser, AdapterSession } from '@auth/core/adapters';
 import { PrismaClientInitializationError, PrismaClientKnownRequestError, PrismaClientUnknownRequestError } from '@prisma/client/runtime/library';
 import bcrypt from 'bcryptjs';
 import { prisma, getPrismaClient } from './prisma'; // Import getPrismaClient function
@@ -15,6 +16,7 @@ import {
   recordFailedLoginAttempt, 
   resetFailedLoginAttempts 
 } from './login-security';
+import { redis, sessionStorage } from './redis';
 
 // Define cookie domain based on environment
 const getCookieDomain = () => {
@@ -26,46 +28,127 @@ const getCookieDomain = () => {
   return undefined;
 };
 
-// Create a special adapter that handles prepared statement errors
-function createPrismaAdapterWithErrorHandling() {
-  const baseAdapter = PrismaAdapter(prisma);
+// Create simplified hybrid Redis/Prisma adapter that falls back to Prisma-only when Redis is unavailable
+function createRedisEnhancedAdapter() {
+  // Get the base Prisma adapter for database operations
+  const prismaAdapter = PrismaAdapter(prisma);
   
-  // Wrap adapter methods that access the database to handle prepared statement errors
-  const enhancedAdapter = {
-    ...baseAdapter,
+  // If Redis is not available, just return the Prisma adapter directly
+  if (!redis) {
+    console.log('Redis not available, using Prisma-only adapter for sessions');
+    return prismaAdapter;
+  }
+  
+  // Create our own adapter that uses Redis for sessions
+  const adapter: Adapter = {
+    // Use all base adapter methods
+    ...prismaAdapter,
     
-    // Override methods as needed to handle errors properly
-    // @ts-ignore: We know these methods exist in the base adapter
-    async getUserByEmail(email: string) {
+    // Override with Redis-enhanced session methods
+    
+    // Create session in both Redis and database
+    createSession: async (session) => {
+      // Store session data in Redis with proper expiration time
+      await sessionStorage.setSession(
+        session.sessionToken,
+        { userId: session.userId },
+        Math.floor((session.expires.getTime() - Date.now()) / 1000)
+      );
+      
+      // Return the database session for NextAuth compatibility
+      return prismaAdapter.createSession!(session);
+    },
+    
+    // Get session from Redis if possible, fall back to database
+    getSessionAndUser: async (sessionToken) => {
+      // Try Redis first for better performance
+      const redisSession = await sessionStorage.getSession(sessionToken);
+      
+      if (redisSession?.userId) {
+        // If session found in Redis, get user directly
+        const user = await safeDbOperation(async (client) => {
+          return client.user.findUnique({
+            where: { id: redisSession.userId }
+          });
+        });
+        
+        if (user) {
+          // Also get the full session from database (needed for NextAuth)
+          const dbSession = await safeDbOperation(async (client) => {
+            return client.session.findUnique({
+              where: { sessionToken }
+            });
+          });
+          
+          if (dbSession) {
+            return {
+              user: user as AdapterUser,
+              session: dbSession as AdapterSession
+            };
+          }
+        }
+      }
+      
+      // Fall back to database if Redis fails or session not found
+      return prismaAdapter.getSessionAndUser!(sessionToken);
+    },
+    
+    // Update session in both Redis and database
+    updateSession: async (session) => {
+      // Ensure we have all required fields
+      if (session.sessionToken && session.userId && session.expires) {
+        // Update in Redis
+        await sessionStorage.setSession(
+          session.sessionToken,
+          { userId: session.userId },
+          Math.floor((session.expires.getTime() - Date.now()) / 1000)
+        );
+      }
+      
+      // Return the database update result for NextAuth compatibility
+      return prismaAdapter.updateSession!(session);
+    },
+    
+    // Delete session from both Redis and database
+    deleteSession: async (sessionToken) => {
+      // Delete from Redis
+      await sessionStorage.deleteSession(sessionToken);
+      
+      // Delete from database and return void explicitly for type compatibility
+      await prismaAdapter.deleteSession!(sessionToken);
+      // Return void to match the expected return type
+      return;
+    },
+    
+    // Handle user lookup methods carefully to avoid prepared statement issues
+    getUserByEmail: async (email) => {
       try {
-        // @ts-ignore: We know this method exists in the base adapter
-        return await baseAdapter.getUserByEmail(email);
+        // Non-null assertion since we know this method exists
+        return await prismaAdapter.getUserByEmail!(email);
       } catch (error: any) {
-        if (error && typeof error === 'object' && 'message' in error && 
-            typeof error.message === 'string' && 
-            (error.message.includes('prepared statement') || error instanceof PrismaClientUnknownRequestError)) {
-          console.log('Prepared statement error in getUserByEmail, trying fresh client');
-          // Use a fresh client for this operation
+        if (error?.message?.includes('prepared statement') || 
+            error instanceof PrismaClientUnknownRequestError ||
+            error?.code === '42P05') {
+          // Use fresh client for this operation
           const freshPrisma = getPrismaClient();
-          return await freshPrisma.user.findUnique({
+          const user = await freshPrisma.user.findUnique({
             where: { email }
           });
+          return user as AdapterUser | null;
         }
         throw error;
       }
     },
     
-    // @ts-ignore: We know these methods exist in the base adapter
-    async getUserByAccount(providerAccountId: { provider: string, providerAccountId: string }) {
+    getUserByAccount: async (providerAccountId) => {
       try {
-        // @ts-ignore: We know this method exists in the base adapter
-        return await baseAdapter.getUserByAccount(providerAccountId);
+        // Non-null assertion since we know this method exists
+        return await prismaAdapter.getUserByAccount!(providerAccountId);
       } catch (error: any) {
-        if (error && typeof error === 'object' && 'message' in error && 
-            typeof error.message === 'string' && 
-            (error.message.includes('prepared statement') || error instanceof PrismaClientUnknownRequestError)) {
-          console.log('Prepared statement error in getUserByAccount, trying fresh client');
-          // Use a fresh client for this operation
+        if (error?.message?.includes('prepared statement') || 
+            error instanceof PrismaClientUnknownRequestError ||
+            error?.code === '42P05') {
+          // Use fresh client for this operation
           const freshPrisma = getPrismaClient();
           const account = await freshPrisma.account.findUnique({
             where: {
@@ -76,15 +159,14 @@ function createPrismaAdapterWithErrorHandling() {
             },
             select: { user: true },
           });
-          return account?.user ?? null;
+          return account?.user as AdapterUser | null;
         }
         throw error;
       }
-    },
-    // Add other overrides as needed
+    }
   };
   
-  return enhancedAdapter;
+  return adapter;
 }
 
 // Additional utility function to handle database operations with retry logic
@@ -103,7 +185,7 @@ async function safeDbOperation<T>(operation: (client: any) => Promise<T>): Promi
 }
 
 export const authOptions: NextAuthOptions = {
-  adapter: createPrismaAdapterWithErrorHandling(),
+  adapter: createRedisEnhancedAdapter(),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || '',
@@ -165,48 +247,48 @@ export const authOptions: NextAuthOptions = {
         }
 
         try {
-          // Get a fresh Prisma client instance to avoid prepared statement conflicts
-          const freshPrisma = getPrismaClient();
-          
-          const user = await freshPrisma.user.findUnique({
-            where: {
-              email: email,
-            },
+          // Wrap the entire authentication logic in safeDbOperation to handle prepared statement conflicts
+          return await safeDbOperation(async (dbClient) => {
+            const user = await dbClient.user.findUnique({
+              where: {
+                email: email,
+              },
+            });
+
+            // Use the same error message whether user exists or not
+            // to prevent user enumeration
+            if (!user) {
+              // Record failed attempt but keep error message generic
+              recordFailedLoginAttempt(email, ip.toString());
+              logSecurityEvent('failed_login_attempt', { reason: 'user_not_found', email, ip }, 'medium');
+              throw new Error('Invalid email or password');
+            }
+
+            // Check if password matches
+            const isPasswordValid = await bcrypt.compare(
+              credentials.password,
+              user.password || '' // Ensure password isn't null
+            );
+
+            if (!isPasswordValid) {
+              // Record failed attempt
+              recordFailedLoginAttempt(email, ip.toString());
+              logSecurityEvent('failed_login_attempt', { reason: 'invalid_password', userId: user.id, ip }, 'medium');
+              throw new Error('Invalid email or password');
+            }
+            
+            // Reset failed attempts on successful login
+            resetFailedLoginAttempts(email);
+            
+            // Log successful login
+            logSecurityEvent('successful_login', { userId: user.id, ip }, 'low');
+
+            return {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+            };
           });
-
-          // Use the same error message whether user exists or not
-          // to prevent user enumeration
-          if (!user) {
-            // Record failed attempt but keep error message generic
-            recordFailedLoginAttempt(email, ip.toString());
-            logSecurityEvent('failed_login_attempt', { reason: 'user_not_found', email, ip }, 'medium');
-            throw new Error('Invalid email or password');
-          }
-
-          // Check if password matches
-          const isPasswordValid = await bcrypt.compare(
-            credentials.password,
-            user.password || '' // Ensure password isn't null
-          );
-
-          if (!isPasswordValid) {
-            // Record failed attempt
-            recordFailedLoginAttempt(email, ip.toString());
-            logSecurityEvent('failed_login_attempt', { reason: 'invalid_password', userId: user.id, ip }, 'medium');
-            throw new Error('Invalid email or password');
-          }
-          
-          // Reset failed attempts on successful login
-          resetFailedLoginAttempts(email);
-          
-          // Log successful login
-          logSecurityEvent('successful_login', { userId: user.id, ip }, 'low');
-
-          return {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-          };
         } catch (error) {
           // Log the full error for debugging but don't expose it to the client
           console.error('Authentication error:', error);
