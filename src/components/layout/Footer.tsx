@@ -9,6 +9,8 @@ export default function Footer() {
       { name: 'Home', href: '/' },
       { name: 'Collection', href: '/collection' },
       { name: 'Live Tastings', href: '/streams' },
+      { name: 'Pricing', href: '/pricing' },
+      { name: 'FAQ', href: '/faq' },
       { name: 'About', href: '/about' },
     ],
     account: [

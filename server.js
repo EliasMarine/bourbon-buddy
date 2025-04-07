@@ -31,6 +31,36 @@ app.prepare().then(() => {
   // Track connected users and rooms
   const streamRooms = new Map();
   const chatHistory = new Map();
+  const activePolls = new Map(); // Map<pollId, pollData>
+  const pollVotes = new Map(); // Map<pollId, Map<userId, optionId>>
+  const pollTimers = new Map(); // Map<pollId, timeoutId>
+  const hostTokens = new Map(); // Map<streamId, Set<validTokens>>
+
+  // Helper to generate a host token
+  function generateHostToken(streamId, socketId) {
+    const token = `host_${streamId}_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+    
+    // Initialize token set for this stream if it doesn't exist
+    if (!hostTokens.has(streamId)) {
+      hostTokens.set(streamId, new Set());
+    }
+    
+    // Store the token
+    hostTokens.get(streamId).add(token);
+    
+    console.log(`Generated host token for stream ${streamId}, socket ${socketId}: ${token}`);
+    
+    return token;
+  }
+  
+  // Helper to validate a host token
+  function validateHostToken(streamId, token) {
+    if (!hostTokens.has(streamId)) {
+      return false;
+    }
+    
+    return hostTokens.get(streamId).has(token);
+  }
 
   // Socket connection handler
   io.on('connection', (socket) => {
@@ -74,6 +104,19 @@ app.prepare().then(() => {
       socket.data.userName = userName;
       socket.data.isHost = isHost;
       
+      // Log detailed connection info for debugging
+      console.log(`Client ${socket.id} joined stream ${streamId} - ${userName || 'Anonymous'} - Host status: ${isHost ? 'true' : 'false'}`);
+      console.log(`Socket data after join - isHost: ${socket.data.isHost}, userName: ${socket.data.userName}`);
+      
+      // Generate host token if this is a host
+      let hostToken = null;
+      if (isHost === true) {
+        hostToken = generateHostToken(streamId, socket.id);
+        // Store it on the socket too for easy reference
+        socket.data.hostToken = hostToken;
+        console.log(`Host token generated and stored for socket ${socket.id}: ${hostToken}`);
+      }
+      
       // Emit updated count
       const count = streamRooms.get(streamId).size || 0;
       io.to(streamId).emit('viewer-count', count);
@@ -85,12 +128,25 @@ app.prepare().then(() => {
         socket.emit('chat-history', Array.from(chatHistory.get(streamId)));
       }
       
+      // Send active polls if available for this stream
+      const streamActivePolls = [];
+      activePolls.forEach((poll, pollId) => {
+        if (poll.streamId === streamId && !poll.isEnded) {
+          streamActivePolls.push(poll);
+        }
+      });
+      
+      if (streamActivePolls.length > 0) {
+        socket.emit('active-polls', streamActivePolls);
+      }
+      
       // Acknowledge join
       socket.emit('joined-stream', { 
         streamId, 
         count,
         userName: socket.data.userName,
-        isHost: socket.data.isHost
+        isHost: socket.data.isHost,
+        hostToken: hostToken // Include the token in the response if this is a host
       });
     });
     
@@ -156,6 +212,213 @@ app.prepare().then(() => {
       }
     });
     
+    // Handle polls
+    socket.on('stream-poll', (data, callback) => {
+      try {
+        console.log('Received poll creation request from socket:', socket.id);
+        console.log('Socket data:', socket.data);
+        console.log('Poll request data:', data);
+        
+        const { streamId, poll, isHost, hostValidation, hostToken } = data;
+        
+        if (!streamId || !poll || !poll.id || !poll.question || !poll.options || !poll.duration) {
+          console.error('Invalid poll data:', data);
+          if (callback) callback({ error: 'Invalid poll data' });
+          return;
+        }
+        
+        // Enhanced host validation - check multiple indicators
+        const socketIsHost = socket.data.isHost === true;
+        const dataIsHost = isHost === true;
+        const validationIsHost = hostValidation && hostValidation.isExplicitlyHost === true;
+        
+        // Check host token validation
+        const hasValidToken = hostToken && validateHostToken(streamId, hostToken);
+        // Also check the token stored on the socket
+        const hasSocketToken = socket.data.hostToken && validateHostToken(streamId, socket.data.hostToken);
+        
+        // If ANY of the host indicators are true, consider this a host
+        const userIsHost = socketIsHost || dataIsHost || validationIsHost || hasValidToken || hasSocketToken;
+        
+        // Detailed logging for debugging
+        console.log('Host validation check:', {
+          socketId: socket.id,
+          socketIsHost,
+          dataIsHost,
+          validationIsHost,
+          hasValidToken,
+          hasSocketToken,
+          token: hostToken,
+          socketToken: socket.data.hostToken,
+          finalDecision: userIsHost
+        });
+        
+        // Only hosts can create polls
+        if (!userIsHost) {
+          console.error('Non-host tried to create poll:', {
+            socketId: socket.id,
+            socketIsHost,
+            dataIsHost,
+            validationIsHost,
+            socketData: socket.data
+          });
+          
+          if (callback) callback({ 
+            error: 'Only hosts can create polls',
+            debug: {
+              socketIsHost,
+              dataIsHost,
+              validationIsHost,
+              socketData: {
+                isHost: socket.data.isHost,
+                userName: socket.data.userName,
+                streamId: socket.data.streamId
+              }
+            }
+          });
+          return;
+        }
+        
+        console.log(`Host ${socket.id} creating poll in stream ${streamId}:`, poll.question);
+        
+        // Create poll object with additional data
+        const pollData = {
+          ...poll,
+          streamId,
+          createdAt: Date.now(),
+          createdBy: socket.id,
+          results: {},
+          totalVotes: 0,
+          isEnded: false
+        };
+        
+        // Initialize results with zero for each option
+        poll.options.forEach(option => {
+          pollData.results[option.id] = 0;
+        });
+        
+        // Store poll
+        activePolls.set(poll.id, pollData);
+        
+        // Initialize votes map
+        pollVotes.set(poll.id, new Map());
+        
+        console.log(`New poll created in stream ${streamId}:`, poll.question);
+        
+        // Broadcast to room
+        io.to(streamId).emit('stream-poll', { poll: pollData });
+        
+        // Set a timer to end the poll
+        const timerId = setTimeout(() => {
+          endPoll(poll.id, streamId);
+        }, poll.duration * 1000);
+        
+        pollTimers.set(poll.id, timerId);
+        
+        // Acknowledge
+        if (callback) callback({ success: true });
+      } catch (err) {
+        console.error('Error handling poll creation:', err);
+        if (callback) callback({ error: 'Error processing poll' });
+      }
+    });
+    
+    // Handle poll votes
+    socket.on('poll-vote', (data, callback) => {
+      try {
+        const { streamId, vote } = data;
+        
+        if (!streamId || !vote || !vote.pollId || !vote.optionId || !vote.userId) {
+          console.error('Invalid vote data:', data);
+          if (callback) callback({ error: 'Invalid vote data' });
+          return;
+        }
+        
+        const { pollId, optionId, userId } = vote;
+        
+        // Check if poll exists and is active
+        if (!activePolls.has(pollId)) {
+          console.error('Vote for non-existent poll:', pollId);
+          if (callback) callback({ error: 'Poll not found' });
+          return;
+        }
+        
+        const poll = activePolls.get(pollId);
+        
+        // Check if poll is ended
+        if (poll.isEnded) {
+          console.error('Vote for ended poll:', pollId);
+          if (callback) callback({ error: 'Poll has ended' });
+          return;
+        }
+        
+        // Check if option exists
+        if (!poll.options.some(opt => opt.id === optionId)) {
+          console.error('Vote for non-existent option:', optionId);
+          if (callback) callback({ error: 'Option not found' });
+          return;
+        }
+        
+        // Check if user already voted
+        if (pollVotes.get(pollId).has(userId)) {
+          console.error('User already voted:', userId);
+          if (callback) callback({ error: 'You already voted in this poll' });
+          return;
+        }
+        
+        // Record vote
+        pollVotes.get(pollId).set(userId, optionId);
+        
+        // Update results
+        poll.results[optionId]++;
+        poll.totalVotes++;
+        
+        console.log(`New vote for poll ${pollId}, option ${optionId} by user ${userId}`);
+        
+        // Broadcast updated results
+        io.to(streamId).emit('poll-update', {
+          pollId,
+          results: poll.results,
+          totalVotes: poll.totalVotes
+        });
+        
+        // Acknowledge
+        if (callback) callback({ success: true });
+      } catch (err) {
+        console.error('Error handling poll vote:', err);
+        if (callback) callback({ error: 'Error processing vote' });
+      }
+    });
+    
+    // Handle manual poll end (by host)
+    socket.on('end-poll', (data, callback) => {
+      try {
+        const { streamId, pollId } = data;
+        
+        if (!streamId || !pollId) {
+          console.error('Invalid end-poll data:', data);
+          if (callback) callback({ error: 'Invalid data' });
+          return;
+        }
+        
+        // Only hosts can end polls
+        if (!socket.data.isHost) {
+          console.error('Non-host tried to end poll:', socket.id);
+          if (callback) callback({ error: 'Only hosts can end polls' });
+          return;
+        }
+        
+        // End the poll
+        const success = endPoll(pollId, streamId);
+        
+        // Acknowledge
+        if (callback) callback({ success });
+      } catch (err) {
+        console.error('Error handling poll end:', err);
+        if (callback) callback({ error: 'Error ending poll' });
+      }
+    });
+    
     // Handle disconnect
     socket.on('disconnect', (reason) => {
       console.log(`Client ${socket.id} disconnected:`, reason);
@@ -173,6 +436,13 @@ app.prepare().then(() => {
         if (count === 0) {
           streamRooms.delete(streamId);
           chatHistory.delete(streamId);
+          
+          // End all polls for this stream
+          activePolls.forEach((poll, pollId) => {
+            if (poll.streamId === streamId) {
+              endPoll(pollId, streamId);
+            }
+          });
         }
       }
     });
@@ -189,6 +459,51 @@ app.prepare().then(() => {
       }
     });
   });
+  
+  // Helper function to end a poll
+  function endPoll(pollId, streamId) {
+    if (!activePolls.has(pollId)) {
+      console.error('Tried to end non-existent poll:', pollId);
+      return false;
+    }
+    
+    const poll = activePolls.get(pollId);
+    
+    // Check if already ended
+    if (poll.isEnded) {
+      return false;
+    }
+    
+    // Mark as ended
+    poll.isEnded = true;
+    
+    console.log(`Poll ${pollId} ended with ${poll.totalVotes} votes`);
+    
+    // Clear timeout if exists
+    if (pollTimers.has(pollId)) {
+      clearTimeout(pollTimers.get(pollId));
+      pollTimers.delete(pollId);
+    }
+    
+    // Broadcast end event
+    io.to(streamId).emit('poll-end', {
+      pollId,
+      results: poll.results,
+      totalVotes: poll.totalVotes
+    });
+    
+    // Keep poll data for some time (15 minutes) for late viewers
+    setTimeout(() => {
+      if (activePolls.has(pollId)) {
+        activePolls.delete(pollId);
+      }
+      if (pollVotes.has(pollId)) {
+        pollVotes.delete(pollId);
+      }
+    }, 15 * 60 * 1000);
+    
+    return true;
+  }
 
   // Start the server
   const PORT = process.env.PORT || 3000;

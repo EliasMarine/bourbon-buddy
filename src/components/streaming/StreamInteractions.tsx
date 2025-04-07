@@ -261,10 +261,17 @@ export default function StreamInteractions({
         <button
           onClick={handleTip}
           disabled={isLoading || hostId === session?.user?.id}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-all"
+          className="flex items-center justify-center gap-1.5 px-6 py-2 min-w-[120px] rounded-lg text-white hover:opacity-90 transition-all relative overflow-hidden"
+          style={{
+            background: "linear-gradient(45deg, #ff0000, #ff8700, #ffd300, #0aff99, #0aefff, #147df5, #580aff, #be0aff, #ff0000)",
+            backgroundSize: "400% 400%",
+            animation: "shimmering 60s linear infinite"
+          }}
         >
-          <DollarSign size={16} />
-          <span>Tip</span>
+          <span className="relative z-10 flex items-center gap-1.5">
+            <Heart size={24} className="text-red-500 fill-red-500" />
+            <span className="font-bold">Tip</span>
+          </span>
         </button>
 
         <div className="relative" ref={shareMenuRef}>
@@ -375,6 +382,13 @@ export default function StreamInteractions({
           </div>
         </div>
       )}
+      <style jsx global>{`
+        @keyframes shimmering {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+      `}</style>
     </>
   );
 } 

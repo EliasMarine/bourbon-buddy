@@ -166,7 +166,7 @@ export default function HeroSection() {
           Track Your <span className="text-amber-500">Whiskey</span><br />Journey
         </h1>
         <p className="text-xl md:text-2xl mb-10 text-gray-200 max-w-2xl font-light">
-          Discover, catalog, and share your bourbon collection with elegance.
+          Discover, catalog, and share your bourbon collection with the community.
         </p>
         <div className="flex flex-col sm:flex-row gap-5">
           <Link

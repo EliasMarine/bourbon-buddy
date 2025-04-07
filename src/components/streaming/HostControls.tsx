@@ -1,15 +1,29 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Camera, CameraOff, Monitor, Settings, Users } from 'lucide-react';
+import { Mic, MicOff, Camera, CameraOff, Monitor, Settings, Users, BarChart2, X, Plus, Trash2 } from 'lucide-react';
 import Button from '../ui/Button';
 import { toast } from 'react-hot-toast';
+
+interface PollOption {
+  id: string;
+  text: string;
+}
+
+interface PollData {
+  id: string;
+  question: string;
+  options: PollOption[];
+  duration: number; // in seconds
+}
 
 interface HostControlsProps {
   localStream: MediaStream | null;
   isLive: boolean;
   viewerCount: number;
   onToggleLive: () => void;
+  socket?: any; // Socket instance
+  streamId?: string;
 }
 
 export default function HostControls({
@@ -17,11 +31,21 @@ export default function HostControls({
   isLive,
   viewerCount,
   onToggleLive,
+  socket,
+  streamId,
 }: HostControlsProps) {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isStartingStream, setIsStartingStream] = useState(false);
+  const [showPollModal, setShowPollModal] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState<PollOption[]>([
+    { id: '1', text: '' },
+    { id: '2', text: '' },
+  ]);
+  const [pollDuration, setPollDuration] = useState(60); // Default 60 seconds
+  const [hostToken, setHostToken] = useState<string | null>(null);
   const [permissionStatus, setPermissionStatus] = useState<{
     camera: 'granted' | 'denied' | 'prompt' | 'unknown';
     microphone: 'granted' | 'denied' | 'prompt' | 'unknown';
@@ -36,6 +60,35 @@ export default function HostControls({
       setIsStartingStream(false);
     }
   }, [isLive]);
+
+  // Effect to listen for host token
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleJoinedStream = (data: any) => {
+      console.log('Received joined-stream event:', data);
+      if (data.hostToken) {
+        console.log('Received host token:', data.hostToken);
+        setHostToken(data.hostToken);
+      }
+    };
+
+    socket.on('joined-stream', handleJoinedStream);
+
+    // Request to join stream to get a host token
+    if (isLive && streamId) {
+      console.log('Requesting to join stream as host to get host token');
+      socket.emit('join-stream', {
+        streamId,
+        userName: 'Host',
+        isHost: true
+      });
+    }
+
+    return () => {
+      socket.off('joined-stream', handleJoinedStream);
+    };
+  }, [socket, isLive, streamId]);
 
   // Check permission status on mount
   useEffect(() => {
@@ -408,6 +461,142 @@ export default function HostControls({
     }
   };
 
+  // Poll handlers
+  const handleAddPollOption = () => {
+    if (pollOptions.length >= 6) {
+      toast.error('Maximum 6 options allowed');
+      return;
+    }
+    
+    setPollOptions([
+      ...pollOptions,
+      { id: Date.now().toString(), text: '' }
+    ]);
+  };
+
+  const handleRemovePollOption = (id: string) => {
+    if (pollOptions.length <= 2) {
+      toast.error('Minimum 2 options required');
+      return;
+    }
+    
+    setPollOptions(pollOptions.filter(option => option.id !== id));
+  };
+
+  const handlePollOptionChange = (id: string, text: string) => {
+    setPollOptions(
+      pollOptions.map(option => 
+        option.id === id ? { ...option, text } : option
+      )
+    );
+  };
+
+  const handleCreatePoll = () => {
+    // Validate poll data
+    if (!pollQuestion.trim()) {
+      toast.error('Please enter a question');
+      return;
+    }
+
+    const validOptions = pollOptions.filter(option => option.text.trim());
+    if (validOptions.length < 2) {
+      toast.error('Please add at least 2 options');
+      return;
+    }
+
+    // Create poll object
+    const poll: PollData = {
+      id: Date.now().toString(),
+      question: pollQuestion.trim(),
+      options: validOptions,
+      duration: pollDuration
+    };
+
+    // Verify socket connection
+    if (!socket) {
+      console.error('Socket not available');
+      toast.error('Connection issue - socket not available');
+      return;
+    }
+    
+    if (!socket.connected) {
+      console.error('Socket not connected, attempting to reconnect');
+      toast.loading('Reconnecting to server...');
+      
+      // Try to reconnect
+      socket.connect();
+      
+      // Wait a short time for connection and try again
+      setTimeout(() => {
+        if (socket.connected) {
+          console.log('Reconnected successfully, trying to send poll again');
+          sendPollToServer(poll);
+        } else {
+          toast.error('Could not reconnect to server');
+        }
+      }, 1000);
+      return;
+    }
+    
+    // If we're here, socket is connected, so send the poll directly
+    sendPollToServer(poll);
+  };
+  
+  // Separate function to send the poll to the server
+  const sendPollToServer = (poll: PollData) => {
+    if (!socket || !streamId) {
+      toast.error('Connection issue - missing socket or streamId');
+      return;
+    }
+    
+    // First, reaffirm host status by rejoining stream
+    console.log('Reaffirming host status before sending poll');
+    socket.emit('join-stream', {
+      streamId,
+      userName: 'Host',
+      isHost: true
+    });
+
+    // Wait a short time to ensure join event is processed
+    setTimeout(() => {
+      // Log complete data being sent for debugging
+      const pollData = {
+        streamId,
+        poll,
+        isHost: true,
+        hostValidation: {
+          timestamp: Date.now(),
+          isExplicitlyHost: true
+        },
+        hostToken: hostToken
+      };
+      
+      console.log('Sending poll with data:', pollData);
+      
+      // Send poll with explicit host flags
+      socket.emit('stream-poll', pollData, (response: any) => {
+        if (response?.error) {
+          console.error('Error sending poll:', response.error, 'Full response:', response);
+          toast.error(`Failed to send poll: ${response.error}`);
+        } else {
+          // Reset form and close modal on success
+          toast.success('Poll sent successfully!');
+          resetPollForm();
+          setShowPollModal(false);
+        }
+      });
+    }, 500);
+  };
+
+  const resetPollForm = () => {
+    setPollQuestion('');
+    setPollOptions([
+      { id: '1', text: '' },
+      { id: '2', text: '' },
+    ]);
+    setPollDuration(60);
+  };
+
   return (
     <div className="mb-4 p-4 bg-gray-800 rounded-lg border border-gray-700">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -439,6 +628,16 @@ export default function HostControls({
           >
             <Settings size={20} />
           </button>
+
+          {isLive && socket && socket.connected && (
+            <button
+              onClick={() => setShowPollModal(true)}
+              className="p-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
+              aria-label="Create Poll"
+            >
+              <BarChart2 size={20} />
+            </button>
+          )}
         </div>
         
         <div className="flex items-center gap-3">
@@ -465,27 +664,6 @@ export default function HostControls({
               : isStartingStream 
                 ? 'Starting...' 
                 : 'Start Stream'}
-          </button>
-        </div>
-      </div>
-      
-      {/* End Stream Button - Always visible at the bottom as a secondary option */}
-      <div className="mt-4 border-t border-gray-700 pt-4">
-        <div className="flex justify-end">
-          <button
-            disabled={isStartingStream && !isLive}
-            className={`px-4 py-2 rounded-md text-white font-medium transition-colors flex items-center gap-2 ${
-              isStartingStream && !isLive 
-                ? 'bg-red-400 opacity-50 cursor-not-allowed' 
-                : 'bg-red-500 hover:bg-red-600'
-            }`}
-            onClick={() => {
-              if (isStartingStream && !isLive) return;
-              onToggleLive();
-            }}
-          >
-            <Monitor size={20} />
-            End Stream
           </button>
         </div>
       </div>
@@ -522,6 +700,128 @@ export default function HostControls({
                   />
                   <span>Microphone: {permissionStatus.microphone}</span>
                 </div>
+              </div>
+            </div>
+
+            {isLive && socket && socket.connected && (
+              <div>
+                <button
+                  onClick={() => setShowPollModal(true)}
+                  className="w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md flex items-center justify-center gap-2 transition-colors"
+                >
+                  <BarChart2 size={18} />
+                  <span>Create Poll</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Poll Modal */}
+      {showPollModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-white">Create Poll</h2>
+              <button 
+                onClick={() => setShowPollModal(false)}
+                className="p-1 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-300"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Poll Question */}
+              <div>
+                <label htmlFor="pollQuestion" className="block text-sm font-medium text-gray-300 mb-1">
+                  Question
+                </label>
+                <input
+                  id="pollQuestion"
+                  type="text"
+                  value={pollQuestion}
+                  onChange={(e) => setPollQuestion(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="What's your favorite bourbon?"
+                />
+              </div>
+
+              {/* Poll Options */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Options
+                </label>
+                <div className="space-y-2">
+                  {pollOptions.map((option, index) => (
+                    <div key={option.id} className="flex gap-2">
+                      <input
+                        type="text"
+                        value={option.text}
+                        onChange={(e) => handlePollOptionChange(option.id, e.target.value)}
+                        className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder={`Option ${index + 1}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePollOption(option.id)}
+                        className="p-2 bg-gray-700 hover:bg-gray-600 rounded-md text-red-400 hover:text-red-300"
+                        disabled={pollOptions.length <= 2}
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleAddPollOption}
+                  className="mt-2 flex items-center gap-1 text-indigo-400 hover:text-indigo-300 text-sm"
+                  disabled={pollOptions.length >= 6}
+                >
+                  <Plus size={16} />
+                  <span>Add Option</span>
+                </button>
+              </div>
+
+              {/* Poll Duration */}
+              <div>
+                <label htmlFor="pollDuration" className="block text-sm font-medium text-gray-300 mb-1">
+                  Duration (seconds)
+                </label>
+                <select
+                  id="pollDuration"
+                  value={pollDuration}
+                  onChange={(e) => setPollDuration(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value={30}>30 seconds</option>
+                  <option value={60}>1 minute</option>
+                  <option value={120}>2 minutes</option>
+                  <option value={300}>5 minutes</option>
+                  <option value={600}>10 minutes</option>
+                </select>
+              </div>
+
+              {/* Submit and Cancel buttons */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPollModal(false)}
+                  className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreatePoll}
+                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 flex items-center justify-center gap-2"
+                >
+                  <BarChart2 size={18} />
+                  <span>Send Poll</span>
+                </button>
               </div>
             </div>
           </div>

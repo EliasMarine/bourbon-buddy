@@ -11,7 +11,7 @@ import {
   Mic, MicOff, Video, VideoOff, Send, Users, 
   Activity, Maximize, Minimize, ChevronRight, ChevronLeft, Loader2,
   ThumbsUp, MessageSquare, Share2, Flag, Clock, User, Menu,
-  Expand, Award, GlassWater, ChevronDown, ChevronUp, Droplets
+  Expand, Award, GlassWater, ChevronDown, ChevronUp, Droplets, BarChart2
 } from 'lucide-react';
 import StreamInitializer from '@/components/streaming/StreamInitializer';
 import HostControls from '@/components/streaming/HostControls';
@@ -542,6 +542,47 @@ export default function StreamPage() {
 
     socket.on('chat-message', (message: ChatMessage) => {
       setMessages(prev => [...prev, message]);
+    });
+
+    // Poll event handlers
+    socket.on('stream-poll', (data) => {
+      console.log('New poll received:', data);
+      // Toast notification for viewers
+      if (!isHost) {
+        toast((t) => (
+          <div className="flex flex-col">
+            <div className="font-semibold">📊 New Poll</div>
+            <div className="text-sm">{data.poll.question}</div>
+            <button
+              onClick={() => toast.dismiss(t.id)}
+              className="mt-2 text-xs bg-indigo-600 hover:bg-indigo-700 text-white py-1 px-2 rounded self-end"
+            >
+              Vote Now
+            </button>
+          </div>
+        ), { duration: 8000 });
+      }
+    });
+
+    socket.on('poll-update', (data) => {
+      console.log('Poll update received:', data);
+    });
+
+    socket.on('poll-end', (data) => {
+      console.log('Poll ended:', data);
+      // Toast notification with results
+      toast((t) => (
+        <div className="flex flex-col">
+          <div className="font-semibold">📊 Poll Results</div>
+          <div className="text-sm">{data.pollId}</div>
+          <button
+            onClick={() => toast.dismiss(t.id)}
+            className="mt-2 text-xs bg-gray-600 hover:bg-gray-700 text-white py-1 px-2 rounded self-end"
+          >
+            Dismiss
+          </button>
+        </div>
+      ), { duration: 5000 });
     });
 
     socket.on('error', (error: string) => {
@@ -1699,23 +1740,25 @@ export default function StreamPage() {
                           </div>
                         </button>
                       )}
-                      <button
-                        onClick={handleToggleLive}
-                        disabled={!isHost}
-                        className={`px-4 py-2 rounded-full font-medium ${
-                          isStreaming 
-                            ? 'bg-red-600 hover:bg-red-700' 
-                            : isHost ? 'bg-green-600 hover:bg-green-700 cursor-pointer' 
-                            : 'bg-gray-600 cursor-not-allowed'
-                        }`}
-                      >
-                        {isStreaming ? 'End Stream' : 'Go Live'}
-                      </button>
                     </div>
                   </div>
                 )}
               </div>
             </div>
+            
+            {/* Add HostControls component for stream hosts */}
+            {isHost && localStream && (
+              <div className="mb-4">
+                <HostControls 
+                  localStream={localStream}
+                  isLive={isStreaming}
+                  viewerCount={participantCount}
+                  onToggleLive={handleToggleLive}
+                  socket={socket}
+                  streamId={id}
+                />
+              </div>
+            )}
             
             {/* Video info section */}
             <div className="mb-6">

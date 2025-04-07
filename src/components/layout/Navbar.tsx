@@ -9,7 +9,7 @@ import {
   Menu, X, User, LogOut, Home, BookOpen, 
   Tv, ChevronDown, Camera, Key, Settings,
   Shield, UserCircle, Edit, RefreshCw, Palette,
-  Globe
+  Globe, DollarSign, HelpCircle
 } from 'lucide-react';
 import GlencairnGlass from '../ui/icons/GlencairnGlass';
 
@@ -82,6 +82,7 @@ export default function Navbar() {
     { name: 'My Collection', href: '/collection', icon: <User size={18} /> },
     { name: 'Explore', href: '/explore', icon: <Globe size={18} /> },
     { name: 'Live Tastings', href: '/streams', icon: <Tv size={18} /> },
+    { name: 'Pricing', href: '/pricing', icon: <DollarSign size={18} /> },
     { name: 'About', href: '/about', icon: <BookOpen size={18} /> },
   ];
 
@@ -148,10 +149,11 @@ export default function Navbar() {
             <Link href="/" className="text-white font-bold text-xl flex items-center">
               <div className="flex items-center">
                 <Image
-                  src="/images/svg logo icon/Glencairn/Bourbon Budy (200 x 50 px) (Logo)(1).svg"
+                  src="/images/svg%20logo%20icon/Glencairn/Bourbon%20Budy%20(200%20x%2050%20px)%20(Logo)(1).svg"
                   alt="Bourbon Buddy Logo"
                   width={48}
                   height={48}
+                  priority
                 />
                 <span className="pl-0 -ml-2">Bourbon Buddy</span>
               </div>

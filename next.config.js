@@ -31,6 +31,16 @@ const nextConfig = {
         hostname: 'lh3.googleusercontent.com',
         pathname: '**',
       },
+      {
+        protocol: 'https',
+        hostname: 'www.buffalotracedistillery.com',
+        pathname: '**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'www.blantonsbourbon.com',
+        pathname: '**',
+      },
     ],
     domains: [
       'localhost',
@@ -39,6 +49,8 @@ const nextConfig = {
       'images.unsplash.com',
       'bourbon-buddy.s3.amazonaws.com',
       'bourbon-buddy.s3.us-east-1.amazonaws.com',
+      'www.buffalotracedistillery.com',
+      'www.blantonsbourbon.com',
     ]
   },
   // Set a custom webpack config for Socket.IO
