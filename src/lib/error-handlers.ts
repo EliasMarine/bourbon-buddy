@@ -3,13 +3,15 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
-// Create a logs directory if it doesn't exist
-try {
-  if (!fs.existsSync(path.join(process.cwd(), 'logs'))) {
-    fs.mkdirSync(path.join(process.cwd(), 'logs'));
+// Create a logs directory if it doesn't exist (skip in production environments)
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  try {
+    if (!fs.existsSync(path.join(process.cwd(), 'logs'))) {
+      fs.mkdirSync(path.join(process.cwd(), 'logs'));
+    }
+  } catch (error) {
+    console.error('Error initializing log directory:', error);
   }
-} catch (error) {
-  console.error('Error initializing log directory:', error);
 }
 
 /**
@@ -38,7 +40,12 @@ export function logSecurityEvent(eventType: string, details: any, severity: 'low
   
   console.log(`${severityColors[severity]}[SECURITY ${severity.toUpperCase()}]\x1b[0m ${timestamp} - ${eventType} - ${JSON.stringify(details)}`);
   
-  // Log to file
+  // Skip file logging in environments that might have read-only filesystems (like Vercel)
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+    return;
+  }
+  
+  // Log to file in development environments
   try {
     const logFile = path.join(process.cwd(), 'logs', 'security.log');
     fs.appendFileSync(logFile, logEntry + '\n');
