@@ -5,10 +5,10 @@ import { createCsrfCookie, generateCsrfToken } from '@/lib/csrf'
 export async function GET(request: NextRequest) {
   try {
     // Generate a new CSRF token and secret
-    const { secret, token } = generateCsrfToken()
+    const { secret, token, createdAt } = generateCsrfToken()
     
     // Create a cookie with the secret
-    const cookieHeader = createCsrfCookie(secret)
+    const cookieHeader = createCsrfCookie(secret, createdAt)
     
     // Return the token in the response
     const response = NextResponse.json({ csrfToken: token })
