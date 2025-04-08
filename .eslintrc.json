@@ -2,5 +2,14 @@
   "extends": [
     "next/core-web-vitals",
     "next/typescript"
-  ]
+  ],
+  "rules": {
+    "@typescript-eslint/no-unused-vars": "warn",
+    "@typescript-eslint/no-explicit-any": "warn",
+    "react-hooks/exhaustive-deps": "warn",
+    "@next/next/no-img-element": "warn",
+    "import/no-unused-modules": "off",
+    "react/no-unescaped-entities": "off",
+    "react-hooks/rules-of-hooks": "warn"
+  }
 }

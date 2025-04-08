@@ -2,12 +2,19 @@ import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'crypto'
 
+// Check if Supabase environment variables are properly set
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+// Only create the Supabase client if valid credentials are available
+const isValidUrl = supabaseUrl && !supabaseUrl.includes('your-supabase-url')
+const isValidKey = supabaseKey && !supabaseKey.includes('your-supabase')
+
 // Create a Supabase client with service role key for server operations
 // The service role key can bypass RLS policies
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+const supabase = isValidUrl && isValidKey
+  ? createClient(supabaseUrl!, supabaseKey!)
+  : null
 
 // Default cache duration - 7 days (much longer for better caching)
 const DEFAULT_CACHE_DURATION = 60 * 60 * 24 * 7
@@ -19,6 +26,14 @@ function generateETag(bucket: string, path: string): string {
 
 export async function GET(request: NextRequest) {
   try {
+    // Early return if Supabase client isn't available
+    if (!supabase) {
+      return new NextResponse(
+        'Supabase configuration not available. Check environment variables.',
+        { status: 503 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
     const bucket = searchParams.get('bucket')
     const path = searchParams.get('path')
