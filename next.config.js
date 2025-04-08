@@ -157,7 +157,7 @@ const nextConfig = {
           },
           {
             key: 'Set-Cookie-Policy',
-            value: 'secure; httpOnly; sameSite=strict',
+            value: 'secure; httpOnly; sameSite=lax',
           },
         ],
       },

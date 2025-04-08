@@ -287,7 +287,7 @@ export const authOptions: NextAuthOptions = {
   },
   cookies: {
     sessionToken: {
-      name: process.env.NODE_ENV === "production" ? '__Secure-next-auth.session-token' : 'next-auth.session-token',
+      name: 'next-auth.session-token',
       options: {
         httpOnly: true,
         sameSite: 'lax',
@@ -297,7 +297,7 @@ export const authOptions: NextAuthOptions = {
       },
     },
     callbackUrl: {
-      name: process.env.NODE_ENV === "production" ? '__Secure-next-auth.callback-url' : 'next-auth.callback-url',
+      name: 'next-auth.callback-url',
       options: {
         httpOnly: true,
         sameSite: 'lax',
@@ -307,7 +307,7 @@ export const authOptions: NextAuthOptions = {
       },
     },
     csrfToken: {
-      name: process.env.NODE_ENV === "production" ? '__Host-next-auth.csrf-token' : 'next-auth.csrf-token',
+      name: 'next-auth.csrf-token',
       options: {
         httpOnly: true,
         sameSite: 'lax',
@@ -386,18 +386,13 @@ export const cleanupAuthCookies = (response: Response) => {
   const cookiesToClear = [
     // NextAuth cookies
     'next-auth.session-token',
-    '__Secure-next-auth.session-token',
-    '__Host-next-auth.session-token',
     'next-auth.csrf-token',
-    '__Host-next-auth.csrf-token',
     'next-auth.callback-url',
-    '__Secure-next-auth.callback-url',
     // Supabase cookies
     'sb-access-token',
     'sb-refresh-token',
     // CSRF tokens
-    'csrf_secret',
-    '__Host-csrf_secret'
+    'csrf_secret'
   ];
   
   // Clear all of these cookies just to be safe
@@ -421,18 +416,13 @@ export async function clearClientAuthCookies() {
     const cookiesToClear = [
       // NextAuth cookies
       'next-auth.session-token',
-      '__Secure-next-auth.session-token',
-      '__Host-next-auth.session-token',
       'next-auth.csrf-token',
-      '__Host-next-auth.csrf-token',
       'next-auth.callback-url',
-      '__Secure-next-auth.callback-url',
       // Supabase cookies
       'sb-access-token',
       'sb-refresh-token',
       // CSRF tokens
-      'csrf_secret',
-      '__Host-csrf_secret'
+      'csrf_secret'
     ];
     
     // Clear all of these cookies just to be safe

@@ -96,7 +96,7 @@ export async function middleware(req: NextRequest) {
 
     // Set a standard CSRF token cookie without prefixes
     if (!req.nextUrl.pathname.startsWith('/api/') && req.method === 'GET') {
-      const csrfCookieName = process.env.NODE_ENV === 'production' ? '__Host-csrf_secret' : 'csrf_secret';
+      const csrfCookieName = 'csrf_secret';
       const hasCsrfToken = req.cookies.has(csrfCookieName);
       
       if (!hasCsrfToken) {
@@ -109,8 +109,7 @@ export async function middleware(req: NextRequest) {
           httpOnly: true,
           secure: isProduction, // Only set secure in production
           sameSite: 'lax',
-          path: '/',
-          domain: undefined // Important for __Host- prefix
+          path: '/'
         });
       }
     }
@@ -168,7 +167,7 @@ export async function middleware(req: NextRequest) {
       
       // Check if the user is authenticated
       const authHeader = req.headers.get('authorization');
-      const sessionCookieName = isProduction ? '__Secure-next-auth.session-token' : 'next-auth.session-token';
+      const sessionCookieName = 'next-auth.session-token';
       const sessionCookie = req.cookies.get(sessionCookieName)?.value;
       
       // If we're in production and using __Secure- prefix, make sure we're on HTTPS
