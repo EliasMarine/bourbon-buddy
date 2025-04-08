@@ -18,6 +18,7 @@ import {
 } from './login-security';
 import { redis, sessionStorage } from './redis';
 import { RedisAdapter } from "@/lib/redis-adapter";
+import { cookies } from 'next/headers';
 
 // Define cookie domain based on environment
 const getCookieDomain = () => {
@@ -374,4 +375,78 @@ export const authOptions: NextAuthOptions = {
       }
     },
   },
-}; 
+};
+
+// Clean up auth cookies - can be used in API routes to ensure proper cleanup
+export const cleanupAuthCookies = (response: Response) => {
+  // Set a new response with cleared cookies
+  const cleanedResponse = new Response(response.body, response);
+  
+  // Define common auth cookie names that might need to be cleared
+  const cookiesToClear = [
+    // NextAuth cookies
+    'next-auth.session-token',
+    '__Secure-next-auth.session-token',
+    '__Host-next-auth.session-token',
+    'next-auth.csrf-token',
+    '__Host-next-auth.csrf-token',
+    'next-auth.callback-url',
+    '__Secure-next-auth.callback-url',
+    // Supabase cookies
+    'sb-access-token',
+    'sb-refresh-token',
+    // CSRF tokens
+    'csrf_secret',
+    '__Host-csrf_secret'
+  ];
+  
+  // Clear all of these cookies just to be safe
+  cookiesToClear.forEach(cookieName => {
+    cleanedResponse.headers.append('Set-Cookie', 
+      `${cookieName}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax; ${
+        process.env.NODE_ENV === 'production' ? 'Secure; ' : ''
+      }expires=Thu, 01 Jan 1970 00:00:00 GMT`
+    );
+  });
+  
+  return cleanedResponse;
+};
+
+// Helper to clear auth cookies in server actions or route handlers
+export async function clearClientAuthCookies() {
+  try {
+    const cookieStore = cookies();
+    
+    // Define common auth cookie names that might need to be cleared
+    const cookiesToClear = [
+      // NextAuth cookies
+      'next-auth.session-token',
+      '__Secure-next-auth.session-token',
+      '__Host-next-auth.session-token',
+      'next-auth.csrf-token',
+      '__Host-next-auth.csrf-token',
+      'next-auth.callback-url',
+      '__Secure-next-auth.callback-url',
+      // Supabase cookies
+      'sb-access-token',
+      'sb-refresh-token',
+      // CSRF tokens
+      'csrf_secret',
+      '__Host-csrf_secret'
+    ];
+    
+    // Clear all of these cookies just to be safe
+    cookiesToClear.forEach(cookieName => {
+      try {
+        cookieStore.delete(cookieName);
+      } catch (e) {
+        // Ignore errors - some cookies might not exist
+      }
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('Error clearing auth cookies:', error);
+    return false;
+  }
+} 

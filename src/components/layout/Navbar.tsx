@@ -14,6 +14,7 @@ import {
 import GlencairnGlass from '../ui/icons/GlencairnGlass';
 import { getProfileImageUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
 import SafeImage from '@/components/ui/SafeImage';
+import { createSupabaseBrowserClient } from '@/lib/supabase';
 
 export default function Navbar() {
   const { data: session, status } = useSession();
@@ -92,6 +93,40 @@ export default function Navbar() {
     return pathname.startsWith(path);
   };
 
+  // Enhanced sign out function that handles both NextAuth and Supabase
+  const handleSignOut = async () => {
+    try {
+      // First, call our custom logout API endpoint to clear cookies on the server
+      const logoutResponse = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!logoutResponse.ok) {
+        console.error('Server logout failed:', await logoutResponse.text());
+      }
+      
+      // Get the Supabase client to clear browser state
+      const supabase = createSupabaseBrowserClient();
+      
+      // Sign out from Supabase client-side
+      await supabase.auth.signOut();
+      
+      // Clear UI state
+      setIsProfileOpen(false);
+      setIsMobileMenuOpen(false);
+      
+      // Use NextAuth's signOut for final cleanup and redirect
+      await signOut({ callbackUrl: '/', redirect: true });
+    } catch (error) {
+      console.error('Error during sign out:', error);
+      // If something fails, try basic sign out
+      await signOut({ callbackUrl: '/' });
+    }
+  };
+
   // Profile menu component
   function ProfileMenu() {
     if (!session) return null;
@@ -149,10 +184,7 @@ export default function Navbar() {
         <div className="py-1 border-t border-gray-700">
           <button 
             className="w-full px-4 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-gray-700 flex items-center gap-2"
-            onClick={() => {
-              setIsProfileOpen(false);
-              signOut({ callbackUrl: '/' });
-            }}
+            onClick={handleSignOut}
           >
             <LogOut size={16} />
             Sign Out
@@ -266,10 +298,7 @@ export default function Navbar() {
         
         <button
           className="w-full mt-2 px-3 py-2.5 rounded-lg font-medium flex items-center text-red-400 hover:text-red-300 hover:bg-gray-800/50"
-          onClick={() => {
-            setIsMobileMenuOpen(false);
-            signOut({ callbackUrl: '/' });
-          }}
+          onClick={handleSignOut}
         >
           <LogOut className="mr-3" size={18} />
           Sign Out

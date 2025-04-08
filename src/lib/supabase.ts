@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { createBrowserClient } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
+import { NextRequest, NextResponse } from 'next/server';
 
 // Global singleton for browser client
 let supabaseBrowserClientInstance: ReturnType<typeof createClient> | null = null;
@@ -59,6 +61,43 @@ export const createSupabaseBrowserClient = () => {
   );
   
   return supabaseBrowserClientInstance;
+};
+
+// Create a Supabase client from a NextRequest/NextResponse context (for middleware/route handlers)
+export const createSupabaseServerClientFromRequest = (
+  req: NextRequest,
+  res?: NextResponse
+) => {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!isValidSupabaseConfig(supabaseUrl, supabaseAnonKey)) {
+    console.error('Invalid or missing Supabase environment variables');
+    return null;
+  }
+
+  // Create or use the provided response object
+  let response = res || NextResponse.next({ request: req });
+  
+  return createServerClient(
+    supabaseUrl!,
+    supabaseAnonKey!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            // Set on request cookies for the current execution
+            req.cookies.set(name, value);
+            // Set on response cookies to be sent back to client
+            response.cookies.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
 };
 
 // Supabase client for server usage (with service key)

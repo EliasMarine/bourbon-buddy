@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { nanoid } from 'nanoid';
 import { createServerClient } from '@supabase/ssr';
+import { createSupabaseServerClientFromRequest } from '@/lib/supabase';
 
 // Handle HTTP to HTTPS upgrade for external resources
 function externalResourceMiddleware(req: NextRequest) {
@@ -28,10 +29,10 @@ function externalResourceMiddleware(req: NextRequest) {
 }
 
 // Main middleware without auth
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   try {
     // Set security headers
-    const response = NextResponse.next({
+    let response = NextResponse.next({
       request: {
         // Clone request headers to make sure they're preserved
         headers: new Headers(req.headers)
@@ -68,34 +69,11 @@ export function middleware(req: NextRequest) {
       return NextResponse.redirect(newUrl);
     }
 
-    // Create Supabase client for authentication token handling
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        // Configure the cookies interface correctly for Supabase ssr
-        cookies: {
-          getAll() {
-            return req.cookies.getAll();
-          },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              // First set on the request cookies for middleware
-              req.cookies.set(name, value);
-              // Then set on the response for the client
-              response.cookies.set(name, value, {
-                ...options,
-                domain: undefined // Required for cookie prefixes to work
-              });
-            });
-          }
-        }
-      }
-    );
+    // Create Supabase client for authentication token handling - using our utility
+    const supabase = createSupabaseServerClientFromRequest(req, response);
 
-    // Get the user session if it exists, but don't enforce auth for all routes
-    // IMPORTANT: Only retrieve user if we're on a protected route to avoid unnecessary token refreshes
-    // Note: This is a lightweight operation that won't impact performance
+    // IMPORTANT: After auth state is initialized, get the user to refresh tokens if needed
+    // Note: We need to await this to ensure tokens are refreshed before proceeding
     const maybeProtectedRoute = 
       req.nextUrl.pathname.startsWith('/dashboard') ||
       req.nextUrl.pathname.startsWith('/profile') ||
@@ -107,11 +85,13 @@ export function middleware(req: NextRequest) {
       !req.nextUrl.pathname.startsWith('/api/status') &&
       !req.nextUrl.pathname.startsWith('/api/csrf');
     
-    if (maybeProtectedRoute) {
-      // This automatically refreshes the session if needed
-      supabase.auth.getUser().catch(err => {
+    if (maybeProtectedRoute && supabase) {
+      try {
+        // This automatically refreshes the session if needed
+        await supabase.auth.getUser();
+      } catch (err) {
         console.error('Error in Supabase auth middleware:', err);
-      });
+      }
     }
 
     // Set a standard CSRF token cookie without prefixes
