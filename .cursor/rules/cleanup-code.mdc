@@ -1,0 +1,126 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+## 🧹 Project Cleanup Checklist
+
+A handy list to identify and remove outdated, deprecated, or unused files, types, configs, APIs, and dependencies.
+
+---
+
+### 📦 Dependencies & Libraries
+
+- [ ] **Next.js 15.2.4** – Check for breaking changes and deprecated features.
+- [ ] **TypeScript 5.3.3** – Verify no deprecated types or incompatible config settings.
+- [ ] **Tailwind CSS 3.4.1** – Audit for deprecated utilities or unused custom plugins.
+- [ ] **Prisma 6.5.0** – Remove unused models or relation fields in schema.
+- [ ] **Socket.IO 4.8.1** – Check for unused event names or listeners.
+- [ ] **Supabase 2.49.4** – Verify client SDK usage; remove outdated auth/storage code.
+- [ ] **Redis** – Identify stale caching logic or duplicate keys.
+- [ ] **MUX Video** – Clean up unused API endpoints or old upload handlers.
+
+---
+
+### 🧾 Files & Folders
+
+- [ ] Unused route files in `pages/` or `app/` (e.g., `oldHome.tsx`, `tempPage.tsx`)
+- [ ] Stale components in `components/` not imported anywhere
+- [ ] Redundant or unused helpers in `utils/` or `lib/`
+- [ ] Outdated assets in `public/` (e.g., unused images, videos, scripts)
+- [ ] `.env` variables no longer referenced in code
+- [ ] Legacy API routes (`/api/test.ts`, `/api/legacyAuth.ts`)
+- [ ] Unused Prisma migration or seed files
+- [ ] Old dev scripts in `scripts/` or `bin/` (e.g., `seedOld.ts`, `migrateLegacy.sh`)
+
+---
+
+### ⚙️ Configuration & Typings
+
+- [ ] Remove old or unused interfaces/types in `types/`
+- [ ] Clean up ESLint / Prettier rules that no longer apply
+- [ ] Tailwind config: remove unused plugin configs or themes
+- [ ] Remove outdated `tsconfig.json` paths or compilerOptions
+- [ ] Prune obsolete entries in `.dockerignore`, `.env.example`, `.gitignore`
+- [ ] Delete unused deployment configs (`vercel.json`, `now.json`)
+
+---
+
+### 🔌 API, Sockets, & Realtime
+
+- [ ] Remove deprecated or duplicate endpoints in `/api/`
+- [ ] Clean unused `socket.on('eventName')` handlers
+- [ ] Delete MUX or Supabase realtime subscriptions no longer used
+- [ ] Remove Prisma queries for deleted or renamed models
+
+---
+
+### 🧪 Tests & Dev Tools
+
+- [ ] Delete test files in `__tests__/` or `.spec.tsx` that no longer test active code
+- [ ] Clean up unused test utilities or mocks
+- [ ] Remove redundant or outdated Storybook stories and snapshots
+
+---
+
+### 🧠 Project Structure & Architecture
+
+- [ ] Check for circular dependencies between modules/components
+- [ ] Remove abandoned or half-built feature folders
+- [ ] Consolidate duplicated logic across components, hooks, and utils
+- [ ] Verify shared components/hooks are still used
+
+---
+
+### 🧩 Next.js Specific
+
+- [ ] Remove unused `metadata`, `generateStaticParams`, or `getStaticProps`
+- [ ] Audit dynamic routes for unused pages
+- [ ] Clean up layouts, templates, `loading.tsx`, and `error.tsx` files
+- [ ] Remove `_document.tsx` if not customized
+- [ ] Delete legacy pages if moved to App Router
+
+---
+
+### 🧵 Tailwind CSS
+
+- [ ] Use PurgeCSS to remove unused classes
+- [ ] Clean up unused theme extensions or variants in `tailwind.config.ts`
+
+---
+
+### 🔐 Authentication / Security
+
+- [ ] Remove stale Supabase auth logic
+- [ ] Check for expired/leaked secrets in git history
+- [ ] Prune unused Supabase roles/permissions
+- [ ] Harden CORS settings for Socket.IO/Supabase
+
+---
+
+### 📜 Logging & Analytics
+
+- [ ] Remove `console.log` and debug logs in production code
+- [ ] Clean up outdated error handling or analytics events
+- [ ] Remove unreferenced middleware or logging hooks
+
+---
+
+### 🛠 Dev & Tooling
+
+- [ ] Remove unused `.vscode/settings.json` entries
+- [ ] Prune dev dependencies no longer used
+- [ ] Clear `.turbo/`, `.next/`, and unused lockfiles
+- [ ] Review `postinstall`, `build`, `lint` scripts in `package.json`
+
+---
+
+### ⚙️ Build & Deploy
+
+- [ ] Clean unused env vars and build overrides in hosting platform
+- [ ] Simplify server config if using Edge/Serverless
+- [ ] Remove unused Dockerfile stages or base images
+
+---
+
+✅ Tip: Use tools like `ts-prune`, `eslint-plugin-unused-imports`, `depcheck`, or `prisma format` to automate detection.

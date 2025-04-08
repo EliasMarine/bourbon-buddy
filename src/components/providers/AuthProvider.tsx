@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { SessionProvider, signIn } from 'next-auth/react';
+import { SessionProvider, signIn, useSession } from 'next-auth/react';
 import { createSupabaseBrowserClient } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 
@@ -9,9 +9,12 @@ interface AuthProviderProps {
   children: React.ReactNode;
 }
 
-export default function AuthProvider({ children }: AuthProviderProps) {
+// Inner component to handle auth sync logic
+function AuthSyncProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const { data: session } = useSession();
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isAuthSynced, setIsAuthSynced] = useState(false);
 
   // Initialize and configure Supabase auth on client side
   useEffect(() => {
@@ -20,22 +23,34 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         const supabase = createSupabaseBrowserClient();
         
         // Handle initial session
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          console.log('Supabase session detected:', session.user.id);
+        const { data: { session: supabaseSession } } = await supabase.auth.getSession();
+        
+        // Log the current auth state for debugging
+        console.log('NextAuth session:', session?.user?.email || 'no session');
+        console.log('Supabase session:', supabaseSession?.user?.email || 'no session');
+        
+        // Only attempt to sync if we have a Supabase session but no NextAuth session
+        if (supabaseSession && !session) {
+          console.log('Syncing Supabase session with NextAuth');
           
-          // Sync Supabase session with NextAuth
-          // This helps ensure both auth systems are in sync
-          const result = await fetch('/api/auth/session');
-          if (!result.ok) {
-            // If no NextAuth session but Supabase session exists, sync them
-            console.log('Syncing Supabase session with NextAuth');
+          try {
+            // Attempt to sign in with existing Supabase session
             await signIn('credentials', { 
               redirect: false,
-              email: session.user.email,
+              email: supabaseSession.user.email,
               // This is just a signal to our auth API - actual auth is done with the Supabase session
               supabaseSession: 'true'
             });
+            
+            // Refresh to update the UI with new auth state
+            router.refresh();
+          } catch (signInError) {
+            console.error('Error signing in with Supabase session:', signInError);
+            // If sign-in fails, we might need to clear the inconsistent state
+            if (process.env.NODE_ENV === 'production') {
+              // In production, try to force refresh tokens
+              await supabase.auth.refreshSession();
+            }
           }
         }
         
@@ -53,9 +68,13 @@ export default function AuthProvider({ children }: AuthProviderProps) {
           } else if (event === 'TOKEN_REFRESHED') {
             // Silently refresh the page to ensure fresh data
             router.refresh();
+          } else if (event === 'USER_UPDATED') {
+            // User data changed, refresh the UI
+            router.refresh();
           }
         });
         
+        setIsAuthSynced(true);
         setIsInitialized(true);
         
         return () => {
@@ -71,16 +90,24 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     };
     
     initAuth();
-  }, [router]);
+  }, [router, session]);
 
   // Only render the children once auth is initialized to avoid flickering
+  if (!isInitialized) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-500"></div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
+export default function AuthProvider({ children }: AuthProviderProps) {
   return (
     <SessionProvider>
-      {isInitialized ? children : 
-        <div className="flex items-center justify-center min-h-screen">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-500"></div>
-        </div>
-      }
+      <AuthSyncProvider>{children}</AuthSyncProvider>
     </SessionProvider>
   );
 } 

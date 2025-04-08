@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
 
 // Global singleton for browser client
 let supabaseBrowserClientInstance: ReturnType<typeof createClient> | null = null;
@@ -46,11 +47,17 @@ export const createSupabaseBrowserClient = () => {
       auth: {
         getSession: () => Promise.resolve({ data: { session: null }, error: null }),
         signInWithPassword: () => Promise.resolve({ data: null, error: { message: 'Supabase not configured' } }),
+        onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } }, error: null }),
       }
     } as any;
   }
 
-  supabaseBrowserClientInstance = createClient(supabaseUrl!, supabaseAnonKey!);
+  // Use the modern SSR browser client
+  supabaseBrowserClientInstance = createBrowserClient(
+    supabaseUrl!,
+    supabaseAnonKey!
+  );
+  
   return supabaseBrowserClientInstance;
 };
 

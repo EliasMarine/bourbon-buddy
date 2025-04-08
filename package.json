@@ -49,6 +49,7 @@
     "@mux/mux-player-react": "^3.3.3",
     "@prisma/client": "^6.5.0",
     "@stripe/stripe-js": "^7.0.0",
+    "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.49.4",
     "@tailwindcss/aspect-ratio": "^0.4.2",
     "@tailwindcss/forms": "^0.5.10",

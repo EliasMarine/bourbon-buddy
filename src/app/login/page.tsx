@@ -1,29 +1,59 @@
 'use client';
 
 import React from 'react';
-import { signIn } from 'next-auth/react';
+import { signIn, useSession } from 'next-auth/react';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createSupabaseBrowserClient } from '@/lib/supabase';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+  const { data: session, status } = useSession();
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [supabase, setSupabase] = useState<any>(null);
 
+  // Redirect if already logged in
+  useEffect(() => {
+    if (status === 'authenticated' && session) {
+      console.log('User already authenticated, redirecting to dashboard');
+      router.push(callbackUrl);
+    }
+  }, [session, status, router, callbackUrl]);
+
   // Initialize Supabase client
   useEffect(() => {
     try {
       const supabaseClient = createSupabaseBrowserClient();
       setSupabase(supabaseClient);
+      
+      // Check for existing Supabase session
+      const checkSupabaseSession = async () => {
+        const { data } = await supabaseClient.auth.getSession();
+        if (data.session) {
+          console.log('Existing Supabase session found, syncing with NextAuth');
+          // Try to sync with NextAuth if needed
+          if (status !== 'authenticated') {
+            await signIn('credentials', { 
+              redirect: false,
+              email: data.session.user.email,
+              supabaseSession: 'true'
+            });
+            router.push(callbackUrl);
+          }
+        }
+      };
+      
+      checkSupabaseSession();
     } catch (err) {
       console.error('Failed to initialize Supabase client:', err);
     }
-  }, []);
+  }, [status, router, callbackUrl]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -54,6 +84,7 @@ export default function LoginPage() {
         email,
         password,
         redirect: false,
+        callbackUrl
       });
 
       if (result?.error) {
@@ -82,6 +113,7 @@ export default function LoginPage() {
             console.error('Failed to record login attempt:', e);
           }
         }
+        setIsLoading(false);
         return;
       }
 
@@ -101,12 +133,12 @@ export default function LoginPage() {
         console.error('Failed to record successful login:', e);
       }
 
-      router.push('/dashboard');
-      router.refresh();
+      // On successful login, redirect to the callback URL
+      console.log('Login successful, redirecting to:', callbackUrl);
+      router.push(callbackUrl);
     } catch (error) {
       console.error('Login error:', error);
       setError('An authentication error occurred. Please try again later.');
-    } finally {
       setIsLoading(false);
     }
   };
@@ -121,25 +153,34 @@ export default function LoginPage() {
         const { data, error } = await supabase.auth.signInWithOAuth({
           provider: 'facebook',
           options: {
-            redirectTo: `${window.location.origin}/dashboard`,
+            redirectTo: `${window.location.origin}${callbackUrl}`,
           },
         });
 
         if (error) {
           console.error('Supabase Facebook login error:', error);
           setError('Could not sign in with Facebook. Please try again later.');
+          setIsLoading(false);
         }
       } else {
         // For all other providers, use NextAuth
-        await signIn(provider, { callbackUrl: '/dashboard' });
+        await signIn(provider, { callbackUrl });
       }
     } catch (error) {
       console.error(`${provider} sign-in error:`, error);
       setError(`Could not sign in with ${provider}. Please try again later.`);
-    } finally {
       setIsLoading(false);
     }
   };
+
+  // If already authenticated, show loading spinner
+  if (status === 'loading' || (status === 'authenticated' && session)) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-gray-900 to-gray-800 py-12 px-4 sm:px-6 lg:px-8">
