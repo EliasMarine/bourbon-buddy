@@ -13,6 +13,9 @@ const nextConfig = {
     serverActions: {
       allowedOrigins: [process.env.NEXTAUTH_URL || 'http://localhost:3000']
     },
+    allowedDevOrigins: process.env.ALLOWED_DEV_ORIGINS 
+      ? process.env.ALLOWED_DEV_ORIGINS.split(',') 
+      : []
   },
   // Updated for modern Next.js standards
   serverExternalPackages: ['argon2'],
@@ -156,7 +159,6 @@ const nextConfig = {
       },
     ];
   },
-  allowedDevOrigins: ['192.168.1.219', '192.168.1.193']
 }
 
 module.exports = nextConfig
