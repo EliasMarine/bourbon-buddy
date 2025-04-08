@@ -152,6 +152,43 @@ MUX_WEBHOOK_SECRET=your-mux-webhook-secret
    - Configure Prisma's datasource to use a lower connection limit
    - Add pooler configuration to your DATABASE_URL
 
+### Troubleshooting Deployment
+
+#### DATABASE_URL Issues
+
+If you encounter the following error during deployment:
+
+```
+Error: DATABASE_URL is using the default Supabase pooler URL. Please set the correct database URL from your environment variables.
+```
+
+This indicates that the deployment is using the default Supabase pooler URL with placeholder credentials. To fix this:
+
+1. **Check your environment variables** in the Vercel dashboard:
+   - Go to your project in the Vercel dashboard
+   - Navigate to Settings > Environment Variables
+   - Verify that `DATABASE_URL` is properly set with actual credentials
+   - Make sure `DATABASE_URL` doesn't contain placeholder values like `postgres:postgres` or `default_password`
+   
+2. **Set up fallback database URLs**:
+   - Add `DIRECT_DATABASE_URL` as a backup connection string
+   - This should point directly to your database without pooler configuration
+
+3. **Run the fix script manually**:
+   ```bash
+   npm run fix-db
+   ```
+   
+4. **For Supabase users**:
+   - Avoid using the default pooler URL from Supabase
+   - Get the correct connection string from Supabase Dashboard > Project Settings > Database
+   - Use the "Connection string" with your actual password
+   - For production, use the "Connection pooling" string with your actual password
+
+5. **Restart the deployment** after fixing the environment variables.
+
+The application includes a validation system that prevents it from starting with incorrect database URLs to protect against connection issues and data loss.
+
 ## 📚 Documentation
 
 - [Deployment Guide](DEPLOYMENT.md)

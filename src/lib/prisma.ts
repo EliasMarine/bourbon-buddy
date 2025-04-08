@@ -48,8 +48,10 @@ function validateDatabaseUrl() {
     throw new Error('DATABASE_URL contains placeholder values. Please set a real database URL.');
   }
   
-  // Check if we're accidentally using the pooler URL from Supabase temp files
-  if (url.includes('aws-0-us-west-1.pooler.supabase.com')) {
+  // Check if we're accidentally using the default placeholder pooler URL from Supabase
+  // More specific check to avoid blocking valid pooler URLs
+  if (url.includes('aws-0-us-west-1.pooler.supabase.com') && 
+      (url.includes('postgres://postgres:postgres@') || url.includes('default_password'))) {
     throw new Error('DATABASE_URL is using the default Supabase pooler URL. Please set the correct database URL from your environment variables.');
   }
   

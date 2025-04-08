@@ -5,6 +5,7 @@
  * 1. Removing any Supabase pooler URL files
  * 2. Validating DATABASE_URL environment variable
  * 3. Ensuring correct database connection settings
+ * 4. Using fallback DATABASE_URL if provided
  */
 
 const fs = require('fs');
@@ -66,14 +67,47 @@ if (missingVars.length > 0) {
 
 // Check if DATABASE_URL contains invalid values
 const databaseUrl = process.env.DATABASE_URL || '';
-if (databaseUrl.includes('aws-0-us-west-1.pooler.supabase.com')) {
-  console.error('❌ DATABASE_URL contains the problematic Supabase pooler URL.');
-  console.error('Please update your DATABASE_URL in .env.local or environment variables.');
+const fallbackDatabaseUrl = process.env.DIRECT_DATABASE_URL || process.env.FALLBACK_DATABASE_URL || '';
+
+// Check for problematic pooler URL with default credentials
+let hasInvalidUrl = false;
+if (databaseUrl.includes('aws-0-us-west-1.pooler.supabase.com') && 
+    (databaseUrl.includes('postgres://postgres:postgres@') || databaseUrl.includes('default_password'))) {
+  console.error('❌ DATABASE_URL contains the problematic default Supabase pooler URL.');
+  hasInvalidUrl = true;
 } else if (databaseUrl.includes('username:password') || databaseUrl.includes('your-database-url')) {
   console.error('❌ DATABASE_URL contains placeholder values.');
-  console.error('Please update your DATABASE_URL with actual connection information.');
+  hasInvalidUrl = true;
 } else if (databaseUrl) {
   console.log('✅ DATABASE_URL looks valid.');
+}
+
+// If DATABASE_URL is invalid but we have a fallback, use it
+if (hasInvalidUrl && fallbackDatabaseUrl) {
+  console.log('📝 Fallback database URL found, using as temporary solution.');
+  process.env.DATABASE_URL = fallbackDatabaseUrl;
+  
+  // If in Vercel environment, attempt to set for the build
+  if (process.env.VERCEL) {
+    try {
+      // Create or update the .env file for the build
+      const envFilePath = '.env.production.local';
+      let envContent = '';
+      
+      if (fs.existsSync(envFilePath)) {
+        envContent = fs.readFileSync(envFilePath, 'utf8');
+        // Remove existing DATABASE_URL line if present
+        envContent = envContent.replace(/^DATABASE_URL=.*$/m, '');
+      }
+      
+      // Add the fallback URL
+      envContent += `\nDATABASE_URL="${fallbackDatabaseUrl}"\n`;
+      fs.writeFileSync(envFilePath, envContent);
+      console.log(`✅ Updated ${envFilePath} with fallback DATABASE_URL`);
+    } catch (error) {
+      console.error('❌ Failed to update environment file:', error.message);
+    }
+  }
 }
 
 console.log('\n📝 Next steps:');

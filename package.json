@@ -13,7 +13,7 @@
     "// Use dev:realtime for WebSockets, chat, and streaming features": "",
     "dev:realtime": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/pre-startup.ts && node server.js",
     "// Build and deployment scripts": "",
-    "build": "next build",
+    "build": "node scripts/fix-database-connection.js && next build",
     "start": "next start",
     "start:socket": "NODE_ENV=production node server.js",
     "start:next": "ts-node scripts/pre-startup.ts && next start",
@@ -28,9 +28,10 @@
     "db:migrate": "ts-node scripts/safe-migrate.ts",
     "db:cron-backup": "ts-node scripts/cron-backup.ts",
     "db:add-security-events": "prisma migrate resolve --applied add_security_events && prisma db push",
-    "vercel-build": "tsc --noEmit && next lint && prisma generate && prisma db push --accept-data-loss && next build",
-    "deploy": "next build && vercel deploy --prod",
-    "deploy:socket": "vercel deploy --prod"
+    "vercel-build": "node scripts/fix-database-connection.js && tsc --noEmit && next lint && prisma generate && prisma db push --accept-data-loss && next build",
+    "deploy": "node scripts/fix-database-connection.js && next build && vercel deploy --prod",
+    "deploy:socket": "vercel deploy --prod",
+    "fix-db": "node scripts/fix-database-connection.js"
   },
   "prisma": {
     "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
