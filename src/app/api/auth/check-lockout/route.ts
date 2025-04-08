@@ -3,16 +3,15 @@ import { isAccountLocked, getAccountStatus } from '@/lib/login-security';
 import { logSecurityEvent } from '@/lib/error-handlers';
 
 /**
- * API endpoint to check if an account is locked before login
- * This is designed to be called from the login page to prevent login attempts
- * for locked accounts
+ * Helper function to process account status check regardless of HTTP method
  */
-export async function POST(request: NextRequest) {
+async function checkAccountStatus(request: NextRequest, email?: string) {
   try {
-    // Don't reveal too much information about account status
-    // Only return whether the account is locked and remaining time if it is
-    const body = await request.json().catch(() => ({}));
-    const { email } = body;
+    // For GET requests, extract email from query params
+    if (!email && request.method === 'GET') {
+      const url = new URL(request.url);
+      email = url.searchParams.get('email') || undefined;
+    }
     
     if (!email) {
       return NextResponse.json(
@@ -52,7 +51,7 @@ export async function POST(request: NextRequest) {
     
     // Set CORS headers to ensure this endpoint works in all environments
     response.headers.set('Access-Control-Allow-Origin', '*');
-    response.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     response.headers.set('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-Token, csrf-token');
     
     return response;
@@ -66,18 +65,51 @@ export async function POST(request: NextRequest) {
     
     // Still set CORS headers on error
     response.headers.set('Access-Control-Allow-Origin', '*');
-    response.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     response.headers.set('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-Token, csrf-token');
     
     return response;
   }
 }
 
-// Add OPTIONS handler for CORS preflight requests
+/**
+ * API endpoint to check if an account is locked before login (POST method)
+ */
+export async function POST(request: NextRequest) {
+  try {
+    // Parse the body to get the email
+    const body = await request.json().catch(() => ({}));
+    return checkAccountStatus(request, body.email);
+  } catch (error) {
+    console.error('Error in POST check-lockout:', error);
+    return NextResponse.json(
+      { error: 'Invalid request format', status: 'error' },
+      { 
+        status: 400,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, X-CSRF-Token, csrf-token'
+        }
+      }
+    );
+  }
+}
+
+/**
+ * Alternative GET method to check lockout status (for simpler integration)
+ */
+export async function GET(request: NextRequest) {
+  return checkAccountStatus(request);
+}
+
+/**
+ * OPTIONS handler for CORS preflight requests
+ */
 export async function OPTIONS(request: NextRequest) {
   const response = new NextResponse(null, { status: 204 });
   response.headers.set('Access-Control-Allow-Origin', '*');
-  response.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   response.headers.set('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-Token, csrf-token');
   response.headers.set('Access-Control-Max-Age', '86400'); // 24 hours
   return response;

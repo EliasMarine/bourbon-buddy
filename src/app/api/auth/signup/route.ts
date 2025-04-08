@@ -5,6 +5,7 @@ import { handlePrismaError, handleAuthError, logSecurityEvent } from '@/lib/erro
 import { signupLimiter } from '@/lib/rate-limiters';
 import { z } from 'zod';
 import { validateCsrfToken, extractCsrfSecret, parseCookies } from '@/lib/csrf';
+import { DEFAULT_FALLBACK_IP } from '@/config/constants'
 
 // Define validation schema for user signup
 const userSignupSchema = z.object({
@@ -41,9 +42,9 @@ export async function POST(request: Request) {
     // Simplified rate limiting implementation
     // Avoiding direct function check since it fails in production build
     try {
-      const ip = request.headers.get('x-forwarded-for') || 
-                request.headers.get('x-real-ip') || 
-                '127.0.0.1';
+      const ip = request.headers.get('x-forwarded-for') ?? 
+                request.headers.get('x-real-ip') ?? 
+                DEFAULT_FALLBACK_IP;
       
       // Log the IP for debugging but don't block (actual rate limiting would use Redis/etc)
       console.log(`Rate limit check for signup from IP: ${ip}`);
@@ -59,10 +60,26 @@ export async function POST(request: Request) {
     const bypassCsrf = process.env.NODE_ENV !== 'production' || process.env.BYPASS_CSRF === 'true';
     
     if (!bypassCsrf) {
+      // First check headers in common formats
       const xCsrfToken = request.headers.get('x-csrf-token');
       const csrfTokenHeader = request.headers.get('csrf-token');
       const xCsrfTokenUpper = request.headers.get('X-CSRF-Token');
-      const csrfToken = xCsrfToken || csrfTokenHeader || xCsrfTokenUpper;
+      
+      // Also check if token is in the body for form submissions
+      let bodyToken;
+      if (request.headers.get('content-type')?.includes('application/json')) {
+        // Clone the request to avoid consuming the body
+        const clonedRequest = request.clone();
+        try {
+          const bodyData = await clonedRequest.json();
+          bodyToken = bodyData._csrf || bodyData.csrfToken;
+        } catch (e) {
+          // Ignore JSON parsing errors, just proceed without body token
+        }
+      }
+      
+      // Use the first available token
+      const csrfToken = xCsrfToken || csrfTokenHeader || xCsrfTokenUpper || bodyToken;
       
       // Detailed logging of what token we're checking
       console.log('CSRF token verification attempt for signup:', {
@@ -77,7 +94,14 @@ export async function POST(request: Request) {
         console.log('No cookies present in signup request');
         return NextResponse.json(
           { message: 'Browser cookies required for security. Please enable cookies.' },
-          { status: 403 }
+          { 
+            status: 403,
+            headers: {
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'POST, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type, X-CSRF-Token, csrf-token, X-Requested-With'
+            }
+          }
         );
       }
       
@@ -86,7 +110,26 @@ export async function POST(request: Request) {
       console.log('Cookies in signup request:', Object.keys(cookies));
       
       // Validate CSRF when tokens are present
-      if (csrfToken && !validateCsrfToken(request, csrfToken)) {
+      if (!csrfToken) {
+        logSecurityEvent('csrf_validation_failure', { 
+          endpoint: '/api/auth/signup',
+          reason: 'missing_token'
+        }, 'high');
+        
+        return NextResponse.json(
+          { message: 'CSRF token missing' },
+          { 
+            status: 403,
+            headers: {
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'POST, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type, X-CSRF-Token, csrf-token, X-Requested-With'
+            }
+          }
+        );
+      }
+      
+      if (!validateCsrfToken(request, csrfToken)) {
         logSecurityEvent('csrf_validation_failure', { 
           endpoint: '/api/auth/signup',
           reason: 'invalid_token'
@@ -94,7 +137,14 @@ export async function POST(request: Request) {
         
         return NextResponse.json(
           { message: 'Invalid CSRF token' },
-          { status: 403 }
+          { 
+            status: 403,
+            headers: {
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'POST, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type, X-CSRF-Token, csrf-token, X-Requested-With'
+            }
+          }
         );
       }
     } else {
@@ -184,4 +234,14 @@ export async function POST(request: Request) {
     // Use our shared error handler for Prisma errors
     return handlePrismaError(error, 'user signup');
   }
+}
+
+// Add OPTIONS handler for CORS preflight requests
+export async function OPTIONS(request: Request) {
+  const response = new NextResponse(null, { status: 204 });
+  response.headers.set('Access-Control-Allow-Origin', '*');
+  response.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-Token, csrf-token, X-Requested-With');
+  response.headers.set('Access-Control-Max-Age', '86400'); // 24 hours
+  return response;
 } 

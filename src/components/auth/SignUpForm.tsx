@@ -1,17 +1,65 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function SignUpForm() {
   const router = useRouter();
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [csrfToken, setCsrfToken] = useState<string | null>(null);
+
+  // Get CSRF token on component mount
+  useEffect(() => {
+    // Try to get token from sessionStorage first (set by CsrfToken provider)
+    try {
+      const storedToken = sessionStorage.getItem('csrfToken');
+      if (storedToken) {
+        console.log('Using cached CSRF token for signup form');
+        setCsrfToken(storedToken);
+        return;
+      }
+    } catch (err) {
+      console.warn('Unable to access sessionStorage', err);
+    }
+
+    // If no token in sessionStorage, fetch one
+    const fetchToken = async () => {
+      try {
+        const response = await fetch('/api/csrf', {
+          method: 'GET',
+          credentials: 'include',
+          cache: 'no-store'
+        });
+        const data = await response.json();
+        if (data.csrfToken) {
+          setCsrfToken(data.csrfToken);
+          // Store for future use
+          try {
+            sessionStorage.setItem('csrfToken', data.csrfToken);
+          } catch (err) {
+            console.warn('Unable to store CSRF token', err);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch CSRF token:', err);
+        setError('Failed to secure the form. Please try again or refresh the page.');
+      }
+    };
+
+    fetchToken();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+
+    if (!csrfToken) {
+      setError('Security token missing. Please refresh the page and try again.');
+      setIsLoading(false);
+      return;
+    }
 
     const formData = new FormData(e.currentTarget);
     const data = {
@@ -19,19 +67,28 @@ export default function SignUpForm() {
       password: formData.get('password'),
       username: formData.get('username'),
       name: formData.get('name'),
+      csrfToken: csrfToken // Include CSRF token in request body as well
     };
 
     try {
+      console.log('Submitting signup with CSRF token');
       const res = await fetch('/api/auth/signup', {
         method: 'POST',
+        credentials: 'include', // Important for cookies
         headers: {
           'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken, // Send in header
+          'csrf-token': csrfToken, // Alternative format
         },
         body: JSON.stringify(data),
       });
 
+      const responseData = await res.json().catch(() => ({ message: 'Server error' }));
+      
       if (!res.ok) {
-        throw new Error(await res.text());
+        const errorMessage = responseData.message || 'Signup failed';
+        console.error('Signup server error:', responseData);
+        throw new Error(errorMessage);
       }
 
       router.push('/login');
@@ -51,6 +108,9 @@ export default function SignUpForm() {
         </div>
       )}
       <form onSubmit={handleSubmit}>
+        {/* Add hidden CSRF token field */}
+        <input type="hidden" name="csrfToken" value={csrfToken || ''} />
+        
         <div className="mb-4">
           <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="name">
             Name
