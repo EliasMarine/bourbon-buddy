@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { createServerClient as createSsrServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import type { CookieOptions } from '@supabase/ssr';
+import type { Cookie } from 'next/dist/compiled/@edge-runtime/cookies';
 import { NextRequest, NextResponse } from 'next/server';
 
 // Helper function to safely check if we're on the server side
@@ -16,35 +18,45 @@ const isValidSupabaseConfig = (url?: string, key?: string) => {
   );
 };
 
+// Helper function to safely get cookies in Server Components
+const safeGetCookies = () => {
+  try {
+    const cookieStore = cookies();
+    // Check if getAll exists on the cookie store
+    if (typeof cookieStore.getAll === 'function') {
+      return cookieStore.getAll();
+    }
+    // Fallback for older Next.js versions
+    return [];
+  } catch (error) {
+    console.error('Error accessing cookies:', error);
+    return [];
+  }
+};
+
 /**
  * Creates a Supabase client for server component usage
  * Note: This function is only compatible with Next.js App Router
  * DO NOT use in pages/ directory or client components
  */
 export function createServerClient() {
+  const cookieStore = cookies()
+  
   return createSsrServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll: () => {
-          try {
-            // In Next.js App Router, cookies() returns ReadonlyRequestCookies
-            const cookieStore = cookies();
-            return cookieStore.getAll();
-          } catch (error) {
-            console.error('Error getting cookies:', error);
-            return [];
-          }
+        getAll() {
+          return cookieStore.getAll()
         },
-        setAll: () => {
-          // In server components, we can't set cookies directly
-          // This will be handled by the middleware
-          console.warn('Attempted to set cookies in server component - this is expected behavior');
+        setAll() {
+          // This is handled by the middleware
+          return new Response(null)
         },
       },
     }
-  );
+  )
 }
 
 /**
@@ -67,6 +79,7 @@ export function createMiddlewareClient(request: NextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
+            // Set on both request and response
             request.cookies.set(name, value);
             response.cookies.set(name, value, options);
           });

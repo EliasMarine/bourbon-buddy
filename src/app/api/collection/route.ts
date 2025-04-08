@@ -6,16 +6,35 @@ import { SpiritSchema } from '@/lib/validations/spirit';
 import spiritCategories from '@/lib/spiritCategories';
 import { ZodError } from 'zod';
 import { collectionGetLimiter, collectionPostLimiter } from '@/lib/rate-limiters';
-import { createSupabaseBrowserClient } from '@/lib/supabase';
+import { createServerClient } from '@/lib/supabase';
 import { validateCsrfToken } from '@/lib/csrf';
+import { cookies } from 'next/headers';
 
 // Improved session verification helper
 async function verifySession() {
   try {
-    const session = await getServerSession(authOptions);
+    // Check NextAuth session
+    const nextAuthSession = await getServerSession(authOptions);
     
-    if (!session?.user?.email) {
-      console.warn('Session verification failed: No user email in session');
+    // Check Supabase session
+    const supabase = createServerClient();
+    const { data: { user: supabaseUser }, error: supabaseError } = await supabase.auth.getUser();
+    
+    if (supabaseError) {
+      console.error('Supabase session error:', supabaseError);
+    }
+    
+    if (!supabaseUser) {
+      console.warn('Session verification failed: No Supabase user');
+      return { 
+        authenticated: false, 
+        error: 'Unauthorized - Authentication required', 
+        statusCode: 401 
+      };
+    }
+    
+    if (!nextAuthSession?.user?.email) {
+      console.warn('Session verification failed: No user email in NextAuth session');
       return { 
         authenticated: false, 
         error: 'Unauthorized - No user email in session', 
@@ -25,24 +44,25 @@ async function verifySession() {
     
     // Find user in database
     const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
+      where: { email: nextAuthSession.user.email },
     });
     
     // Handle missing user
     if (!user) {
-      console.warn(`User not found in database: ${session.user.email}`);
+      console.warn(`User not found in database: ${nextAuthSession.user.email}`);
       return { 
         authenticated: false, 
         error: 'User not found in database', 
         statusCode: 401,
-        session
+        session: nextAuthSession
       };
     }
     
     return { 
       authenticated: true, 
       user,
-      session
+      session: nextAuthSession,
+      supabaseUser
     };
   } catch (error) {
     console.error('Session verification error:', error);
@@ -58,12 +78,22 @@ async function verifySession() {
 export async function GET(request: Request) {
   try {
     // Verify user session
-    const { authenticated, user, error, statusCode } = await verifySession();
+    const { authenticated, user, error, statusCode, supabaseUser } = await verifySession();
     
     if (!authenticated || !user) {
+      console.error('API authentication failed:', error);
       return NextResponse.json(
         { error },
         { status: statusCode }
+      );
+    }
+    
+    // Ensure the Supabase user is authenticated
+    if (!supabaseUser) {
+      console.error('Supabase user not authenticated');
+      return NextResponse.json(
+        { error: 'Supabase authentication required' },
+        { status: 401 }
       );
     }
     
@@ -98,13 +128,22 @@ export async function POST(request: Request) {
     }
     
     // Verify user session
-    const { authenticated, user, session, error, statusCode } = await verifySession();
+    const { authenticated, user, session, error, statusCode, supabaseUser } = await verifySession();
     
     if (!authenticated || !user) {
       console.error(`Session verification failed: ${error}`);
       return NextResponse.json(
         { error },
         { status: statusCode }
+      );
+    }
+    
+    // Ensure the Supabase user is authenticated
+    if (!supabaseUser) {
+      console.error('Supabase user not authenticated');
+      return NextResponse.json(
+        { error: 'Supabase authentication required' },
+        { status: 401 }
       );
     }
 

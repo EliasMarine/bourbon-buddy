@@ -7,7 +7,12 @@ const protectedRoutes = [
   '/dashboard',
   '/profile',
   '/streams/create',
-  '/api/'
+  '/collection',
+  '/api/collection',
+  '/api/spirits/',
+  '/api/user/',
+  '/api/upload',
+  '/api/protected'
 ]
 
 // Define public routes that should be accessible without authentication
@@ -54,6 +59,10 @@ export async function middleware(request: NextRequest) {
       "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://bourbonbuddy.live"
     )
 
+    // IMPORTANT: Call getUser to refresh the session if needed
+    // This is critical to prevent users from being logged out unexpectedly
+    const { data: { user } } = await supabase.auth.getUser()
+    
     // Check if this is a static asset request
     const isStaticAsset = staticAssetPatterns.some(pattern => 
       pattern.test(request.nextUrl.pathname)
@@ -81,10 +90,7 @@ export async function middleware(request: NextRequest) {
     
     // For protected routes, apply auth check
     if (isProtectedRoute) {
-      // Refresh the user's session
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      // If no user, redirect to login
+      // If no user, return unauthorized response or redirect
       if (!user) {
         // Return JSON error for API routes
         if (request.nextUrl.pathname.startsWith('/api/')) {

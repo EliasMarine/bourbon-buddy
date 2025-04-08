@@ -2,8 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { SessionProvider, signIn, useSession } from 'next-auth/react';
-import { createSupabaseBrowserClient } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
+import { useSupabase } from './SupabaseProvider';
 
 interface AuthProviderProps {
   children: React.ReactNode;
@@ -13,15 +13,13 @@ interface AuthProviderProps {
 function AuthSyncProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { data: session } = useSession();
+  const supabase = useSupabase();
   const [isInitialized, setIsInitialized] = useState(false);
-  const [isAuthSynced, setIsAuthSynced] = useState(false);
 
-  // Initialize and configure Supabase auth on client side
+  // Initialize and configure auth sync on client side
   useEffect(() => {
     const initAuth = async () => {
       try {
-        const supabase = createSupabaseBrowserClient();
-        
         // Handle initial session
         const { data: { session: supabaseSession } } = await supabase.auth.getSession();
         
@@ -29,7 +27,7 @@ function AuthSyncProvider({ children }: { children: React.ReactNode }) {
         console.log('NextAuth session:', session?.user?.email || 'no session');
         console.log('Supabase session:', supabaseSession?.user?.email || 'no session');
         
-        // Only attempt to sync if we have a Supabase session but no NextAuth session
+        // Sync Supabase with NextAuth
         if (supabaseSession && !session) {
           console.log('Syncing Supabase session with NextAuth');
           
@@ -46,43 +44,10 @@ function AuthSyncProvider({ children }: { children: React.ReactNode }) {
             router.refresh();
           } catch (signInError) {
             console.error('Error signing in with Supabase session:', signInError);
-            // If sign-in fails, we might need to clear the inconsistent state
-            if (process.env.NODE_ENV === 'production') {
-              // In production, try to force refresh tokens
-              await supabase.auth.refreshSession();
-            }
           }
         }
         
-        // Set up auth state change listener
-        const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-          console.log('Supabase auth event:', event, session?.user?.id || 'no session');
-          
-          // Handle auth state changes
-          if (event === 'SIGNED_IN') {
-            // Refresh the page to ensure app is in sync with auth state
-            router.refresh();
-          } else if (event === 'SIGNED_OUT') {
-            // Redirect to login or refresh
-            router.refresh();
-          } else if (event === 'TOKEN_REFRESHED') {
-            // Silently refresh the page to ensure fresh data
-            router.refresh();
-          } else if (event === 'USER_UPDATED') {
-            // User data changed, refresh the UI
-            router.refresh();
-          }
-        });
-        
-        setIsAuthSynced(true);
         setIsInitialized(true);
-        
-        return () => {
-          // Clean up listener
-          if (authListener) {
-            authListener.subscription.unsubscribe();
-          }
-        };
       } catch (error) {
         console.error('Auth initialization error:', error);
         setIsInitialized(true);
@@ -90,7 +55,7 @@ function AuthSyncProvider({ children }: { children: React.ReactNode }) {
     };
     
     initAuth();
-  }, [router, session]);
+  }, [router, session, supabase]);
 
   // Only render the children once auth is initialized to avoid flickering
   if (!isInitialized) {
