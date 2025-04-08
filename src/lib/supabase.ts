@@ -1,10 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
-import { createBrowserClient } from '@supabase/ssr';
-import { createServerClient } from '@supabase/ssr';
+import { createBrowserClient as createSsrBrowserClient } from '@supabase/ssr';
+import { createServerClient as createSsrServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 
 // Global singleton for browser client
-let supabaseBrowserClientInstance: ReturnType<typeof createClient> | null = null;
+let supabaseBrowserClientInstance: ReturnType<typeof createSsrBrowserClient> | null = null;
 
 // Helper function to safely check if we're on the server side
 export const isServer = () => typeof window === 'undefined';
@@ -55,7 +56,7 @@ export const createSupabaseBrowserClient = () => {
   }
 
   // Use the modern SSR browser client
-  supabaseBrowserClientInstance = createBrowserClient(
+  supabaseBrowserClientInstance = createSsrBrowserClient(
     supabaseUrl!,
     supabaseAnonKey!
   );
@@ -63,25 +64,53 @@ export const createSupabaseBrowserClient = () => {
   return supabaseBrowserClientInstance;
 };
 
-// Create a Supabase client from a NextRequest/NextResponse context (for middleware/route handlers)
-export const createSupabaseServerClientFromRequest = (
-  req: NextRequest,
-  res?: NextResponse
-) => {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// Browser client for client-side usage (singleton)
+let browserClient: any = null;
 
-  if (!isValidSupabaseConfig(supabaseUrl, supabaseAnonKey)) {
-    console.error('Invalid or missing Supabase environment variables');
-    return null;
-  }
-
-  // Create or use the provided response object
-  let response = res || NextResponse.next({ request: req });
+export function createBrowserClient() {
+  if (browserClient) return browserClient;
   
-  return createServerClient(
-    supabaseUrl!,
-    supabaseAnonKey!,
+  browserClient = createSsrBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+  
+  return browserClient;
+}
+
+// Server client for server components
+export function createServerClient() {
+  const cookieStore = cookies();
+  
+  return createSsrServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
+}
+
+// Middleware client
+export function createMiddlewareClient(req: NextRequest) {
+  const res = NextResponse.next({
+    request: {
+      headers: req.headers,
+    },
+  });
+  
+  const supabase = createSsrServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() {
@@ -89,16 +118,16 @@ export const createSupabaseServerClientFromRequest = (
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
-            // Set on request cookies for the current execution
             req.cookies.set(name, value);
-            // Set on response cookies to be sent back to client
-            response.cookies.set(name, value, options);
+            res.cookies.set(name, value, options);
           });
         },
       },
     }
   );
-};
+  
+  return { supabase, response: res };
+}
 
 // Supabase client for server usage (with service key)
 export const createSupabaseServerClient = () => {
@@ -133,11 +162,17 @@ export const createSupabaseServerClient = () => {
   return createClient(supabaseUrl!, supabaseKey!);
 };
 
-// Helper for getting storage public URLs
-export const getStoragePublicUrl = (bucket: string, path: string) => {
-  const client = createSupabaseBrowserClient();
-  return client.storage.from(bucket).getPublicUrl(path).data.publicUrl;
-};
+// Admin client for service role access
+export function createAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('Missing Supabase service credentials');
+  }
+  
+  return createClient(supabaseUrl, supabaseServiceKey);
+}
 
 // Admin client - only use on server-side
 export const supabaseAdmin = (() => {
@@ -187,4 +222,10 @@ export const withSupabaseAdmin = async <T>(
   }
   
   return callback(supabaseAdmin);
-}; 
+};
+
+// Utility to get file storage URLs
+export function getStorageUrl(bucket: string, path: string) {
+  const client = createBrowserClient();
+  return client.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+} 

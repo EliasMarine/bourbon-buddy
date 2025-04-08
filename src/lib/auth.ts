@@ -186,8 +186,9 @@ async function safeDbOperation<T>(operation: (client: any) => Promise<T>): Promi
   }
 }
 
+// Define NextAuth configuration options
 export const authOptions: NextAuthOptions = {
-  adapter: redis ? RedisAdapter(redis, prisma) : PrismaAdapter(prisma),
+  adapter: PrismaAdapter(prisma),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || '',
@@ -212,7 +213,7 @@ export const authOptions: NextAuthOptions = {
     CredentialsProvider({
       name: 'Credentials',
       credentials: {
-        email: { label: "Email", type: "text", placeholder: "john@example.com" },
+        email: { label: "Email", type: "text" },
         password: { label: "Password", type: "password" }
       },
       async authorize(credentials) {
@@ -223,15 +224,7 @@ export const authOptions: NextAuthOptions = {
 
         try {
           const normalizedEmail = credentials.email.toLowerCase().trim();
-          const lockStatus = await isAccountLocked(normalizedEmail);
           
-          if (lockStatus.isLocked) {
-            console.warn(`Login attempt for locked account: ${normalizedEmail}`);
-            const error = new Error("Account is locked due to too many login attempts");
-            error.name = "AccountLockedError";
-            throw error;
-          }
-
           const user = await prisma.user.findUnique({
             where: {
               email: normalizedEmail,
@@ -240,7 +233,6 @@ export const authOptions: NextAuthOptions = {
 
           if (!user || !user.password) {
             console.warn(`Login attempt failed: No user found with email ${normalizedEmail}`);
-            await recordFailedLoginAttempt(normalizedEmail, false);
             return null;
           }
 
@@ -251,22 +243,13 @@ export const authOptions: NextAuthOptions = {
 
           if (!passwordValid) {
             console.warn(`Login attempt failed: Invalid password for ${normalizedEmail}`);
-            await recordFailedLoginAttempt(normalizedEmail, false);
             return null;
           }
 
-          // Record successful login
-          await recordFailedLoginAttempt(normalizedEmail, true);
           console.log(`User ${normalizedEmail} logged in successfully`);
-
           return user;
         } catch (error) {
           console.error("Error in NextAuth authorize:", error);
-          // Rethrow specific errors like AccountLockedError
-          if (error.name === "AccountLockedError") {
-            throw error;
-          }
-          // For other errors, return null (authentication failure)
           return null;
         }
       },
@@ -276,10 +259,6 @@ export const authOptions: NextAuthOptions = {
     strategy: 'jwt',
     maxAge: 30 * 24 * 60 * 60, // 30 days
     updateAge: 24 * 60 * 60, // 24 hours
-  },
-  jwt: {
-    maxAge: 30 * 24 * 60 * 60, // 30 days
-    secret: process.env.NEXTAUTH_SECRET // Explicitly set the secret to ensure it's used
   },
   pages: {
     signIn: '/login',
@@ -293,7 +272,6 @@ export const authOptions: NextAuthOptions = {
         sameSite: 'lax',
         path: '/',
         secure: process.env.NODE_ENV === 'production',
-        domain: undefined
       },
     },
     callbackUrl: {
@@ -303,7 +281,6 @@ export const authOptions: NextAuthOptions = {
         sameSite: 'lax',
         path: '/',
         secure: process.env.NODE_ENV === 'production',
-        domain: undefined
       },
     },
     csrfToken: {
@@ -313,7 +290,6 @@ export const authOptions: NextAuthOptions = {
         sameSite: 'lax',
         path: '/',
         secure: process.env.NODE_ENV === 'production',
-        domain: undefined
       },
     },
   },
@@ -327,116 +303,42 @@ export const authOptions: NextAuthOptions = {
       }
       return token;
     },
-    async session({ session, token }: { session: any; token?: any }) {
-      try {
-        if (token && typeof token.id === "string") {
-          session.user.id = token.id;
-          session.user.email = token.email;
-          session.user.name = token.name;
-          session.user.image = token.image;
-        }
-        return session;
-      } catch (error) {
-        console.error("Error in NextAuth session callback:", error);
-        // Return a simplified session object if there's an error
-        return {
-          user: { 
-            id: token?.id || "unknown",
-            email: token?.email || session.user?.email || "unknown",
-            name: token?.name || session.user?.name || "User"
-          },
-          expires: session.expires
+    async session({ session, token }) {
+      if (token && typeof token.id === 'string') {
+        session.user = {
+          ...session.user,
+          id: token.id,
+          email: token.email as string,
+          name: token.name as string | null,
+          image: token.image as string | null
         };
       }
+      return session;
     },
   },
   debug: process.env.NODE_ENV === 'development',
-  events: {
-    async signIn(message) {
-      console.log("User signed in successfully:", message.user.email);
-    },
-    async signOut(message) {
-      console.log("User signed out:", message.token?.email || "Unknown user");
-    },
-    async error(message) {
-      console.error("NextAuth error:", message);
-    },
-  },
-  logger: {
-    error(code, metadata) {
-      console.error(`NextAuth Error [${code}]:`, metadata);
-    },
-    warn(code) {
-      console.warn(`NextAuth Warning [${code}]`);
-    },
-    debug(code, metadata) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`NextAuth Debug [${code}]:`, metadata);
-      }
-    },
-  },
 };
 
-// Clean up auth cookies - can be used in API routes to ensure proper cleanup
-export const cleanupAuthCookies = (response: Response) => {
-  // Set a new response with cleared cookies
-  const cleanedResponse = new Response(response.body, response);
-  
-  // Define common auth cookie names that might need to be cleared
+// Helper function to clean auth cookies in responses
+export function cleanupAuthCookies(response: Response) {
   const cookiesToClear = [
-    // NextAuth cookies
     'next-auth.session-token',
     'next-auth.csrf-token',
     'next-auth.callback-url',
-    // Supabase cookies
     'sb-access-token',
     'sb-refresh-token',
-    // CSRF tokens
     'csrf_secret'
-  ];
+  ]
   
-  // Clear all of these cookies just to be safe
-  cookiesToClear.forEach(cookieName => {
+  const cleanedResponse = new Response(response.body, response)
+  
+  cookiesToClear.forEach(name => {
     cleanedResponse.headers.append('Set-Cookie', 
-      `${cookieName}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax; ${
+      `${name}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax; ${
         process.env.NODE_ENV === 'production' ? 'Secure; ' : ''
       }expires=Thu, 01 Jan 1970 00:00:00 GMT`
-    );
-  });
+    )
+  })
   
-  return cleanedResponse;
-};
-
-// Helper to clear auth cookies in server actions or route handlers
-export async function clearClientAuthCookies() {
-  try {
-    const cookieStore = cookies();
-    
-    // Define common auth cookie names that might need to be cleared
-    const cookiesToClear = [
-      // NextAuth cookies
-      'next-auth.session-token',
-      'next-auth.csrf-token',
-      'next-auth.callback-url',
-      // Supabase cookies
-      'sb-access-token',
-      'sb-refresh-token',
-      // CSRF tokens
-      'csrf_secret'
-    ];
-    
-    // Clear all of these cookies just to be safe
-    cookiesToClear.forEach(cookieName => {
-      try {
-        cookieStore.delete(cookieName);
-      } catch (e) {
-        // Ignore errors - some cookies might not exist
-      }
-    });
-    
-    return true;
-  } catch (error) {
-    console.error('Error clearing auth cookies:', error);
-    return false;
-  }
+  return cleanedResponse
 } 
