@@ -59,8 +59,16 @@ export async function middleware(request: NextRequest) {
       "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://bourbonbuddy.live"
     )
 
-    // IMPORTANT: Call getUser to refresh the session if needed
-    // This is critical to prevent users from being logged out unexpectedly
+    // CRITICAL: Fetch the session and user
+    // This is required for authentication to work properly
+    const { data: { session } } = await supabase.auth.getSession()
+    
+    // If we have a session, ensure it's refreshed if needed
+    if (session) {
+      await supabase.auth.setSession(session)
+    }
+    
+    // Get user after potential session refresh
     const { data: { user } } = await supabase.auth.getUser()
     
     // Check if this is a static asset request

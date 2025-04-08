@@ -1,8 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 import { createServerClient as createSsrServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
-import type { CookieOptions } from '@supabase/ssr';
-import type { Cookie } from 'next/dist/compiled/@edge-runtime/cookies';
 import { NextRequest, NextResponse } from 'next/server';
 
 // Helper function to safely check if we're on the server side
@@ -18,45 +15,46 @@ const isValidSupabaseConfig = (url?: string, key?: string) => {
   );
 };
 
-// Helper function to safely get cookies in Server Components
-const safeGetCookies = () => {
-  try {
-    const cookieStore = cookies();
-    // Check if getAll exists on the cookie store
-    if (typeof cookieStore.getAll === 'function') {
-      return cookieStore.getAll();
-    }
-    // Fallback for older Next.js versions
-    return [];
-  } catch (error) {
-    console.error('Error accessing cookies:', error);
-    return [];
-  }
-};
-
 /**
  * Creates a Supabase client for server component usage
  * Note: This function is only compatible with Next.js App Router
  * DO NOT use in pages/ directory or client components
  */
 export function createServerClient() {
-  const cookieStore = cookies()
+  // We need to dynamically import cookies() to avoid breaking in Pages Router
+  const getCookieStore = async () => {
+    try {
+      const { cookies } = await import('next/headers');
+      return cookies();
+    } catch (error) {
+      console.error('Error importing cookies from next/headers:', error);
+      return {
+        getAll: () => [],
+      };
+    }
+  };
   
   return createSsrServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return cookieStore.getAll()
+        async getAll() {
+          try {
+            const cookieStore = await getCookieStore();
+            return cookieStore.getAll();
+          } catch (error) {
+            console.error('Error getting cookies:', error);
+            return [];
+          }
         },
-        setAll() {
+        async setAll() {
+          // Server components can't set cookies directly
           // This is handled by the middleware
-          return new Response(null)
         },
       },
     }
-  )
+  );
 }
 
 /**
