@@ -1,12 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
-import { createBrowserClient as createSsrBrowserClient } from '@supabase/ssr';
 import { createServerClient as createSsrServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-// Don't import next/headers directly - import dynamically in server functions
-import type { CookieOptions } from '@supabase/ssr';
-
-// Global singleton for browser client
-let supabaseBrowserClientInstance: ReturnType<typeof createSsrBrowserClient> | null = null;
 
 // Helper function to safely check if we're on the server side
 export const isServer = () => typeof window === 'undefined';
@@ -21,123 +16,21 @@ const isValidSupabaseConfig = (url?: string, key?: string) => {
   );
 };
 
-// Check for and log any issues with environment variables
-function validateSupabaseEnvVars() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
-  
-  if (!supabaseUrl || supabaseUrl.includes('your-supabase')) {
-    console.error('NEXT_PUBLIC_SUPABASE_URL is not properly configured');
-  }
-  
-  if (!anonKey || anonKey.includes('your-supabase')) {
-    console.error('NEXT_PUBLIC_SUPABASE_ANON_KEY is not properly configured');
-  }
-  
-  if ((!serviceKey || serviceKey.includes('your-supabase')) && isServer()) {
-    console.error('SUPABASE_SERVICE_ROLE_KEY is not properly configured for server operations');
-  }
-}
-
-// Call validation on module import
-validateSupabaseEnvVars();
-
-// Supabase client for browser usage (with anon key) using singleton pattern
-export const createSupabaseBrowserClient = () => {
-  // Return the existing instance if it exists
-  if (supabaseBrowserClientInstance !== null) {
-    return supabaseBrowserClientInstance;
-  }
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!isValidSupabaseConfig(supabaseUrl, supabaseAnonKey)) {
-    console.error('Invalid or missing Supabase environment variables');
-    // Return a mock client that returns empty data for all operations
-    return {
-      from: () => ({
-        select: () => ({ data: null, error: { message: 'Supabase not configured' } }),
-        insert: () => ({ data: null, error: { message: 'Supabase not configured' } }),
-        update: () => ({ data: null, error: { message: 'Supabase not configured' } }),
-        delete: () => ({ data: null, error: { message: 'Supabase not configured' } }),
-      }),
-      storage: {
-        from: () => ({
-          upload: () => ({ data: null, error: { message: 'Supabase not configured' } }),
-          download: () => ({ data: null, error: { message: 'Supabase not configured' } }),
-          getPublicUrl: () => ({ data: { publicUrl: '' } }),
-        }),
-      },
-      auth: {
-        getSession: () => Promise.resolve({ data: { session: null }, error: null }),
-        signInWithPassword: () => Promise.resolve({ data: null, error: { message: 'Supabase not configured' } }),
-        onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } }, error: null }),
-      }
-    } as any;
-  }
-
-  // Use the modern SSR browser client
-  supabaseBrowserClientInstance = createSsrBrowserClient(
-    supabaseUrl!,
-    supabaseAnonKey!
-  );
-  
-  return supabaseBrowserClientInstance;
-};
-
-// Browser client for client-side usage (singleton)
-let browserClient: any = null;
-
-/**
- * Creates a Supabase client for browser usage
- */
-export function createBrowserClient() {
-  if (browserClient) return browserClient;
-  
-  browserClient = createSsrBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-  
-  return browserClient;
-}
-
 /**
  * Creates a Supabase client for server component usage
  * Note: This function is only compatible with Next.js App Router
- * DO NOT use in pages/ directory
+ * DO NOT use in pages/ directory or client components
  */
 export function createServerClient() {
-  // We need to dynamically import cookies() to avoid breaking in Pages Router
-  // This function should only be used in App Router
-  const getCookieStore = async () => {
-    try {
-      // Dynamically import cookies() from next/headers
-      const { cookies } = await import('next/headers');
-      return cookies();
-    } catch (error) {
-      console.error('Error importing cookies from next/headers:', error);
-      return {
-        getAll: () => [],
-        // Other cookie methods aren't used
-      };
-    }
-  };
-  
   return createSsrServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll: async () => {
+        getAll: () => {
           try {
-            const cookieStore = await getCookieStore();
-            if (typeof cookieStore.getAll !== 'function') {
-              console.warn('Cookie store getAll is not a function, returning empty array');
-              return [];
-            }
+            // In Next.js App Router, cookies() returns ReadonlyRequestCookies
+            const cookieStore = cookies();
             return cookieStore.getAll();
           } catch (error) {
             console.error('Error getting cookies:', error);
@@ -282,12 +175,4 @@ export const withSupabaseAdmin = async <T>(
   }
   
   return callback(supabaseAdmin);
-};
-
-/**
- * Gets the public URL for a file in storage
- */
-export function getStorageUrl(bucket: string, path: string) {
-  const client = createBrowserClient();
-  return client.storage.from(bucket).getPublicUrl(path).data.publicUrl;
-} 
+}; 

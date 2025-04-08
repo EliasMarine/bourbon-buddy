@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { createMiddlewareClient } from '@/lib/supabase'
+import { createMiddlewareClient } from '@/lib/supabase-server'
 
 // Define which routes should be protected by authentication
 const protectedRoutes = [
@@ -23,7 +23,7 @@ const publicRoutes = [
   '/favicon.ico'
 ]
 
-// Define static asset paths to ignore
+// Define static asset patterns to ignore
 const staticAssetPatterns = [
   /\.(jpe?g|png|gif|webp|svg|ico)$/i,
   /\.(css|js|map)$/i,
