@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createBrowserClient as createSsrBrowserClient } from '@supabase/ssr';
 import { createServerClient as createSsrServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import type { CookieOptions } from '@supabase/ssr';
 
 // Global singleton for browser client
@@ -19,6 +20,28 @@ const isValidSupabaseConfig = (url?: string, key?: string) => {
     !key.includes('your-supabase')
   );
 };
+
+// Check for and log any issues with environment variables
+function validateSupabaseEnvVars() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+  
+  if (!url || url.includes('your-supabase')) {
+    console.error('NEXT_PUBLIC_SUPABASE_URL is not properly configured');
+  }
+  
+  if (!anonKey || anonKey.includes('your-supabase')) {
+    console.error('NEXT_PUBLIC_SUPABASE_ANON_KEY is not properly configured');
+  }
+  
+  if ((!serviceKey || serviceKey.includes('your-supabase')) && isServer()) {
+    console.error('SUPABASE_SERVICE_ROLE_KEY is not properly configured for server operations');
+  }
+}
+
+// Call validation on module import
+validateSupabaseEnvVars();
 
 // Supabase client for browser usage (with anon key) using singleton pattern
 export const createSupabaseBrowserClient = () => {
@@ -81,31 +104,35 @@ export function createBrowserClient() {
   return browserClient;
 }
 
-// Server client for server components
+/**
+ * Creates a Supabase client for server component usage
+ * Note: cookies.getAll() must be awaited in Next.js App Router
+ */
 export function createServerClient() {
   return createSsrServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll: () => {
+        getAll: async () => {
           try {
-            // @ts-ignore - cookies() returns ReadonlyRequestCookies but TypeScript thinks it's a Promise
-            return cookies().getAll();
+            // In Next.js App Router, cookies() returns a promise that resolves to ReadonlyRequestCookies
+            const cookieStore = cookies();
+            // Return an empty array if cookies() itself is a promise
+            if (typeof cookieStore.getAll !== 'function') {
+              console.warn('Cookie store getAll is not a function, returning empty array');
+              return [];
+            }
+            return cookieStore.getAll();
           } catch (error) {
             console.error('Error getting cookies:', error);
             return [];
           }
         },
-        setAll: (cookiesToSet) => {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              // @ts-ignore - cookies() returns ReadonlyRequestCookies but TypeScript thinks it's a Promise
-              cookies().set(name, value, options);
-            });
-          } catch (error) {
-            console.error('Error setting cookies:', error);
-          }
+        setAll: () => {
+          // In server components, we can't set cookies directly
+          // This will be handled by the middleware
+          console.warn('Attempted to set cookies in server component - this is expected behavior');
         },
       },
     }

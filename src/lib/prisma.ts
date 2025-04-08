@@ -35,13 +35,42 @@ interface ErrorEvent {
   code?: string;
 }
 
+// Validate DATABASE_URL to ensure it's properly set
+function validateDatabaseUrl() {
+  const url = process.env.DATABASE_URL;
+  
+  if (!url) {
+    throw new Error('DATABASE_URL environment variable is not set');
+  }
+  
+  // Check if the URL contains placeholder text
+  if (url.includes('username:password') || url.includes('your-database-url')) {
+    throw new Error('DATABASE_URL contains placeholder values. Please set a real database URL.');
+  }
+  
+  // Check if we're accidentally using the pooler URL from Supabase temp files
+  if (url.includes('aws-0-us-west-1.pooler.supabase.com')) {
+    throw new Error('DATABASE_URL is using the default Supabase pooler URL. Please set the correct database URL from your environment variables.');
+  }
+  
+  return url;
+}
+
 // Get Prisma client based on environment
 export function getPrismaClient(): PrismaClient {
+  // Validate the database URL
+  const databaseUrl = validateDatabaseUrl();
+  
   // In development, use globalThis to avoid excessive connections
   if (process.env.NODE_ENV === 'development') {
     if (!globalForPrisma.prisma) {
       globalForPrisma.prisma = new PrismaClient({
-        log: ['query', 'error', 'warn']
+        log: ['query', 'error', 'warn'],
+        datasources: {
+          db: {
+            url: databaseUrl
+          }
+        }
       });
     }
     return globalForPrisma.prisma;
@@ -58,7 +87,7 @@ export function getPrismaClient(): PrismaClient {
       log: ['error'],
       datasources: {
         db: {
-          url: process.env.DATABASE_URL
+          url: databaseUrl
         }
       }
     });
@@ -115,7 +144,12 @@ export function getPrismaClient(): PrismaClient {
   // For other environments (non-serverless production), use a singleton
   if (!globalForPrisma.prisma) {
     globalForPrisma.prisma = new PrismaClient({
-      log: ['error']
+      log: ['error'],
+      datasources: {
+        db: {
+          url: databaseUrl
+        }
+      }
     });
   }
   return globalForPrisma.prisma;

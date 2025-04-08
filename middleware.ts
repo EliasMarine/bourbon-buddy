@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 
 // Handle HTTP to HTTPS upgrade for external resources
 function externalResourceMiddleware(req: NextRequest) {
@@ -30,18 +31,46 @@ function externalResourceMiddleware(req: NextRequest) {
   }
 }
 
-// Main middleware without auth
-export function middleware(req: NextRequest) {
+// Main middleware function
+export async function middleware(request: NextRequest) {
   try {
+    // Create a response object to modify
+    let response = NextResponse.next({
+      request: {
+        headers: request.headers,
+      }
+    });
+    
+    // Create Supabase client for auth session refresh
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            // Set cookies on both the request and the response
+            cookiesToSet.forEach(({ name, value, options }) => {
+              request.cookies.set(name, value);
+              response.cookies.set(name, value, options);
+            });
+          },
+        },
+      }
+    );
+    
+    // IMPORTANT: Call getUser to refresh the session if needed
+    // This is critical to prevent users from being logged out unexpectedly
+    const { data: { user } } = await supabase.auth.getUser();
+    
     // Skip for root path - allow visiting homepage without redirect
-    if (req.nextUrl.pathname === '/') {
-      return NextResponse.next();
+    if (request.nextUrl.pathname === '/') {
+      return response;
     }
     
     // Set security headers
-    const response = NextResponse.next();
-    
-    // Add security headers (CSP is now centralized in next.config.js)
     const headers = response.headers;
     headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
     headers.set('X-Content-Type-Options', 'nosniff');
@@ -79,23 +108,23 @@ export function middleware(req: NextRequest) {
     ];
     
     // Check if the path matches any public path
-    if (publicPaths.some(path => req.nextUrl.pathname.includes(path))) {
+    if (publicPaths.some(path => request.nextUrl.pathname.includes(path))) {
       // Add cache control for static assets 
-      if (req.nextUrl.pathname.startsWith('/_next/') || req.nextUrl.pathname.includes('/images/')) {
+      if (request.nextUrl.pathname.startsWith('/_next/') || request.nextUrl.pathname.includes('/images/')) {
         headers.set('Cache-Control', 'public, max-age=31536000, immutable');
       }
       return response;
     }
     
     // Skip WebSocket upgrade requests
-    if (req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+    if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       console.log('WebSocket upgrade request detected');
       return response;
     }
     
     // Skip socket.io polling requests
-    if (req.nextUrl.pathname.includes('/api/socketio') || 
-        req.nextUrl.pathname.includes('/api/socket.io')) {
+    if (request.nextUrl.pathname.includes('/api/socketio') || 
+        request.nextUrl.pathname.includes('/api/socket.io')) {
       console.log('Socket.IO request detected');
       return response;
     }
@@ -118,8 +147,8 @@ export function middleware(req: NextRequest) {
     
     // Check if current path requires authentication
     const requiresAuth = 
-      protectedRoutes.some(route => req.nextUrl.pathname.startsWith(route)) ||
-      streamHostRegex.test(req.nextUrl.pathname);
+      protectedRoutes.some(route => request.nextUrl.pathname.startsWith(route)) ||
+      streamHostRegex.test(request.nextUrl.pathname);
     
     if (requiresAuth) {
       // Add security headers for authenticated routes
@@ -128,14 +157,10 @@ export function middleware(req: NextRequest) {
       headers.set('Expires', '0');
       headers.set('Surrogate-Control', 'no-store');
       
-      // Check if the user is authenticated
-      const authHeader = req.headers.get('authorization');
-      const cookie = req.cookies.get('next-auth.session-token')?.value || 
-                    req.cookies.get('__Secure-next-auth.session-token')?.value;
-      
-      if (!authHeader && !cookie) {
+      // Check if the user is authenticated via Supabase
+      if (!user) {
         // In production, for API requests, return 401 instead of redirecting
-        if (process.env.NODE_ENV === 'production' && req.nextUrl.pathname.startsWith('/api/')) {
+        if (process.env.NODE_ENV === 'production' && request.nextUrl.pathname.startsWith('/api/')) {
           return new NextResponse(
             JSON.stringify({ 
               error: 'Authentication required',
@@ -152,8 +177,8 @@ export function middleware(req: NextRequest) {
         }
         
         // Redirect to login page with callback URL
-        const url = new URL('/login', req.url);
-        url.searchParams.set('callbackUrl', req.nextUrl.pathname);
+        const url = new URL('/login', request.url);
+        url.searchParams.set('callbackUrl', request.nextUrl.pathname);
         return NextResponse.redirect(url);
       }
     }
