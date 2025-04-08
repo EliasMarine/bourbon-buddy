@@ -6,8 +6,11 @@ const redisUrl = process.env.REDIS_URL || '';
 // Track if Redis is enabled
 const isRedisEnabled = !!redisUrl && process.env.USE_REDIS_FOR_SESSIONS === 'true';
 
-// Add debug logging
+// Add more detailed debug logging
 console.log(`Redis enabled: ${isRedisEnabled}`);
+console.log(`Redis URL present: ${!!redisUrl}`);
+console.log(`Redis URL: ${redisUrl ? redisUrl.substring(0, 9) + '...' : 'not set'}`);
+console.log(`USE_REDIS_FOR_SESSIONS: ${process.env.USE_REDIS_FOR_SESSIONS}`);
 if (redisUrl) {
   // Log URL pattern without exposing credentials
   const redisUrlObj = new URL(redisUrl);
