@@ -73,20 +73,21 @@ export function middleware(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
+        // Configure the cookies interface correctly for Supabase ssr
         cookies: {
           getAll() {
             return req.cookies.getAll();
           },
           setAll(cookiesToSet) {
-            // Set cookies on the response
-            let supabaseResponse = response;
             cookiesToSet.forEach(({ name, value, options }) => {
               // First set on the request cookies for middleware
               req.cookies.set(name, value);
               // Then set on the response for the client
-              supabaseResponse.cookies.set(name, value, options);
+              response.cookies.set(name, value, {
+                ...options,
+                domain: undefined // Required for cookie prefixes to work
+              });
             });
-            return supabaseResponse;
           }
         }
       }
@@ -115,7 +116,7 @@ export function middleware(req: NextRequest) {
 
     // Set a standard CSRF token cookie without prefixes
     if (!req.nextUrl.pathname.startsWith('/api/') && req.method === 'GET') {
-      const csrfCookieName = 'next-auth.csrf-token';
+      const csrfCookieName = process.env.NODE_ENV === 'production' ? '__Host-csrf_secret' : 'csrf_secret';
       const hasCsrfToken = req.cookies.has(csrfCookieName);
       
       if (!hasCsrfToken) {
@@ -129,6 +130,7 @@ export function middleware(req: NextRequest) {
           secure: isProduction, // Only set secure in production
           sameSite: 'lax',
           path: '/',
+          domain: undefined // Important for __Host- prefix
         });
       }
     }
@@ -191,9 +193,10 @@ export function middleware(req: NextRequest) {
       
       // If we're in production and using __Secure- prefix, make sure we're on HTTPS
       // as required by the prefix
-      if (isProduction && !isSecure) {
+      if (isProduction && !isSecure && req.headers.get('x-forwarded-proto') !== 'https') {
         const newUrl = req.nextUrl.clone();
         newUrl.protocol = 'https:';
+        newUrl.host = req.headers.get('host') || req.nextUrl.host;
         return NextResponse.redirect(newUrl);
       }
       

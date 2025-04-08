@@ -10,12 +10,12 @@ const tokens = new Tokens({
 
 // Get the appropriate cookie name based on environment
 export const getCsrfCookieName = () => {
-  return 'csrf_secret'
+  return process.env.NODE_ENV === 'production' ? '__Host-csrf_secret' : 'csrf_secret'
 }
 
 // Also support NextAuth's CSRF token
 export const getNextAuthCsrfCookieName = () => {
-  return 'next-auth.csrf-token'
+  return process.env.NODE_ENV === 'production' ? '__Host-next-auth.csrf-token' : 'next-auth.csrf-token'
 }
 
 // Generate a CSRF token with expiration tracking
@@ -89,9 +89,10 @@ export const createCsrfCookie = (secret: string, createdAt: number) => {
     const cookieOptions = {
       httpOnly: true,
       secure: isProduction,
-      sameSite: isProduction ? 'strict' : 'lax' as const,
+      sameSite: (isProduction ? 'strict' : 'lax') as 'strict' | 'lax' | 'none' | boolean,
       path: '/',
       maxAge: 60 * 60 * 24, // 1 day
+      domain: undefined // Required for __Host- prefix to work
     }
     
     return serialize(cookieName, JSON.stringify({ secret, createdAt }), cookieOptions)
@@ -101,7 +102,7 @@ export const createCsrfCookie = (secret: string, createdAt: number) => {
     return serialize('csrf_secret', 'fallback', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax' as const,
+      sameSite: 'lax' as 'strict' | 'lax' | 'none' | boolean,
       path: '/',
       maxAge: 60 * 60
     })
