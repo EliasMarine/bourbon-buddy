@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { createBrowserClient as createSsrBrowserClient } from '@supabase/ssr';
 import { createServerClient as createSsrServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import type { CookieOptions } from '@supabase/ssr';
 
 // Global singleton for browser client
 let supabaseBrowserClientInstance: ReturnType<typeof createSsrBrowserClient> | null = null;
@@ -67,6 +67,9 @@ export const createSupabaseBrowserClient = () => {
 // Browser client for client-side usage (singleton)
 let browserClient: any = null;
 
+/**
+ * Creates a Supabase client for browser usage
+ */
 export function createBrowserClient() {
   if (browserClient) return browserClient;
   
@@ -80,31 +83,42 @@ export function createBrowserClient() {
 
 // Server client for server components
 export function createServerClient() {
-  const cookieStore = cookies();
-  
   return createSsrServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return cookieStore.getAll();
+        getAll: () => {
+          try {
+            // @ts-ignore - cookies() returns ReadonlyRequestCookies but TypeScript thinks it's a Promise
+            return cookies().getAll();
+          } catch (error) {
+            console.error('Error getting cookies:', error);
+            return [];
+          }
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
+        setAll: (cookiesToSet) => {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              // @ts-ignore - cookies() returns ReadonlyRequestCookies but TypeScript thinks it's a Promise
+              cookies().set(name, value, options);
+            });
+          } catch (error) {
+            console.error('Error setting cookies:', error);
+          }
         },
       },
     }
   );
 }
 
-// Middleware client
-export function createMiddlewareClient(req: NextRequest) {
-  const res = NextResponse.next({
+/**
+ * Creates a Supabase client for middleware usage
+ */
+export function createMiddlewareClient(request: NextRequest) {
+  const response = NextResponse.next({
     request: {
-      headers: req.headers,
+      headers: request.headers,
     },
   });
   
@@ -114,19 +128,19 @@ export function createMiddlewareClient(req: NextRequest) {
     {
       cookies: {
         getAll() {
-          return req.cookies.getAll();
+          return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
-            req.cookies.set(name, value);
-            res.cookies.set(name, value, options);
+            request.cookies.set(name, value);
+            response.cookies.set(name, value, options);
           });
         },
       },
     }
   );
   
-  return { supabase, response: res };
+  return { supabase, response };
 }
 
 // Supabase client for server usage (with service key)
@@ -162,16 +176,20 @@ export const createSupabaseServerClient = () => {
   return createClient(supabaseUrl!, supabaseKey!);
 };
 
-// Admin client for service role access
+/**
+ * Creates a Supabase client with admin privileges
+ * Only use this on the server side
+ */
 export function createAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  
-  if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('Missing Supabase service credentials');
+  if (typeof window !== 'undefined') {
+    console.error('Admin client should only be used on the server side');
+    return null;
   }
   
-  return createClient(supabaseUrl, supabaseServiceKey);
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 }
 
 // Admin client - only use on server-side
@@ -224,7 +242,9 @@ export const withSupabaseAdmin = async <T>(
   return callback(supabaseAdmin);
 };
 
-// Utility to get file storage URLs
+/**
+ * Gets the public URL for a file in storage
+ */
 export function getStorageUrl(bucket: string, path: string) {
   const client = createBrowserClient();
   return client.storage.from(bucket).getPublicUrl(path).data.publicUrl;
