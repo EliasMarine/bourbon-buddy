@@ -107,13 +107,19 @@ interface SessionInfo {
 }
 
 export default function SessionDebugger() {
-  const { data: nextAuthSession } = useSession()
+  // Add a safeguard for SSR/prerendering
+  const session = useSession()
+  const nextAuthSession = session?.data
+  
   const supabase = useSupabase()
   const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const fetchSessionStatus = async () => {
+    // Skip if we're not in a browser environment
+    if (typeof window === 'undefined') return
+    
     setIsLoading(true)
     setError(null)
     
@@ -134,7 +140,10 @@ export default function SessionDebugger() {
   }
 
   useEffect(() => {
-    fetchSessionStatus()
+    // Only run this effect in browser environments
+    if (typeof window !== 'undefined') {
+      fetchSessionStatus()
+    }
   }, [nextAuthSession])
 
   const handleManualSync = async () => {

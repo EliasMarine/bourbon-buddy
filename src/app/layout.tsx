@@ -4,7 +4,7 @@ import { Toaster } from 'sonner'
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
 import ClientLayout from '../components/providers/ClientLayout'
-import SupabaseProvider from '@/components/providers/SupabaseProvider'
+import SupabaseProvider from '../components/providers/SupabaseProvider'
 
 const inter = Inter({ subsets: ['latin'] })
 

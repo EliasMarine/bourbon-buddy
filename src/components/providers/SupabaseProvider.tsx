@@ -3,7 +3,7 @@
 import { createBrowserClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { useState, useEffect, createContext, useContext } from 'react'
-import { useSession } from 'next-auth/react'
+import { useSession, SessionProvider } from 'next-auth/react'
 
 const SupabaseContext = createContext<ReturnType<typeof createBrowserClient> | undefined>(undefined)
 
@@ -15,15 +15,15 @@ export const useSupabase = () => {
   return context
 }
 
-export default function SupabaseProvider({ 
+function SupabaseProviderInner({ 
   children 
 }: { 
   children: React.ReactNode
 }) {
   const [supabase] = useState(() => createBrowserClient())
   const router = useRouter()
-  const { data: nextAuthSession } = useSession()
-  const [isAuthSyncing, setIsAuthSyncing] = useState(false)
+  const session = useSession()
+  const nextAuthSession = session?.data
 
   useEffect(() => {
     const {
@@ -52,8 +52,8 @@ export default function SupabaseProvider({
   // Sync NextAuth session with Supabase
   useEffect(() => {
     const syncAuthState = async () => {
-      // Skip if already syncing or no NextAuth session
-      if (isAuthSyncing || !nextAuthSession?.user?.email) return
+      // Skip if no NextAuth session
+      if (!nextAuthSession?.user?.email) return
       
       console.log('Checking Supabase session status', { 
         hasNextAuthSession: !!nextAuthSession, 
@@ -66,7 +66,6 @@ export default function SupabaseProvider({
       // If not signed in to Supabase but signed in to NextAuth
       if (!supabaseSession && nextAuthSession.user.email) {
         console.log('Syncing NextAuth session to Supabase', nextAuthSession.user.email)
-        setIsAuthSyncing(true)
         
         try {
           // If we have the access token directly from NextAuth, use it
@@ -91,8 +90,6 @@ export default function SupabaseProvider({
           }
         } catch (error) {
           console.error('Error syncing auth state:', error)
-        } finally {
-          setIsAuthSyncing(false)
         }
       }
     }
@@ -136,11 +133,26 @@ export default function SupabaseProvider({
     }
     
     syncAuthState()
-  }, [nextAuthSession, supabase, router, isAuthSyncing])
+  }, [nextAuthSession, supabase, router])
 
   return (
     <SupabaseContext.Provider value={supabase}>
       {children}
     </SupabaseContext.Provider>
+  )
+}
+
+// Wrap the inner component with SessionProvider to ensure useSession is available
+export default function SupabaseProvider({ 
+  children 
+}: { 
+  children: React.ReactNode
+}) {
+  return (
+    <SessionProvider>
+      <SupabaseProviderInner>
+        {children}
+      </SupabaseProviderInner>
+    </SessionProvider>
   )
 } 
