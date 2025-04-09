@@ -5,7 +5,8 @@ import { handlePrismaError, handleAuthError, logSecurityEvent } from '@/lib/erro
 import { signupLimiter } from '@/lib/rate-limiters';
 import { z } from 'zod';
 import { validateCsrfToken, extractCsrfSecret, parseCookies } from '@/lib/csrf';
-import { DEFAULT_FALLBACK_IP } from '@/config/constants'
+import { DEFAULT_FALLBACK_IP } from '@/config/constants';
+import { createClient } from '@supabase/supabase-js';
 
 // Define validation schema for user signup
 const userSignupSchema = z.object({
@@ -169,7 +170,13 @@ export async function POST(request: Request) {
         }
       }
       
-      // Check if user already exists
+      // Create Supabase client for user creation
+      const supabaseAdmin = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+      
+      // Check if user already exists in either database
       const existingUser = await prisma.user.findFirst({
         where: {
           OR: [
@@ -187,10 +194,32 @@ export async function POST(request: Request) {
         );
       }
 
+      // Check if email already exists in Supabase
+      const { data: supabaseUsers, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+      if (listError) {
+        console.error('Error checking existing Supabase users:', listError);
+        return NextResponse.json(
+          { message: 'Error checking user availability. Please try again.' },
+          { status: 500 }
+        );
+      }
+      
+      // Use proper type assertion for Supabase user
+      const existingSupabaseUser = supabaseUsers.users.find(
+        (user: any) => user.email?.toLowerCase() === email.toLowerCase()
+      );
+      
+      if (existingSupabaseUser) {
+        return NextResponse.json(
+          { message: 'User with this email already exists' },
+          { status: 400 }
+        );
+      }
+
       // Use strong hashing with higher cost factor
       const hashedPassword = await bcrypt.hash(password, 14);
 
-      // Create user with sanitized data
+      // Create user with sanitized data in the database
       const user = await prisma.user.create({
         data: {
           email,
@@ -199,6 +228,29 @@ export async function POST(request: Request) {
           password: hashedPassword,
         },
       });
+
+      // Create the user in Supabase Auth
+      const { data: newSupabaseUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          full_name: name || email,
+          username: username
+        }
+      });
+      
+      if (createError) {
+        console.error('Error creating Supabase user:', createError);
+        // We already created the database user, so we should continue
+        // but log the error for investigation
+        logSecurityEvent('supabase_user_creation_failed', { 
+          userId: user.id,
+          error: createError.message
+        }, 'medium');
+      } else {
+        console.log('Successfully created Supabase user:', newSupabaseUser.user.id);
+      }
 
       // Log successful user creation
       logSecurityEvent('user_created', { userId: user.id }, 'low');

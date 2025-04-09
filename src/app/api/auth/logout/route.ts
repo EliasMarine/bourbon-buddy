@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { type CookieOptions } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 
 export async function POST() {
   try {
-    // Create response and clear all cookies
+    // Create response to clear all cookies
     const response = NextResponse.json({ success: true });
     
     // Define common auth cookie names that might need to be cleared

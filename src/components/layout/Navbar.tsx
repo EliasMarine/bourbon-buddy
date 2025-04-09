@@ -96,34 +96,74 @@ export default function Navbar() {
   // Enhanced sign out function that handles both NextAuth and Supabase
   const handleSignOut = async () => {
     try {
-      // First, call our custom logout API endpoint to clear cookies on the server
+      console.log('🚪 Starting sign out process');
+      
+      // Clear UI state first
+      setIsProfileOpen(false);
+      setIsMobileMenuOpen(false);
+      
+      // Clear browser storage
+      try {
+        localStorage.removeItem('supabase.auth.token');
+        sessionStorage.removeItem('supabase.auth.token');
+        console.log('✅ Cleared local storage auth tokens');
+      } catch (storageError) {
+        console.error('Error clearing storage:', storageError);
+      }
+      
+      // First, server-side logout which clears all cookies
+      console.log('🔄 Calling server logout endpoint');
       const logoutResponse = await fetch('/api/auth/logout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
-        }
+        },
+        credentials: 'include' // Important to include cookies
       });
       
       if (!logoutResponse.ok) {
-        console.error('Server logout failed:', await logoutResponse.text());
+        console.error('❌ Server logout failed:', await logoutResponse.text());
+      } else {
+        console.log('✅ Server logout successful');
       }
       
       // Get the Supabase client to clear browser state
       const supabase = createSupabaseBrowserClient();
       
       // Sign out from Supabase client-side
+      console.log('🔄 Signing out from Supabase');
       await supabase.auth.signOut();
+      console.log('✅ Supabase sign out complete');
       
-      // Clear UI state
-      setIsProfileOpen(false);
-      setIsMobileMenuOpen(false);
+      // Wait a moment for Supabase to clean up
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       // Use NextAuth's signOut for final cleanup and redirect
-      await signOut({ callbackUrl: '/', redirect: true });
+      console.log('🔄 Starting NextAuth sign out');
+      await signOut({ 
+        callbackUrl: '/', 
+        redirect: true 
+      });
+      
+      console.log('✅ Sign out process complete');
     } catch (error) {
-      console.error('Error during sign out:', error);
-      // If something fails, try basic sign out
-      await signOut({ callbackUrl: '/' });
+      console.error('❌ Error during sign out:', error);
+      
+      // If something fails, try a more aggressive cleanup approach
+      try {
+        // Clear all cookies manually via API
+        await fetch('/api/auth/logout', { 
+          method: 'POST',
+          credentials: 'include'
+        });
+        
+        // Redirect to home page
+        window.location.href = '/';
+      } catch (fallbackError) {
+        console.error('❌ Even fallback logout failed:', fallbackError);
+        // Last resort: just use NextAuth signOut
+        await signOut({ callbackUrl: '/' });
+      }
     }
   };
 

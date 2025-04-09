@@ -382,6 +382,12 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
+  jwt: {
+    // Use the same secret as Supabase JWT for token verification
+    secret: process.env.SUPABASE_JWT_SECRET,
+    // Explicitly set maximum age to align with Supabase's expiration
+    maxAge: 7 * 24 * 60 * 60, // 7 days - should match Supabase settings
+  },
   debug: process.env.NODE_ENV === 'development',
 };
 
