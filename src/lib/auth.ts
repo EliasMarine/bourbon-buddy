@@ -214,10 +214,52 @@ export const authOptions: NextAuthOptions = {
       name: 'Credentials',
       credentials: {
         email: { label: "Email", type: "text" },
-        password: { label: "Password", type: "password" }
+        password: { label: "Password", type: "password" },
+        supabaseSession: { label: "Supabase Session", type: "text" }
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
+        if (!credentials) {
+          console.error("No credentials provided in authorization attempt");
+          return null;
+        }
+
+        // If this is a Supabase session sync, handle it differently
+        if (credentials.supabaseSession === 'true' && credentials.email) {
+          try {
+            console.log(`Authorizing via Supabase session for email: ${credentials.email}`);
+            
+            // Look up the user by email
+            const user = await prisma.user.findUnique({
+              where: {
+                email: credentials.email.toLowerCase().trim(),
+              },
+            });
+
+            if (user) {
+              console.log(`Found existing user for Supabase session: ${user.email}`);
+              return user;
+            } else {
+              console.warn(`No user found for Supabase session email: ${credentials.email}`);
+              return null;
+            }
+          } catch (error) {
+            console.error("Error in Supabase session authorize:", error);
+            
+            // In case of database error, log the user in if in development
+            if (process.env.NODE_ENV === 'development') {
+              console.warn("DEV MODE: Allowing login despite database error");
+              return {
+                id: "temp-user-id",
+                email: credentials.email,
+                name: "Temporary User"
+              };
+            }
+            return null;
+          }
+        }
+
+        // Regular email/password login
+        if (!credentials.email || !credentials.password) {
           console.error("Missing email or password in authorization attempt");
           return null;
         }
@@ -250,6 +292,17 @@ export const authOptions: NextAuthOptions = {
           return user;
         } catch (error) {
           console.error("Error in NextAuth authorize:", error);
+          
+          // In case of database error, provide a way to log in during development
+          if (process.env.NODE_ENV === 'development') {
+            console.warn("DEV MODE: Allowing fallback login");
+            // Return a temporary user when in development mode
+            return {
+              id: "temp-user-id",
+              email: credentials.email,
+              name: "Temporary User"
+            };
+          }
           return null;
         }
       },
@@ -294,13 +347,21 @@ export const authOptions: NextAuthOptions = {
     },
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
       if (user) {
         token.id = user.id;
         token.email = user.email;
         token.name = user.name;
         token.image = user.image;
       }
+      
+      // Include auth provider tokens if available
+      if (account) {
+        token.accessToken = account.access_token;
+        token.refreshToken = account.refresh_token;
+        token.provider = account.provider;
+      }
+      
       return token;
     },
     async session({ session, token }) {
@@ -312,6 +373,11 @@ export const authOptions: NextAuthOptions = {
           name: token.name as string | null,
           image: token.image as string | null
         };
+        
+        // Add access and refresh tokens to the session
+        session.accessToken = token.accessToken as string;
+        session.refreshToken = token.refreshToken as string;
+        session.provider = token.provider as string;
       }
       return session;
     },

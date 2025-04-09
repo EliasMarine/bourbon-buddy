@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { createServerClient } from '@/lib/supabase-server';
 
 // GET /api/spirits/featured - Get featured spirits from different users
 export async function GET(
@@ -22,12 +22,23 @@ export async function GET(
     const session = await getServerSession(authOptions);
     let userEmail: string | undefined;
     
+    // Check cookies for debugging
+    const headers = request.headers;
+    const cookieHeader = headers.get('cookie') || '';
+    const cookies = cookieHeader.split(';').map(c => c.trim());
+    const authCookies = cookies.filter(c => 
+      c.startsWith('next-auth.session-token=') || 
+      c.startsWith('sb-access-token=')
+    );
+    
+    console.log(`[${debugId}] 🍪 Auth cookies present: ${authCookies.map(c => c.split('=')[0])}`);
+    
     // If no NextAuth session, try to get from Supabase
     if (!session?.user?.email) {
       console.log(`[${debugId}] ℹ️ No NextAuth session, checking Supabase`);
       
       // Create Supabase server client
-      const supabase = createSupabaseServerClient();
+      const supabase = createServerClient();
       
       try {
         const { data: { session: supabaseSession }, error } = await supabase.auth.getSession();
@@ -48,14 +59,36 @@ export async function GET(
             console.log(`[${debugId}] ✅ Found user through auth.getUser: ${userData.user.email}`);
             userEmail = userData.user.email;
           } else {
-            // Return a helpful error message
-            return NextResponse.json(
-              { 
-                error: 'Unauthorized',
-                message: 'Authentication required to view featured spirits'
-              },
-              { status: 401 }
-            );
+            // If we have the special x-user-id header from middleware, use that
+            const userId = request.headers.get('x-user-id');
+            if (userId) {
+              console.log(`[${debugId}] ℹ️ Found user ID from middleware header: ${userId}`);
+              // Look up user email from the database using user ID
+              try {
+                const user = await prisma.user.findUnique({
+                  where: { id: userId },
+                  select: { email: true }
+                });
+                
+                if (user?.email) {
+                  console.log(`[${debugId}] ✅ Found user email from middleware user ID: ${user.email}`);
+                  userEmail = user.email;
+                }
+              } catch (dbError) {
+                console.error(`[${debugId}] ❌ Error looking up user email:`, dbError);
+              }
+            } else {
+              // Return a helpful error message
+              return NextResponse.json(
+                { 
+                  error: 'Unauthorized',
+                  message: 'Authentication required to view featured spirits',
+                  detail: 'No valid session found. Please log in.',
+                  debug: { hasNextAuth: !!session, authCookies: authCookies.map(c => c.split('=')[0]) }
+                },
+                { status: 401 }
+              );
+            }
           }
         } else {
           console.log(`[${debugId}] ✅ Found Supabase session for user: ${supabaseSession.user.email}`);
@@ -90,7 +123,8 @@ export async function GET(
       return NextResponse.json(
         { 
           error: 'Unauthorized',
-          message: 'Authentication required to view featured spirits'
+          message: 'Authentication required to view featured spirits',
+          detail: 'Multiple authentication methods failed.'
         },
         { status: 401 }
       );
@@ -125,7 +159,7 @@ export async function GET(
     }
 
     try {
-      console.log(`[${debugId}] 🔍 Executing database query to find featured spirits`);
+      console.log(`[${debugId}] 🔍 Executing database query to find featured spirits for user: ${userEmail}`);
       
       // Get spirits with high ratings or recently added
       const spirits = await prisma.spirit.findMany({
@@ -154,7 +188,7 @@ export async function GET(
         take: Math.min(limit, 50) // Limit maximum to 50 for performance
       });
 
-      console.log(`[${debugId}] ✅ Found ${spirits.length} featured spirits`);
+      console.log(`[${debugId}] ✅ Found ${spirits.length} featured spirits for user: ${userEmail}`);
       return NextResponse.json({ spirits });
     } catch (queryError) {
       console.error(`[${debugId}] ❌ Database query error:`, queryError);
