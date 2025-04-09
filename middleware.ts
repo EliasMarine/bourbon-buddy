@@ -34,6 +34,39 @@ function externalResourceMiddleware(req: NextRequest) {
 // Main middleware function
 export async function middleware(request: NextRequest) {
   try {
+    // Define static asset paths to skip processing
+    const staticAssetPaths = [
+      '/_next/static/',
+      '/_next/image/',
+      '/images/',
+      '/favicon.ico',
+      '/robots.txt',
+      '/sitemap.xml',
+      '.css',
+      '.js',
+      '.webp',
+      '.svg',
+      '.jpg',
+      '.jpeg',
+      '.png',
+      '.gif',
+      '.ico'
+    ];
+    
+    // Fast check for static assets to skip expensive processing
+    const isStaticAsset = staticAssetPaths.some(path => 
+      request.nextUrl.pathname.includes(path) ||
+      request.nextUrl.pathname.endsWith(path)
+    );
+    
+    // Skip auth checks for static assets - return minimal response
+    if (isStaticAsset) {
+      const response = NextResponse.next();
+      // Add basic cache headers for static assets
+      response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+      return response;
+    }
+    
     // Create a response object to modify
     let response = NextResponse.next({
       request: {
@@ -63,7 +96,7 @@ export async function middleware(request: NextRequest) {
     
     // IMPORTANT: Call getUser to refresh the session if needed
     // This is critical to prevent users from being logged out unexpectedly
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user: supabaseUser } } = await supabase.auth.getUser();
     
     // Skip for root path - allow visiting homepage without redirect
     if (request.nextUrl.pathname === '/') {
@@ -105,6 +138,8 @@ export async function middleware(request: NextRequest) {
       '/api/health', // Health check endpoint
       '/api/webhooks/', // Webhook endpoints
       '/api/images/', // Public image serving API
+      '/api/auth-debug', // Auth debugging endpoint
+      '/api/auth-test', // Auth testing endpoint
     ];
     
     // Check if the path matches any public path
@@ -136,8 +171,9 @@ export async function middleware(request: NextRequest) {
       '/streams/create',
       '/collection',
       '/api/collection',
-      '/api/spirits',
-      '/api/user',
+      '/api/spirits/',
+      '/api/users/',
+      '/api/user/',
       '/api/upload',
       '/api/protected'
     ];
@@ -150,6 +186,16 @@ export async function middleware(request: NextRequest) {
       protectedRoutes.some(route => request.nextUrl.pathname.startsWith(route)) ||
       streamHostRegex.test(request.nextUrl.pathname);
     
+    // Only log auth check for non-static routes and when debugging is enabled
+    if ((process.env.NODE_ENV !== 'production' || process.env.DEBUG_AUTH === 'true') && 
+        !isStaticAsset && !publicPaths.some(path => request.nextUrl.pathname.includes(path))) {
+      console.log('Auth check in middleware:', {
+        hasUser: !!supabaseUser,
+        userId: supabaseUser?.id?.substring(0, 8) + '...',
+        userEmail: supabaseUser?.email?.substring(0, 3) + '***' // Partial for privacy
+      });
+    }
+    
     if (requiresAuth) {
       // Add security headers for authenticated routes
       headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -158,7 +204,7 @@ export async function middleware(request: NextRequest) {
       headers.set('Surrogate-Control', 'no-store');
       
       // Check if the user is authenticated via Supabase
-      if (!user) {
+      if (!supabaseUser) {
         // In production, for API requests, return 401 instead of redirecting
         if (process.env.NODE_ENV === 'production' && request.nextUrl.pathname.startsWith('/api/')) {
           return new NextResponse(
