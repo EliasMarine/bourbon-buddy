@@ -20,7 +20,15 @@ import {
 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 
+// Debug helper
+const generateDebugId = () => Math.random().toString(36).substring(2, 8);
+const DEBUG_ID = generateDebugId();
+
+console.log(`[${DEBUG_ID}] 🚀 Dashboard page component initialized`);
+
 export default function DashboardPage() {
+  console.log(`[${DEBUG_ID}] 🔄 Dashboard page rendering`);
+  
   const { data: nextAuthSession, status: nextAuthStatus } = useSession();
   const [supabaseSession, setSupabaseSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -29,56 +37,114 @@ export default function DashboardPage() {
     favorites: 0,
     tastings: 0
   });
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+
+  console.log(`[${DEBUG_ID}] 🔐 NextAuth status: ${nextAuthStatus}`);
+  console.log(`[${DEBUG_ID}] 👤 NextAuth session:`, nextAuthSession ? "Present" : "Not present");
 
   // Check for Supabase session
   useEffect(() => {
+    console.log(`[${DEBUG_ID}] 🔍 Checking Supabase session effect triggered`);
+    console.log(`[${DEBUG_ID}] 🔐 NextAuth status in effect: ${nextAuthStatus}`);
+    
     const checkSupabaseSession = async () => {
       try {
+        console.log(`[${DEBUG_ID}] 🔨 Creating Supabase browser client`);
         const supabase = createSupabaseBrowserClient();
-        const { data } = await supabase.auth.getSession();
-        setSupabaseSession(data.session);
+        console.log(`[${DEBUG_ID}] ✅ Supabase client created`);
+        
+        console.log(`[${DEBUG_ID}] 🔐 Fetching Supabase session`);
+        const startTime = Date.now();
+        const { data, error } = await supabase.auth.getSession();
+        console.log(`[${DEBUG_ID}] ⏱️ getSession took ${Date.now() - startTime}ms`);
+        
+        if (error) {
+          console.error(`[${DEBUG_ID}] ❌ Supabase session error:`, error);
+          setError(`Supabase auth error: ${error.message}`);
+        } else {
+          console.log(`[${DEBUG_ID}] 🔑 Supabase session:`, data.session ? "Present" : "Not present");
+          if (data.session?.user) {
+            console.log(`[${DEBUG_ID}] 👤 Supabase user found: ${data.session.user.id.substring(0, 8)}...`);
+          }
+          setSupabaseSession(data.session);
+        }
       } catch (error) {
-        console.error('Error checking Supabase session:', error);
+        console.error(`[${DEBUG_ID}] ❌ Error checking Supabase session:`, error);
+        // Show detailed error in development but not in production
+        setError(process.env.NODE_ENV !== 'production' 
+          ? `Error: ${error instanceof Error ? error.message : String(error)}` 
+          : 'Error checking authentication status');
       } finally {
+        console.log(`[${DEBUG_ID}] ✓ Finished checking Supabase session`);
         setLoading(false);
       }
     };
 
     if (nextAuthStatus !== 'loading') {
+      console.log(`[${DEBUG_ID}] 🚀 NextAuth done loading, checking Supabase session`);
       checkSupabaseSession();
     }
   }, [nextAuthStatus]);
 
   // Fetch collection stats
   useEffect(() => {
+    console.log(`[${DEBUG_ID}] 📊 Collection stats effect triggered`);
+    console.log(`[${DEBUG_ID}] 📋 Effect state:`, { 
+      loading, 
+      hasNextAuthSession: !!nextAuthSession, 
+      hasSupabaseSession: !!supabaseSession 
+    });
+    
     const fetchStats = async () => {
-      if (!nextAuthSession && !supabaseSession) return;
+      if (!nextAuthSession && !supabaseSession) {
+        console.log(`[${DEBUG_ID}] ⚠️ No auth sessions found, skipping stats fetch`);
+        return;
+      }
       
       try {
+        console.log(`[${DEBUG_ID}] 🌐 Fetching collection stats from API`);
+        const startTime = Date.now();
         const response = await fetch('/api/collection/stats');
+        console.log(`[${DEBUG_ID}] ⏱️ Stats API call took ${Date.now() - startTime}ms`);
+        console.log(`[${DEBUG_ID}] 🔍 API response status:`, response.status);
+        
         if (response.ok) {
           const data = await response.json();
+          console.log(`[${DEBUG_ID}] ✅ Stats data received:`, data);
           setCollectionStats({
             totalSpirits: data.totalSpirits || 0,
             favorites: data.favorites || 0,
             tastings: data.tastings || 0
           });
         } else {
-          console.warn('Failed to fetch stats, using default values');
+          console.warn(`[${DEBUG_ID}] ⚠️ Failed to fetch stats with status ${response.status}, using default values`);
+          
+          // Try to get response body for more debug info
+          try {
+            const errorBody = await response.text();
+            console.error(`[${DEBUG_ID}] 🚨 Error response body:`, errorBody);
+          } catch (e) {
+            console.error(`[${DEBUG_ID}] 🚨 Could not read error response body`);
+          }
+          
+          setError(`API error: ${response.status} ${response.statusText}`);
         }
       } catch (error) {
-        console.error('Error fetching collection stats:', error);
+        console.error(`[${DEBUG_ID}] ❌ Error fetching collection stats:`, error);
+        setError(`Network error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     };
 
     if (!loading) {
+      console.log(`[${DEBUG_ID}] 🚀 Loading complete, fetching stats`);
       fetchStats();
     }
   }, [loading, nextAuthSession, supabaseSession]);
 
   // Show loading state while checking auth
   if (nextAuthStatus === 'loading' || loading) {
+    console.log(`[${DEBUG_ID}] ⏳ Showing loading state`);
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-500"></div>
@@ -86,8 +152,30 @@ export default function DashboardPage() {
     );
   }
 
+  // Show error state if needed
+  if (error) {
+    console.log(`[${DEBUG_ID}] ❌ Showing error state:`, error);
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 max-w-lg w-full">
+          <h2 className="text-red-800 text-lg font-semibold mb-2">Authentication Error</h2>
+          <p className="text-red-700">{error}</p>
+          <div className="mt-4">
+            <button 
+              onClick={() => window.location.reload()}
+              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Redirect if no session
   if (!nextAuthSession && !supabaseSession) {
+    console.log(`[${DEBUG_ID}] 🔄 No auth sessions found, redirecting to login`);
     redirect('/login');
     return null;
   }
@@ -95,7 +183,10 @@ export default function DashboardPage() {
   // Determine user info from either auth system
   const user = nextAuthSession?.user || supabaseSession?.user;
   const userName = user?.name || user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
+  console.log(`[${DEBUG_ID}] 👤 Rendering for user: ${userName}`);
 
+  console.log(`[${DEBUG_ID}] ✅ Dashboard page fully rendered`);
+  
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Background image with overlay */}
@@ -111,6 +202,7 @@ export default function DashboardPage() {
           unoptimized
           onError={(e) => {
             // If background fails to load, add a dark background color
+            console.log(`[${DEBUG_ID}] ⚠️ Background image failed to load`);
             const target = e.currentTarget as HTMLImageElement;
             target.style.display = 'none';
             if (target.parentElement) {
@@ -119,6 +211,14 @@ export default function DashboardPage() {
           }}
         />
       </div>
+      
+      {/* Debug info in development only */}
+      {process.env.NODE_ENV !== 'production' && (
+        <div className="fixed top-0 right-0 bg-gray-800 text-white p-2 text-xs z-50 opacity-70 hover:opacity-100">
+          <div>Debug ID: {DEBUG_ID}</div>
+          <div>Auth: {nextAuthSession ? 'NextAuth' : supabaseSession ? 'Supabase' : 'None'}</div>
+        </div>
+      )}
       
       {/* Noise texture overlay */}
       <div className="fixed inset-0 opacity-20 mix-blend-overlay pointer-events-none z-10" 

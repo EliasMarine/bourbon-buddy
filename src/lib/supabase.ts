@@ -4,6 +4,7 @@ import { createServerClient as createSsrServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
 // Don't import next/headers directly - import dynamically in server functions
 import type { CookieOptions } from '@supabase/ssr';
+import { RequestCookie } from 'next/dist/compiled/@edge-runtime/cookies';
 
 // Storage configuration
 export const STORAGE_BUCKET = 'bourbon-buddy-prod';
@@ -13,6 +14,9 @@ let supabaseBrowserClientInstance: ReturnType<typeof createSsrBrowserClient> | n
 
 // Helper function to safely check if we're on the server side
 export const isServer = () => typeof window === 'undefined';
+
+// Helper to generate debug ID for tracing
+export const generateDebugId = () => Math.random().toString(36).substring(2, 8);
 
 // Helper to validate Supabase credentials
 const isValidSupabaseConfig = (url?: string, key?: string) => {
@@ -26,21 +30,24 @@ const isValidSupabaseConfig = (url?: string, key?: string) => {
 
 // Check for and log any issues with environment variables
 function validateSupabaseEnvVars() {
+  const debugId = generateDebugId();
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
   
   if (!supabaseUrl || supabaseUrl.includes('your-supabase')) {
-    console.error('NEXT_PUBLIC_SUPABASE_URL is not properly configured');
+    console.error(`[${debugId}] ❌ NEXT_PUBLIC_SUPABASE_URL is not properly configured`);
   }
   
   if (!anonKey || anonKey.includes('your-supabase')) {
-    console.error('NEXT_PUBLIC_SUPABASE_ANON_KEY is not properly configured');
+    console.error(`[${debugId}] ❌ NEXT_PUBLIC_SUPABASE_ANON_KEY is not properly configured`);
   }
   
   if ((!serviceKey || serviceKey.includes('your-supabase')) && isServer()) {
-    console.error('SUPABASE_SERVICE_ROLE_KEY is not properly configured for server operations');
+    console.error(`[${debugId}] ❌ SUPABASE_SERVICE_ROLE_KEY is not properly configured for server operations`);
   }
+  
+  console.log(`[${debugId}] 🔧 Supabase environment validation complete. URL configured: ${!!supabaseUrl}, Anon key configured: ${!!anonKey}, Service key configured: ${!!(serviceKey && isServer())}`);
 }
 
 // Call validation on module import
@@ -48,8 +55,12 @@ validateSupabaseEnvVars();
 
 // Supabase client for browser usage (with anon key) using singleton pattern
 export const createSupabaseBrowserClient = () => {
+  const debugId = generateDebugId();
+  console.log(`[${debugId}] 🔑 Creating Browser Client`);
+  
   // Return the existing instance if it exists
   if (supabaseBrowserClientInstance !== null) {
+    console.log(`[${debugId}] ♻️ Reusing existing browser client instance`);
     return supabaseBrowserClientInstance;
   }
 
@@ -57,7 +68,7 @@ export const createSupabaseBrowserClient = () => {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!isValidSupabaseConfig(supabaseUrl, supabaseAnonKey)) {
-    console.error('Invalid or missing Supabase environment variables');
+    console.error(`[${debugId}] ❌ Invalid or missing Supabase environment variables`);
     // Return a mock client that returns empty data for all operations
     return {
       from: () => ({
@@ -81,11 +92,19 @@ export const createSupabaseBrowserClient = () => {
     } as any;
   }
 
+  console.log(`[${debugId}] 🔨 Creating new Supabase browser client with URL: ${supabaseUrl?.substring(0, 15)}...`);
+  
   // Use the modern SSR browser client
-  supabaseBrowserClientInstance = createSsrBrowserClient(
-    supabaseUrl!,
-    supabaseAnonKey!
-  );
+  try {
+    supabaseBrowserClientInstance = createSsrBrowserClient(
+      supabaseUrl!,
+      supabaseAnonKey!
+    );
+    console.log(`[${debugId}] ✅ Supabase browser client created successfully`);
+  } catch (error) {
+    console.error(`[${debugId}] ❌ Error creating Supabase browser client:`, error);
+    throw error; // Rethrow to ensure error is visible
+  }
   
   return supabaseBrowserClientInstance;
 };
@@ -97,12 +116,23 @@ let browserClient: any = null;
  * Creates a Supabase client for browser usage
  */
 export function createBrowserClient() {
-  if (browserClient) return browserClient;
+  const debugId = generateDebugId();
+  if (browserClient) {
+    console.log(`[${debugId}] ♻️ Reusing existing browser client`);
+    return browserClient;
+  }
   
-  browserClient = createSsrBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  console.log(`[${debugId}] 🔨 Creating new browser client`);
+  try {
+    browserClient = createSsrBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+    console.log(`[${debugId}] ✅ Browser client created successfully`);
+  } catch (error) {
+    console.error(`[${debugId}] ❌ Error creating browser client:`, error);
+    throw error;
+  }
   
   return browserClient;
 }
@@ -113,79 +143,155 @@ export function createBrowserClient() {
  * DO NOT use in pages/ directory
  */
 export function createServerClient() {
+  const debugId = generateDebugId();
+  console.log(`[${debugId}] 🔨 Creating server client`);
+  
   // We need to dynamically import cookies() to avoid breaking in Pages Router
   // This function should only be used in App Router
   const getCookieStore = async () => {
     try {
       // Dynamically import cookies() from next/headers
+      console.log(`[${debugId}] 🍪 Importing cookies from next/headers`);
       const { cookies } = await import('next/headers');
-      return cookies();
+      const cookieStore = cookies();
+      
+      // Test if we can access the cookies to determine API version
+      let cookieCount = "unknown";
+      let hasGetAll = false;
+      
+      if (typeof cookieStore === 'object' && cookieStore !== null) {
+        if ('getAll' in cookieStore && typeof cookieStore.getAll === 'function') {
+          hasGetAll = true;
+          cookieCount = cookieStore.getAll().length.toString();
+        } else if (Symbol.iterator in cookieStore) {
+          cookieCount = Array.from(cookieStore as Iterable<RequestCookie>).length.toString();
+        }
+      }
+      
+      console.log(`[${debugId}] ✅ Got cookie store:`, {
+        hasGetAll,
+        cookieCount
+      });
+      
+      return cookieStore;
     } catch (error) {
-      console.error('Error importing cookies from next/headers:', error);
+      console.error(`[${debugId}] ❌ Error importing cookies from next/headers:`, error);
       return {
-        getAll: () => [],
+        getAll: () => {
+          console.log(`[${debugId}] ⚠️ Using fallback empty cookie array`);
+          return [];
+        }
         // Other cookie methods aren't used
       };
     }
   };
   
-  return createSsrServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: async () => {
-          try {
-            const cookieStore = await getCookieStore();
-            if (typeof cookieStore.getAll !== 'function') {
-              console.warn('Cookie store getAll is not a function, returning empty array');
+  /**
+   * Safely gets all cookies from the cookie store
+   * Handles both the older synchronous and newer Promise-based cookies API
+   */
+  const safeGetAllCookies = async (cookieStore: any) => {
+    try {
+      if (typeof cookieStore === 'object' && cookieStore !== null) {
+        if ('getAll' in cookieStore && typeof cookieStore.getAll === 'function') {
+          // Traditional API
+          return cookieStore.getAll();
+        } else if (Symbol.iterator in cookieStore) {
+          // Iterable API
+          return Array.from(cookieStore as Iterable<RequestCookie>);
+        } 
+      }
+      
+      console.warn(`[${debugId}] ⚠️ Cookie store cannot be accessed, returning empty array`);
+      return [];
+    } catch (error) {
+      console.error(`[${debugId}] ❌ Error getting cookies:`, error);
+      return [];
+    }
+  };
+  
+  try {
+    return createSsrServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll: async () => {
+            try {
+              console.log(`[${debugId}] 🍪 Server client getAll cookies called`);
+              const cookieStore = await getCookieStore();
+              const cookies = await safeGetAllCookies(cookieStore);
+              
+              console.log(`[${debugId}] 🍪 Server client got ${cookies.length} cookies`);
+              // Log cookie names but not values for security
+              console.log(`[${debugId}] 🍪 Cookie names:`, cookies.map(c => c.name));
+              return cookies;
+            } catch (error) {
+              console.error(`[${debugId}] ❌ Error getting cookies:`, error);
               return [];
             }
-            return cookieStore.getAll();
-          } catch (error) {
-            console.error('Error getting cookies:', error);
-            return [];
-          }
+          },
+          setAll: () => {
+            // In server components, we can't set cookies directly
+            // This will be handled by the middleware
+            console.warn(`[${debugId}] ⚠️ Attempted to set cookies in server component - this is expected behavior`);
+          },
         },
-        setAll: () => {
-          // In server components, we can't set cookies directly
-          // This will be handled by the middleware
-          console.warn('Attempted to set cookies in server component - this is expected behavior');
-        },
-      },
-    }
-  );
+      }
+    );
+  } catch (error) {
+    console.error(`[${debugId}] ❌ Error creating server client:`, error);
+    throw error;
+  }
 }
 
 /**
  * Creates a Supabase client for middleware usage
  */
 export function createMiddlewareClient(request: NextRequest) {
+  const debugId = generateDebugId();
+  console.log(`[${debugId}] 🔨 Creating middleware client for path: ${request.nextUrl.pathname}`);
+  
   const response = NextResponse.next({
     request: {
       headers: request.headers,
     },
   });
   
-  const supabase = createSsrServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
+  try {
+    const supabase = createSsrServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            console.log(`[${debugId}] 🍪 Middleware client getAll cookies called`);
+            const cookies = request.cookies.getAll();
+            console.log(`[${debugId}] 🍪 Found ${cookies.length} cookies`);
+            // Log cookie names but not values for security
+            if (cookies.length > 0) {
+              console.log(`[${debugId}] 🍪 Cookie names:`, cookies.map(c => c.name));
+            }
+            return cookies;
+          },
+          setAll(cookiesToSet) {
+            console.log(`[${debugId}] 🍪 Middleware client setAll called with ${cookiesToSet.length} cookies`);
+            cookiesToSet.forEach(({ name, value, options }) => {
+              console.log(`[${debugId}] 🍪 Setting cookie: ${name}, length: ${value.length}, options: ${JSON.stringify(options || {})}`);
+              request.cookies.set(name, value);
+              response.cookies.set(name, value, options);
+            });
+          },
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set(name, value);
-            response.cookies.set(name, value, options);
-          });
-        },
-      },
-    }
-  );
-  
-  return { supabase, response };
+      }
+    );
+    
+    console.log(`[${debugId}] ✅ Middleware client created successfully`);
+    return { supabase, response };
+  } catch (error) {
+    console.error(`[${debugId}] ❌ Error creating middleware client:`, error);
+    throw error;
+  }
 }
 
 // Supabase client for server usage (with service key)
