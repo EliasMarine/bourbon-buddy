@@ -3,7 +3,7 @@
 import { createBrowserClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { useState, useEffect, createContext, useContext, useCallback } from 'react'
-import { useSession, SessionProvider, signOut } from 'next-auth/react'
+import { useSession, SessionProvider, signOut, signIn } from 'next-auth/react'
 
 const SupabaseContext = createContext<ReturnType<typeof createBrowserClient> | undefined>(undefined)
 
@@ -25,6 +25,8 @@ function SupabaseProviderInner({
   const session = useSession()
   const nextAuthSession = session?.data
   const [isSyncing, setIsSyncing] = useState(false)
+  const [lastSyncTime, setLastSyncTime] = useState<number | null>(null)
+  const [syncAttempts, setSyncAttempts] = useState(0)
   
   // Cleanup and reset all auth state
   const cleanupAuthState = useCallback(async () => {
@@ -40,7 +42,10 @@ function SupabaseProviderInner({
       // Clear all cookies via API
       await fetch('/api/auth/logout', { 
         method: 'POST',
-        credentials: 'include'
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        }
       })
       
       console.log('✅ Auth state cleared successfully')
@@ -49,66 +54,52 @@ function SupabaseProviderInner({
     }
   }, [supabase])
 
+  // Handle Supabase auth state changes
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Supabase auth event:', event, session?.user?.email || 'no session')
-      
-      if (event === 'SIGNED_IN') {
-        // If we have a session, verify it immediately to ensure it's valid
-        if (session) {
-          try {
-            const { data, error } = await supabase.auth.getUser()
-            if (error || !data.user) {
-              console.error('❌ Invalid Supabase session detected during SIGNED_IN event:', error)
-              await cleanupAuthState()
-              return
-            }
-            console.log('✅ Supabase user verified on SIGNED_IN:', data.user.email)
-          } catch (verifyError) {
-            console.error('❌ Error verifying user after SIGNED_IN:', verifyError)
-          }
-        }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Supabase auth event:', event, session?.user?.email || 'no session')
         
-        // Refresh the page to update the UI with new auth state
-        router.refresh()
-      } else if (event === 'SIGNED_OUT') {
-        console.log('🚪 Supabase SIGNED_OUT event, cleaning up session')
-        await cleanupAuthState()
-        router.push('/login')
-      } else if (event === 'TOKEN_REFRESHED') {
-        console.log('🔄 Supabase token refreshed')
-        // Silently refresh the page to ensure fresh data
-        router.refresh()
-      } else if (event === 'USER_UPDATED') {
-        console.log('👤 Supabase user updated')
-        router.refresh()
+        if (event === 'SIGNED_OUT') {
+          console.log('🚪 Supabase SIGNED_OUT event, cleaning up session')
+          await cleanupAuthState()
+        }
       }
-    })
-
+    )
+    
     return () => {
       subscription.unsubscribe()
     }
-  }, [router, supabase, cleanupAuthState])
+  }, [supabase, cleanupAuthState])
 
   // Sync NextAuth session with Supabase
   useEffect(() => {
     const syncAuthState = async () => {
-      // Skip if already syncing or no NextAuth session
-      if (isSyncing || !nextAuthSession?.user?.email) return
+      // Skip if already syncing
+      if (isSyncing) return
+      
+      // If we've just synced in the last 5 seconds, skip
+      if (lastSyncTime && Date.now() - lastSyncTime < 5000) {
+        console.log('🔄 Skipping auth sync, last sync was too recent')
+        return
+      }
       
       setIsSyncing(true)
       
       try {
         console.log('🔍 Checking Supabase session status', { 
           hasNextAuthSession: !!nextAuthSession, 
-          hasNextAuthAccessToken: !!nextAuthSession?.accessToken 
+          hasNextAuthAccessToken: !!nextAuthSession?.accessToken,
+          attemptCount: syncAttempts + 1
         })
         
         // Force session refresh to ensure we have the latest state
         console.log('🔄 Refreshing Supabase session state')
-        await supabase.auth.refreshSession()
+        const { error: refreshError } = await supabase.auth.refreshSession()
+        
+        if (refreshError && refreshError.message !== 'No current session') {
+          console.error('❌ Error refreshing Supabase session:', refreshError)
+        }
         
         // Check if already signed in to Supabase
         const { data: { session: supabaseSession }, error: sessionError } = await supabase.auth.getSession()
@@ -120,125 +111,164 @@ function SupabaseProviderInner({
           return
         }
         
-        // If already signed in to Supabase with matching email, we're good
-        if (supabaseSession?.user?.email === nextAuthSession.user.email) {
-          console.log('✅ Supabase session already exists and matches NextAuth email')
-          
-          // Check if token is close to expiration
-          const now = Math.floor(Date.now() / 1000)
-          const expiresAt = supabaseSession.expires_at
-          const timeRemaining = expiresAt - now
-          
-          if (timeRemaining < 600) { // Less than 10 minutes remaining
-            console.log('⚠️ Supabase token expiring soon, refreshing proactively')
-            await fallbackSessionCreation()
+        // Case 1: Both sessions exist
+        if (nextAuthSession?.user?.email && supabaseSession?.user?.email) {
+          // If the emails match, both auth systems are in sync
+          if (nextAuthSession.user.email.toLowerCase() === supabaseSession.user.email.toLowerCase()) {
+            console.log('✅ Both NextAuth and Supabase sessions are present and match')
+            setLastSyncTime(Date.now())
+            setSyncAttempts(0)
+            setIsSyncing(false)
+            return
           } else {
-            console.log(`✅ Supabase token valid for ${Math.floor(timeRemaining / 60)} more minutes`)
+            // Sessions exist but emails don't match - this is a problematic state
+            console.warn('⚠️ Session mismatch - NextAuth and Supabase have different users')
+            await cleanupAuthState()
+            router.refresh()
             setIsSyncing(false)
             return
           }
-        } else {
+        }
+        
+        // Case 2: NextAuth session but no Supabase session
+        if (nextAuthSession?.user?.email && !supabaseSession) {
           console.log(`🔄 Syncing NextAuth session to Supabase, email: ${nextAuthSession.user.email}`)
           
-          // If we have the access token directly from NextAuth, use it
-          if (nextAuthSession.accessToken && nextAuthSession.refreshToken) {
-            console.log('🔑 Using NextAuth access token to set Supabase session')
+          // Try to sign in using server-side API for better token handling
+          try {
+            console.log('🔄 Falling back to server API for session creation')
             
-            try {
-              const { error } = await supabase.auth.setSession({
-                access_token: nextAuthSession.accessToken,
-                refresh_token: nextAuthSession.refreshToken
-              })
+            const response = await fetch('/api/auth/supabase-session', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              credentials: 'include' // Important to include cookies
+            })
+            
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({ message: 'Unknown error' }))
+              console.error('❌ Failed to get Supabase session from API:', errorData)
               
-              if (error) {
-                console.error('❌ Failed to set Supabase session with NextAuth tokens:', error)
-                await fallbackSessionCreation()
+              // Increment attempts for retry logic
+              setSyncAttempts(prev => prev + 1)
+              
+              // If we've tried 3 times and failed, this is problematic
+              if (syncAttempts >= 2) {
+                console.warn('⚠️ Multiple session sync failures, cleaning up state')
+                await cleanupAuthState()
+                router.refresh()
               } else {
-                console.log('✅ Successfully set Supabase session with NextAuth tokens')
-                // Verify the session was actually set
-                const { data: verifyData } = await supabase.auth.getUser()
-                if (!verifyData.user) {
-                  console.warn('⚠️ Set session succeeded but no user found, using fallback')
-                  await fallbackSessionCreation()
-                } else {
-                  console.log('✅ User verified after setting session')
-                  router.refresh()
-                }
+                // Schedule a retry with exponential backoff
+                const retryDelay = Math.min(2000 * Math.pow(2, syncAttempts), 10000) // Max 10s delay
+                console.log(`🔄 Scheduling retry in ${retryDelay}ms (attempt ${syncAttempts + 1})`)
+                setTimeout(() => {
+                  setIsSyncing(false)
+                  syncAuthState()
+                }, retryDelay)
               }
-            } catch (error) {
-              console.error('❌ Error setting Supabase session:', error)
-              await fallbackSessionCreation()
+              
+              setIsSyncing(false)
+              return
             }
-          } else {
-            // No tokens available, use fallback approach
-            await fallbackSessionCreation()
+            
+            const data = await response.json()
+            
+            if (!data.properties?.access_token) {
+              console.error('❌ API response missing token data:', data)
+              setIsSyncing(false)
+              return
+            }
+            
+            console.log('✅ Got Supabase session from API, setting in client')
+            
+            // Set the session in Supabase
+            const { error } = await supabase.auth.setSession({
+              access_token: data.properties.access_token,
+              refresh_token: data.properties.refresh_token
+            })
+            
+            if (error) {
+              console.error('❌ Failed to set Supabase session from API:', error)
+              setIsSyncing(false)
+              return
+            }
+            
+            console.log('✅ Successfully synced NextAuth session to Supabase via API')
+            setLastSyncTime(Date.now())
+            setSyncAttempts(0)
+            
+            // Force a page refresh to update UI state
+            router.refresh()
+          } catch (error) {
+            console.error('❌ Error in server API session creation:', error)
+            setIsSyncing(false)
+            return
+          }
+        }
+        
+        // Case 3: Supabase session but no NextAuth session
+        if (supabaseSession?.user?.email && !nextAuthSession) {
+          console.log(`🔄 Syncing Supabase session to NextAuth, email: ${supabaseSession.user.email}`)
+          
+          try {
+            // Sign in to NextAuth using the Supabase session
+            const result = await signIn('credentials', {
+              redirect: false,
+              email: supabaseSession.user.email,
+              supabaseSession: 'true'
+            })
+            
+            if (result?.error) {
+              console.error('❌ Error signing in with NextAuth:', result.error)
+              
+              // Increment attempts for retry logic
+              setSyncAttempts(prev => prev + 1)
+              
+              // If we've tried 3 times and failed, clean up state
+              if (syncAttempts >= 2) {
+                console.warn('⚠️ Multiple NextAuth sign-in failures, cleaning up state')
+                await cleanupAuthState()
+                router.refresh()
+              } else {
+                // Schedule a retry with exponential backoff
+                const retryDelay = Math.min(2000 * Math.pow(2, syncAttempts), 10000) // Max 10s delay
+                console.log(`🔄 Scheduling retry in ${retryDelay}ms (attempt ${syncAttempts + 1})`)
+                setTimeout(() => {
+                  setIsSyncing(false)
+                  syncAuthState()
+                }, retryDelay)
+              }
+            } else {
+              console.log('✅ Successfully synced Supabase session with NextAuth')
+              setLastSyncTime(Date.now())
+              setSyncAttempts(0)
+              router.refresh()
+            }
+          } catch (error) {
+            console.error('❌ Error signing in with NextAuth:', error)
           }
         }
       } catch (error) {
-        console.error('❌ Unexpected error syncing auth state:', error)
+        console.error('❌ Unexpected error in auth sync:', error)
       } finally {
         setIsSyncing(false)
       }
     }
     
-    // Fallback to server API if direct tokens aren't available
-    const fallbackSessionCreation = async () => {
-      console.log('🔄 Falling back to server API for session creation')
-      
-      try {
-        // Call our server API to get a session
-        const response = await fetch('/api/auth/supabase-session', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include' // Important to include cookies
-        })
-        
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ message: 'Unknown error' }))
-          console.error('❌ Failed to get Supabase session from API:', errorData)
-          return
-        }
-        
-        const data = await response.json()
-        
-        if (!data.properties?.access_token) {
-          console.error('❌ API response missing token data:', data)
-          return
-        }
-        
-        // Set the session in Supabase
-        const { error } = await supabase.auth.setSession({
-          access_token: data.properties.access_token,
-          refresh_token: data.properties.refresh_token
-        })
-        
-        if (error) {
-          console.error('❌ Failed to set Supabase session from API:', error)
-        } else {
-          console.log('✅ Successfully synced NextAuth session to Supabase via API')
-          
-          // Verify user to ensure session is valid
-          const { data: userData, error: userError } = await supabase.auth.getUser()
-          if (userError || !userData.user) {
-            console.error('❌ Session set but user verification failed:', userError)
-            await cleanupAuthState()
-          } else {
-            console.log('✅ User verified after API session sync:', userData.user.email)
-            router.refresh()
-          }
-        }
-      } catch (error) {
-        console.error('❌ Error in fallback session creation:', error)
-      }
-    }
+    // Call sync immediately when this effect runs
+    syncAuthState()
     
-    // Call sync when NextAuth session changes
-    if (nextAuthSession?.user) {
-      syncAuthState()
-    }
-  }, [nextAuthSession, supabase, router, isSyncing, cleanupAuthState])
+    // Also set up a short interval to check if sync is needed
+    // This helps with race conditions and other timing issues
+    const intervalId = setInterval(() => {
+      if (!isSyncing && !lastSyncTime) {
+        syncAuthState()
+      }
+    }, 2000)
+    
+    return () => clearInterval(intervalId)
+  }, [nextAuthSession, supabase, router, isSyncing, cleanupAuthState, lastSyncTime, syncAttempts])
 
   return (
     <SupabaseContext.Provider value={supabase}>

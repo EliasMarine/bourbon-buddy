@@ -11,9 +11,14 @@ const tokens = new Tokens({
 // Cookie name for CSRF token
 export const CSRF_COOKIE_NAME = 'csrf_secret'
 
-// Get the appropriate cookie name based on environment
-export const getCsrfCookieName = () => {
-  return 'csrf_secret'
+// Get cookie name based on environment
+export function getCsrfCookieName() {
+  // Use environment variable as override if present
+  if (process.env.CSRF_COOKIE_NAME) {
+    return process.env.CSRF_COOKIE_NAME
+  }
+  
+  return CSRF_COOKIE_NAME
 }
 
 // Also support NextAuth's CSRF token
@@ -49,63 +54,108 @@ export function generateCsrfToken() {
 // Verify a CSRF token
 export function verifyCsrfToken(secret: string, token: string) {
   try {
-    return tokens.verify(secret, token)
+    console.log('Attempting to verify CSRF token...', {
+      secretExists: !!secret,
+      secretLength: secret?.length || 0,
+      tokenExists: !!token,
+      tokenLength: token?.length || 0,
+    })
+    
+    const isValid = tokens.verify(secret, token)
+    console.log('CSRF token verification result:', isValid)
+    return isValid
   } catch (error) {
     console.error('CSRF verification error:', error)
     return false
   }
 }
 
-// Create cookie with CSRF secret
+// Create a cookie with the CSRF secret
 export function createCsrfCookie(secret: string, createdAt: number) {
-  const isProduction = process.env.NODE_ENV === 'production'
+  // Use same cookie name retrieval logic
+  const cookieName = getCsrfCookieName()
   
-  return serialize(CSRF_COOKIE_NAME, JSON.stringify({ secret, createdAt }), {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 60 * 60 * 24 // 1 day
+  // Should cookies be secure in this environment?
+  const isSecure = process.env.NODE_ENV === 'production'
+  
+  // Use environment variable for domain if set
+  const domain = process.env.COOKIE_DOMAIN || undefined
+  
+  // Store both the secret and the creation time as JSON string
+  const cookieValue = JSON.stringify({
+    secret, 
+    createdAt
   })
+  
+  // Cookie options
+  const cookieOptions = {
+    httpOnly: true,
+    path: '/',
+    secure: isSecure,
+    sameSite: 'lax' as const,
+    maxAge: 60 * 60 * 24, // 1 day
+  }
+  
+  // Add domain if set
+  if (domain) {
+    console.log(`Setting CSRF cookie with specific domain: ${domain}`)
+    return serialize(cookieName, cookieValue, {
+      ...cookieOptions,
+      domain,
+    })
+  }
+  
+  // Otherwise use default (no domain) which is more compatible with cross-domain setups
+  return serialize(cookieName, cookieValue, cookieOptions)
 }
 
-// Parse cookies from string
-export function parseCookies(cookieString: string) {
+// Parse cookies from a string
+export function parseCookies(cookieHeader: string): Record<string, string> {
   const cookies: Record<string, string> = {}
   
-  if (cookieString) {
-    cookieString.split(';').forEach(cookie => {
-      const [name, value] = cookie.trim().split('=')
-      if (name && value) {
-        cookies[name] = decodeURIComponent(value)
+  try {
+    cookieHeader.split(';').forEach(cookie => {
+      const [name, ...rest] = cookie.split('=')
+      const trimmedName = name?.trim()
+      
+      if (!trimmedName) return
+      
+      const value = rest.join('=').trim()
+      
+      if (value) {
+        cookies[trimmedName] = decodeURIComponent(value)
       }
     })
+  } catch (error) {
+    console.error('Error parsing cookies:', error)
   }
   
   return cookies
 }
 
-// Extract CSRF secret from cookies
+// Extract the CSRF secret from cookies
 export function extractCsrfSecret(cookies: Record<string, string>) {
+  const cookieName = getCsrfCookieName()
+  const csrfCookieValue = cookies[cookieName]
+  
+  if (!csrfCookieValue) {
+    console.warn('CSRF cookie not found. Available cookies:', Object.keys(cookies))
+    return null
+  }
+  
   try {
-    const csrfCookie = cookies[CSRF_COOKIE_NAME]
-    
-    if (csrfCookie) {
-      try {
-        return JSON.parse(csrfCookie)
-      } catch (error) {
-        // Fallback to using the cookie value directly
-        return { 
-          secret: csrfCookie,
-          createdAt: Date.now()
-        }
-      }
+    // Try to parse it as JSON (new format)
+    const parsed = JSON.parse(csrfCookieValue)
+    return {
+      secret: parsed.secret,
+      createdAt: parsed.createdAt
     }
-    
-    return null
-  } catch (error) {
-    console.error('Error extracting CSRF secret:', error)
-    return null
+  } catch (e) {
+    // Fallback to assuming it's just the secret string (old format)
+    return {
+      secret: csrfCookieValue,
+      createdAt: Date.now() - 60000 // Assume it's 1 minute old
+    }
   }
 }
 
@@ -113,8 +163,16 @@ export function extractCsrfSecret(cookies: Record<string, string>) {
 export function validateCsrfToken(req: Request, csrfToken?: string) {
   // Skip validation in development if enabled
   if (process.env.NODE_ENV !== 'production' && process.env.BYPASS_CSRF === 'true') {
+    console.log('CSRF validation bypassed in development mode')
     return true
   }
+
+  const url = new URL(req.url)
+  console.log('Validating CSRF token for request:', {
+    method: req.method,
+    path: url.pathname,
+    hasToken: !!csrfToken,
+  })
   
   // Extract CSRF token from header if not provided
   if (!csrfToken) {
@@ -125,11 +183,14 @@ export function validateCsrfToken(req: Request, csrfToken?: string) {
     
     // For GET requests, CSRF validation isn't strictly necessary
     if (!csrfToken && req.method === 'GET') {
+      console.log('Skipping CSRF validation for GET request')
       return true
     }
     
     if (!csrfToken) {
-      console.warn('CSRF token missing from request headers')
+      console.warn('CSRF token missing from request headers', {
+        headers: Array.from(req.headers.keys()),
+      })
       return false
     }
   }
@@ -143,6 +204,12 @@ export function validateCsrfToken(req: Request, csrfToken?: string) {
   
   // Extract CSRF secret from cookies
   const cookies = parseCookies(cookieHeader)
+  console.log('Cookies found in request:', {
+    cookieCount: Object.keys(cookies).length,
+    cookieNames: Object.keys(cookies),
+    hasCsrfCookie: !!cookies[getCsrfCookieName()],
+  })
+  
   const secretData = extractCsrfSecret(cookies)
   
   if (!secretData || !secretData.secret) {
@@ -154,7 +221,10 @@ export function validateCsrfToken(req: Request, csrfToken?: string) {
   const isValid = verifyCsrfToken(secretData.secret, csrfToken)
   
   if (!isValid) {
-    console.warn('CSRF token verification failed')
+    console.warn('CSRF token verification failed', {
+      secretLength: secretData.secret.length,
+      tokenLength: csrfToken.length,
+    })
     return false
   }
   
@@ -163,9 +233,13 @@ export function validateCsrfToken(req: Request, csrfToken?: string) {
   const maxAge = 60 * 60 * 24 * 1000 // 1 day
   
   if (tokenAge > maxAge) {
-    console.warn('CSRF token expired')
+    console.warn('CSRF token expired', {
+      tokenAge: `${Math.round(tokenAge / 1000 / 60)} minutes`,
+      maxAge: '24 hours'
+    })
     return false
   }
   
+  console.log('CSRF token validation successful')
   return true
 }

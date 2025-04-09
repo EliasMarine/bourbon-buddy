@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { handlePrismaError, handleAuthError, logSecurityEvent } from '@/lib/error-handlers';
 import { signupLimiter } from '@/lib/rate-limiters';
 import { z } from 'zod';
-import { validateCsrfToken, extractCsrfSecret, parseCookies } from '@/lib/csrf';
+import { validateCsrfToken, extractCsrfSecret, parseCookies, getCsrfCookieName } from '@/lib/csrf';
 import { DEFAULT_FALLBACK_IP } from '@/config/constants';
 import { createClient } from '@supabase/supabase-js';
 
@@ -82,11 +82,14 @@ export async function POST(request: Request) {
       // Use the first available token
       const csrfToken = xCsrfToken || csrfTokenHeader || xCsrfTokenUpper || bodyToken;
       
-      // Detailed logging of what token we're checking
+      // Enhanced logging for debugging CSRF issues
       console.log('CSRF token verification attempt for signup:', {
         hasToken: !!csrfToken,
         tokenLength: csrfToken?.length || 0,
         headers: Array.from(request.headers.keys()),
+        origin: request.headers.get('origin'),
+        referer: request.headers.get('referer'),
+        host: request.headers.get('host'),
       });
       
       // Check if any cookies exist
@@ -108,7 +111,27 @@ export async function POST(request: Request) {
       
       // Ensure cookies contain CSRF token
       const cookies = parseCookies(cookieHeader);
-      console.log('Cookies in signup request:', Object.keys(cookies));
+      console.log('Cookies in signup request:', {
+        names: Object.keys(cookies),
+        hasCsrfCookie: !!cookies[getCsrfCookieName()],
+        csrfCookieLength: cookies[getCsrfCookieName()]?.length || 0
+      });
+      
+      // Check for CSRF cookie specifically
+      if (!cookies[getCsrfCookieName()]) {
+        console.log('CSRF cookie not found in request. This is required for validation.');
+        return NextResponse.json(
+          { message: 'Missing security token cookie. Try refreshing the page or clearing cookies.' },
+          { 
+            status: 403,
+            headers: {
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'POST, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type, X-CSRF-Token, csrf-token, X-Requested-With'
+            }
+          }
+        );
+      }
       
       // Validate CSRF when tokens are present
       if (!csrfToken) {
@@ -130,14 +153,15 @@ export async function POST(request: Request) {
         );
       }
       
-      if (!validateCsrfToken(request, csrfToken)) {
+      const validationResult = validateCsrfToken(request, csrfToken);
+      if (!validationResult) {
         logSecurityEvent('csrf_validation_failure', { 
           endpoint: '/api/auth/signup',
           reason: 'invalid_token'
         }, 'high');
         
         return NextResponse.json(
-          { message: 'Invalid CSRF token' },
+          { message: 'Invalid CSRF token. Please refresh the page and try again.' },
           { 
             status: 403,
             headers: {

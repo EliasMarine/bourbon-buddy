@@ -1,6 +1,28 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { generateDebugId } from '@/lib/debug-utils'
+
+// Helper function to determine if verbose logging is enabled
+function isVerboseLoggingEnabled(): boolean {
+  return process.env.NODE_ENV !== 'production' || process.env.DEBUG_AUTH === 'true';
+}
+
+// Custom logger that respects the environment settings
+function log(debugId: string, message: string, data?: any) {
+  if (isVerboseLoggingEnabled()) {
+    if (data) {
+      console.log(`[${debugId}] ${message}`, data);
+    } else {
+      console.log(`[${debugId}] ${message}`);
+    }
+  }
+}
+
+// Error logger (always logs errors even in production)
+function logError(debugId: string, message: string, error: any) {
+  console.error(`[${debugId}] ${message}`, error);
+}
 
 // Protected routes requiring authentication
 const protectedRoutes = [
@@ -10,6 +32,7 @@ const protectedRoutes = [
   '/collection',
   '/api/collection',
   '/api/spirits/',
+  '/api/users/',
   '/api/user/',
   '/api/upload',
   '/api/protected'
@@ -36,69 +59,114 @@ const staticAssetPatterns = [
   /^\/api\/socketio/
 ]
 
+// Get allowed domains from env
+function getAllowedDomains(): string[] {
+  const domains = [
+    'bourbonbuddy.live',
+    'bourbon-buddy.vercel.app'
+  ]
+  
+  // Add any domains from env vars
+  if (process.env.ALLOWED_DEV_ORIGINS) {
+    const envDomains = process.env.ALLOWED_DEV_ORIGINS.split(',')
+      .map(d => d.trim())
+      .filter(Boolean)
+      
+    domains.push(...envDomains.map(url => {
+      try {
+        // Extract just the hostname from URLs
+        return new URL(url).hostname
+      } catch (e) {
+        return url // If not a valid URL, use as is
+      }
+    }))
+  }
+  
+  // Add localhost for development
+  if (process.env.NODE_ENV !== 'production') {
+    domains.push('localhost')
+  }
+  
+  // Use Array.from to convert Set to Array for better TypeScript compatibility
+  return Array.from(new Set(domains))
+}
+
 // CSRF-related cookie paths that need special handling
 const csrfCookies = ['csrf_secret', 'next-auth.csrf-token']
 
 // Supabase-related cookies to monitor
 const supabaseCookies = ['sb-access-token', 'sb-refresh-token']
 
+// List of allowed domains
+const allowedDomains = getAllowedDomains()
+
 export async function middleware(request: NextRequest) {
   // Add debug ID to track individual requests through the logs
-  const debugId = Math.random().toString(36).substring(2, 8);
-  console.log(`[${debugId}] 🔍 Middleware start: ${request.method} ${request.nextUrl.pathname}`);
+  const debugId = generateDebugId()
+  log(debugId, `🔄 Middleware processing ${request.method} ${request.nextUrl.pathname}`)
   
   try {
-    // First, quickly check if this is a static asset request
+    // Create a default response we'll modify as needed
+    const response = NextResponse.next()
+    
+    // Add primary headers
+    const headers = new Headers(response.headers)
+    headers.set('x-debug-id', debugId)
+    
+    // Security headers
+    headers.set('X-XSS-Protection', '1; mode=block')
+    headers.set('X-Content-Type-Options', 'nosniff')
+    headers.set('X-Frame-Options', 'DENY')
+    headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+    
+    // Only add CSP in production to avoid local development issues
+    if (process.env.NODE_ENV === 'production') {
+      headers.set('Content-Security-Policy', 
+        "default-src 'self'; " +
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data: blob: https:; " +
+        "font-src 'self' data:; " +
+        "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com " + 
+        allowedDomains.map(domain => `https://${domain}`).join(' ')
+      )
+    }
+    
+    // Skip processing for static assets to improve performance
     const isStaticAsset = staticAssetPatterns.some(pattern => 
       pattern.test(request.nextUrl.pathname)
     )
     
-    // Check if this is a path that starts with public routes
-    const isPublicRoute = publicRoutes.some(route => 
-      request.nextUrl.pathname.startsWith(route)
-    )
-    
-    console.log(`[${debugId}] Route type: ${isStaticAsset ? 'Static asset' : isPublicRoute ? 'Public route' : 'Protected route'}`);
-    
-    // Skip full processing for static assets and typical public paths
-    // Just return a standard response with basic security headers
-    if (isStaticAsset || isPublicRoute) {
-      const response = NextResponse.next()
-      
-      // Add minimal required security headers
-      response.headers.set('X-Content-Type-Options', 'nosniff')
-      
-      // Add cache control for static assets
-      if (isStaticAsset || request.nextUrl.pathname.startsWith('/_next/')) {
-        response.headers.set('Cache-Control', 'public, max-age=31536000, immutable')
-      }
-      
-      console.log(`[${debugId}] 🟢 Quick pass for ${isStaticAsset ? 'static asset' : 'public route'}`);
+    if (isStaticAsset) {
+      log(debugId, `📦 Static asset, skipping auth check: ${request.nextUrl.pathname}`)
       return response
     }
     
-    // Create a response object that we'll modify and return
-    let response = NextResponse.next({
-      request: {
-        headers: request.headers,
-      },
-    })
-
-    // Initialize security headers
-    response.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains')
-    response.headers.set('X-Content-Type-Options', 'nosniff')
-    response.headers.set('X-Frame-Options', 'DENY')
-    response.headers.set('Referrer-Policy', 'no-referrer')
-    response.headers.set('Permissions-Policy', 'geolocation=(), microphone=()')
-    response.headers.set('Content-Security-Policy', 
-      "default-src 'self'; " +
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-      "style-src 'self' 'unsafe-inline'; " +
-      "img-src 'self' data: blob: https:; " +
-      "font-src 'self' data:; " +
-      "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://bourbonbuddy.live"
+    // Determine if this is a public path that doesn't need authentication
+    const isPublicPath = publicRoutes.some(route => 
+      request.nextUrl.pathname.startsWith(route)
     )
-
+    
+    if (isPublicPath) {
+      log(debugId, `🔓 Public path, skipping auth check: ${request.nextUrl.pathname}`)
+      return response
+    }
+    
+    // Skip WebSocket upgrade requests
+    if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      log(debugId, `🔌 WebSocket upgrade request detected`);
+      return response
+    }
+    
+    // Check for debugging cookies from browser dev tools
+    const debugCookie = request.cookies.get('bourbon_buddy_debug')
+    if (debugCookie) {
+      log(debugId, `🧪 Debug cookie found: ${debugCookie.value}`)
+    }
+    
+    // Get the domain for better error reporting
+    const domain = request.headers.get('host') || 'unknown'
+    
     // Check specifically for Supabase cookies
     const supabaseCookieValues = supabaseCookies.map(name => {
       const cookie = request.cookies.get(name)
@@ -109,180 +177,97 @@ export async function middleware(request: NextRequest) {
       }
     })
     
-    console.log(`[${debugId}] 🍪 Supabase cookies:`, supabaseCookieValues);
-
-    // Only check CSRF cookies for non-static routes
-    if (request.nextUrl.pathname.includes('/api/') || 
-        !request.nextUrl.pathname.includes('/_next/')) {
-      const csrfCookieValues = csrfCookies.map(name => {
-        const cookie = request.cookies.get(name)
-        return {
-          name,
-          exists: !!cookie,
-          length: cookie?.value?.length
-        }
-      })
-      
-      // Always log in production to help debug auth issues
-      console.log(`[${debugId}] 🍪 CSRF cookies in middleware:`, csrfCookieValues);
-    }
-
-    // Debug: Log all cookies present in the request (with caution for sensitive data)
-    const allCookies = request.cookies.getAll().map(cookie => {
-      // Mask sensitive values but show existence and length
-      const isSensitive = ['sb-access-token', 'sb-refresh-token', 'next-auth.session-token'].includes(cookie.name);
-      return {
-        name: cookie.name,
-        exists: true,
-        length: cookie.value.length,
-        value: isSensitive ? '***' : cookie.value.substring(0, 5) + '...'
-      };
-    });
-    console.log(`[${debugId}] 🍪 All cookies:`, allCookies);
-
+    log(debugId, `🍪 Supabase cookies:`, supabaseCookieValues);
+    
     // Create the Supabase client
-    console.log(`[${debugId}] 🔑 Creating Supabase client with URL: ${process.env.NEXT_PUBLIC_SUPABASE_URL?.substring(0, 15)}...`);
+    log(debugId, `🔑 Creating Supabase client with URL: ${process.env.NEXT_PUBLIC_SUPABASE_URL?.substring(0, 15)}...`);
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
           getAll() {
-            console.log(`[${debugId}] 🍪 getAll cookies called in Supabase client`);
-            // Log cookie details for debugging
+            log(debugId, `🍪 getAll cookies called for Supabase client`)
             const cookies = request.cookies.getAll()
-            console.log(`[${debugId}] 🍪 Found ${cookies.length} cookies for Supabase`)
             
             // Log presence of auth cookies specifically
             const authCookies = cookies.filter(c => 
-              c.name === 'sb-access-token' || 
-              c.name === 'sb-refresh-token'
+              supabaseCookies.includes(c.name)
             )
             
             if (authCookies.length > 0) {
-              console.log(`[${debugId}] 🍪 Found Supabase auth cookies:`, 
+              log(debugId, `🍪 Found Supabase auth cookies:`, 
                 authCookies.map(c => ({ name: c.name, length: c.value.length }))
               )
             } else {
-              console.log(`[${debugId}] ⚠️ No Supabase auth cookies found`)
+              log(debugId, `⚠️ No Supabase auth cookies found`)
             }
             
             return cookies
           },
           setAll(cookiesToSet) {
-            console.log(`[${debugId}] 🍪 setAll cookies called in Supabase client with ${cookiesToSet.length} cookies`);
+            log(debugId, `🍪 setAll called with ${cookiesToSet.length} cookies`)
+            
+            // Apply cookies to the response
             cookiesToSet.forEach(({ name, value, options }) => {
-              console.log(`[${debugId}] 🍪 Setting cookie: ${name}, length: ${value.length}, options: ${JSON.stringify(options)}`);
-              // Set cookies on both request and response
-              request.cookies.set(name, value)
               response.cookies.set(name, value, options)
-              
-              // Ensure cookies are being set properly
-              if (name === 'sb-access-token' || name === 'sb-refresh-token') {
-                console.log(`[${debugId}] ✅ Set Supabase auth cookie: ${name}`)
-              }
+              log(debugId, `🍪 Setting cookie: ${name}, length: ${value.length}`)
             })
-          },
-        },
-      }
-    )
-
-    // CRITICAL: Fetch the session and user with error handling
-    let session = null
-    let user = null
-
-    try {
-      // Get session first - this is crucial for auth flow
-      console.log(`[${debugId}] 🔐 Fetching Supabase auth session`);
-      const sessionStartTime = Date.now();
-      const sessionRes = await supabase.auth.getSession()
-      console.log(`[${debugId}] ⏱️ getSession took ${Date.now() - sessionStartTime}ms`);
-      
-      // Log more details about the session response
-      console.log(`[${debugId}] 📄 Session response:`, {
-        hasSession: !!sessionRes.data.session,
-        hasError: !!sessionRes.error,
-        errorMessage: sessionRes.error?.message
-      })
-      
-      session = sessionRes.data.session
-      
-      if (session) {
-        console.log(`[${debugId}] ✅ Found valid session, expiry: ${new Date(session.expires_at! * 1000).toISOString()}, user: ${session.user.email}`);
-        // If we have a session, ensure it's refreshed if needed
-        const now = Math.floor(Date.now() / 1000);
-        const expiresAt = session.expires_at || 0;
-        const timeRemaining = expiresAt - now;
-        
-        console.log(`[${debugId}] ⏳ Session expires in ${timeRemaining} seconds`);
-
-        // If session expires in less than 5 minutes, refresh it
-        if (timeRemaining < 300) {
-          console.log(`[${debugId}] 🔄 Session expiring soon, refreshing...`);
-          try {
-            const refreshStartTime = Date.now();
-            await supabase.auth.setSession(session)
-            console.log(`[${debugId}] ⏱️ setSession refresh took ${Date.now() - refreshStartTime}ms`);
-          } catch (refreshError) {
-            console.error(`[${debugId}] ❌ Error refreshing session:`, refreshError)
-            // Continue with the existing session if refresh fails
+            
+            // Return void - this matches the expected type signature
+            return
           }
         }
-      } else {
-        console.log(`[${debugId}] ⚠️ No Supabase session found`);
-        
-        // Check if we have NextAuth session cookie
-        const nextAuthCookie = request.cookies.get('next-auth.session-token');
-        if (nextAuthCookie) {
-          console.log(`[${debugId}] 🔍 NextAuth session cookie found, length: ${nextAuthCookie.value.length}`)
-          // Note: We'll handle this through our client-side syncing mechanism
-        }
       }
+    )
+    
+    // Fetch the session with detailed error handling
+    log(debugId, `🔑 Fetching Supabase auth session`)
+    let sessionResult
+    
+    try {
+      sessionResult = await supabase.auth.getSession()
       
-      // Get user after potential session refresh
-      console.log(`[${debugId}] 👤 Fetching user details`);
-      const userStartTime = Date.now();
-      const userRes = await supabase.auth.getUser()
-      console.log(`[${debugId}] ⏱️ getUser took ${Date.now() - userStartTime}ms`);
-      
-      // Log more details about user response
-      console.log(`[${debugId}] 📄 User response:`, {
-        hasUser: !!userRes.data.user,
-        hasError: !!userRes.error,
-        errorMessage: userRes.error?.message
-      })
-      
-      user = userRes.data.user
-      
-      if (user) {
-        console.log(`[${debugId}] ✅ User authenticated: ${user.id.substring(0, 8)}... email: ${user.email}`);
-        // Use internal headers that won't be exposed to client
-        // These are accessible in server components/API routes
-        request.headers.set('x-user-id', user.id)
-        
-        // If user has custom claims or roles, add those too
-        if (user.app_metadata?.role) {
-          console.log(`[${debugId}] 🔑 User role: ${user.app_metadata.role}`);
-          request.headers.set('x-user-role', user.app_metadata.role)
-        }
-        
-        // Also set headers on the response for edge functions
-        response.headers.set('x-user-id', user.id)
-        if (user.app_metadata?.role) {
-          response.headers.set('x-user-role', user.app_metadata.role)
-        }
-      } else {
-        console.log(`[${debugId}] ⚠️ No user found`);
+      if (sessionResult.error) {
+        logError(debugId, `❌ Supabase session error:`, sessionResult.error.message)
       }
-    } catch (authError) {
-      console.error(`[${debugId}] ❌ Supabase auth error in middleware:`, authError)
-      // Continue without session/user - will redirect as needed
+    } catch (error) {
+      logError(debugId, `🔥 Critical error fetching session:`, error)
+      
+      // Return a friendlier error response in production
+      if (process.env.NODE_ENV === 'production') {
+        // Let users continue their browsing experience despite auth errors
+        return response
+      }
     }
     
-    // Handle WebSocket upgrade requests
-    if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-      console.log(`[${debugId}] 🔌 WebSocket upgrade request detected`);
-      return response
+    const session = sessionResult?.data.session
+    
+    // Check if user is authenticated via Supabase
+    let isAuthenticated = !!session
+    let userName = session?.user?.email || null
+    
+    // Check for NextAuth session cookie as fallback
+    const nextAuthSessionCookie = request.cookies.get('next-auth.session-token')
+    const hasNextAuthSession = !!nextAuthSessionCookie
+    
+    log(debugId, `🔐 Auth state: Supabase=${isAuthenticated}, NextAuth=${hasNextAuthSession}`)
+    
+    // Log more details about the session if present
+    if (session) {
+      log(debugId, `👤 User authenticated: ${session.user.email}`)
+      
+      // Add user info to response headers for server components
+      response.headers.set('x-user-id', session.user.id)
+      if (session.user.email) {
+        response.headers.set('x-user-email', session.user.email)
+      }
+    } else if (hasNextAuthSession) {
+      log(debugId, `👤 No Supabase session, but NextAuth session is present`)
+      // We'll fallback to using the NextAuth authentication for transition
+      isAuthenticated = true
+    } else {
+      log(debugId, `👤 User not authenticated`)
     }
     
     // Check if this is a protected route
@@ -290,83 +275,82 @@ export async function middleware(request: NextRequest) {
       request.nextUrl.pathname.startsWith(route)
     )
     
-    console.log(`[${debugId}] 🔒 Protected route check: ${isProtectedRoute ? 'Yes' : 'No'} for ${request.nextUrl.pathname}`);
-    
-    // For protected routes, apply auth check with fallback to NextAuth
-    if (isProtectedRoute) {
-      // If no user from Supabase, check for NextAuth cookie
-      if (!user) {
-        const nextAuthCookie = request.cookies.get('next-auth.session-token');
-        if (nextAuthCookie) {
-          console.log(`[${debugId}] 🔍 NextAuth session cookie found, proceeding with caution`);
-          // We have NextAuth but not Supabase - we'll allow this for the transition period
-          // Our client-side code will sync the sessions
-          
-          // For API routes, we need to be stricter since client-side sync won't help
-          if (request.nextUrl.pathname.startsWith('/api/')) {
-            // Allow some key API routes to proceed even without Supabase auth
-            const allowedApiRoutes = ['/api/auth/', '/api/csrf', '/api/status'];
-            const isAllowedApi = allowedApiRoutes.some(route => 
-              request.nextUrl.pathname.startsWith(route)
-            );
-            
-            if (!isAllowedApi) {
-              console.log(`[${debugId}] ⚠️ API requires Supabase auth, but proceeding with NextAuth only`);
-              // We'll let the API decide if it can handle this
+    // Check if URL requires authentication
+    if (isProtectedRoute && !isAuthenticated) {
+      log(debugId, `🔒 Protected route access attempt without authentication: ${request.nextUrl.pathname}`)
+      
+      // For API routes, return 401 instead of redirecting
+      if (request.nextUrl.pathname.startsWith('/api/')) {
+        log(debugId, `🚫 API access denied, returning 401`)
+        return new NextResponse(
+          JSON.stringify({ 
+            error: 'Authentication required',
+            status: 'unauthorized',
+            message: 'Please sign in to access this resource'
+          }),
+          { 
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+              ...Object.fromEntries(headers)
             }
           }
-        } else {
-          // No auth at all - handle normally
-          console.log(`[${debugId}] 🚫 Unauthorized access to protected route: ${request.nextUrl.pathname}`);
-          
-          // Return JSON error for API routes
-          if (request.nextUrl.pathname.startsWith('/api/')) {
-            console.log(`[${debugId}] 🚫 Returning 401 for API route`);
-            return NextResponse.json(
-              { error: 'Unauthorized', message: 'Authentication required' },
-              { status: 401, headers: response.headers }
-            )
-          }
-          
-          // Redirect to login page for non-API routes
-          const redirectUrl = new URL('/login', request.url)
-          redirectUrl.searchParams.set('callbackUrl', request.nextUrl.pathname)
-          
-          console.log(`[${debugId}] 🔄 Redirecting to login: ${redirectUrl.toString()}`);
-          
-          // Preserve the security headers in the redirect
-          const redirectResponse = NextResponse.redirect(redirectUrl)
-          
-          // Copy over all headers including security headers
-          // Use Array.from to handle the Headers iterator properly for TypeScript
-          Array.from(response.headers.entries()).forEach(([key, value]) => {
-            redirectResponse.headers.set(key, value)
-          })
-          
-          return redirectResponse
-        }
+        )
       }
       
-      console.log(`[${debugId}] ✅ User authenticated for protected route: ${request.nextUrl.pathname}`);
+      // For regular routes, redirect to login
+      log(debugId, `🔄 Redirecting to login page`)
+      const redirectUrl = new URL('/login', request.url)
+      redirectUrl.searchParams.set('callbackUrl', request.nextUrl.pathname)
       
-      // User is authenticated, add cache control headers
-      response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
-      response.headers.set('Pragma', 'no-cache')
-      response.headers.set('Expires', '0')
+      return NextResponse.redirect(redirectUrl, {
+        headers: Object.fromEntries(headers)
+      })
     }
     
-    console.log(`[${debugId}] 🟢 Middleware complete for: ${request.nextUrl.pathname}`);
+    // Apply all headers to the response
+    // Convert headers to an object for better compatibility
+    const headerEntries = Array.from(headers.entries())
+    headerEntries.forEach(([key, value]) => {
+      response.headers.set(key, value)
+    })
+    
+    log(debugId, `✅ Middleware processing complete`)
     return response
   } catch (error) {
-    console.error(`[${debugId}] ❌ Middleware error:`, error)
-    // Return basic response on error to avoid crashing
-    return NextResponse.next()
+    logError(debugId, `🔥 Critical middleware error:`, error)
+    
+    // In production, don't block the request even if middleware fails
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(`[${debugId}] ⚠️ Bypassing middleware due to critical error`)
+      return NextResponse.next()
+    }
+    
+    // In development, show the error
+    return new NextResponse(
+      JSON.stringify({ 
+        error: 'Middleware failed', 
+        message: error instanceof Error ? error.message : 'Unknown error'
+      }),
+      { 
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
+    )
   }
 }
 
 export const config = {
   matcher: [
-    // Match all paths except for common static assets
-    '/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)'
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * Feel free to modify this pattern to include more paths.
+     */
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 } 

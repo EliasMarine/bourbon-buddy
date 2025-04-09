@@ -30,145 +30,17 @@ const getCookieDomain = () => {
   return undefined;
 };
 
-// Create simplified hybrid Redis/Prisma adapter that falls back to Prisma-only when Redis is unavailable
-function createRedisEnhancedAdapter() {
-  // Get the base Prisma adapter for database operations
-  const prismaAdapter = PrismaAdapter(prisma);
-  
-  // If Redis is not available, just return the Prisma adapter directly
-  if (!redis) {
-    console.log('Redis not available, using Prisma-only adapter for sessions');
-    return prismaAdapter;
+// Create an enhanced Redis adapter that falls back to PrismaAdapter if Redis is unavailable
+function createRedisEnhancedAdapter(): Adapter {
+  // Use Redis adapter if Redis is available
+  if (redis) {
+    console.log('🔄 Using Redis adapter for NextAuth sessions');
+    return RedisAdapter(redis, prisma);
   }
   
-  // Create our own adapter that uses Redis for sessions
-  const adapter: Adapter = {
-    // Use all base adapter methods
-    ...prismaAdapter,
-    
-    // Override with Redis-enhanced session methods
-    
-    // Create session in both Redis and database
-    createSession: async (session) => {
-      // Store session data in Redis with proper expiration time
-      await sessionStorage.setSession(
-        session.sessionToken,
-        { userId: session.userId },
-        Math.floor((session.expires.getTime() - Date.now()) / 1000)
-      );
-      
-      // Return the database session for NextAuth compatibility
-      return prismaAdapter.createSession!(session);
-    },
-    
-    // Get session from Redis if possible, fall back to database
-    getSessionAndUser: async (sessionToken) => {
-      // Try Redis first for better performance
-      const redisSession = await sessionStorage.getSession(sessionToken);
-      
-      if (redisSession?.userId) {
-        // If session found in Redis, get user directly
-        const user = await safeDbOperation(async (client) => {
-          return client.user.findUnique({
-            where: { id: redisSession.userId }
-          });
-        });
-        
-        if (user) {
-          // Also get the full session from database (needed for NextAuth)
-          const dbSession = await safeDbOperation(async (client) => {
-            return client.session.findUnique({
-              where: { sessionToken }
-            });
-          });
-          
-          if (dbSession) {
-            return {
-              user: user as AdapterUser,
-              session: dbSession as AdapterSession
-            };
-          }
-        }
-      }
-      
-      // Fall back to database if Redis fails or session not found
-      return prismaAdapter.getSessionAndUser!(sessionToken);
-    },
-    
-    // Update session in both Redis and database
-    updateSession: async (session) => {
-      // Ensure we have all required fields
-      if (session.sessionToken && session.userId && session.expires) {
-        // Update in Redis
-        await sessionStorage.setSession(
-          session.sessionToken,
-          { userId: session.userId },
-          Math.floor((session.expires.getTime() - Date.now()) / 1000)
-        );
-      }
-      
-      // Return the database update result for NextAuth compatibility
-      return prismaAdapter.updateSession!(session);
-    },
-    
-    // Delete session from both Redis and database
-    deleteSession: async (sessionToken) => {
-      // Delete from Redis
-      await sessionStorage.deleteSession(sessionToken);
-      
-      // Delete from database and return void explicitly for type compatibility
-      await prismaAdapter.deleteSession!(sessionToken);
-      // Return void to match the expected return type
-      return;
-    },
-    
-    // Handle user lookup methods carefully to avoid prepared statement issues
-    getUserByEmail: async (email) => {
-      try {
-        // Non-null assertion since we know this method exists
-        return await prismaAdapter.getUserByEmail!(email);
-      } catch (error: any) {
-        if (error?.message?.includes('prepared statement') || 
-            error instanceof PrismaClientUnknownRequestError ||
-            error?.code === '42P05') {
-          // Use fresh client for this operation
-          const freshPrisma = getPrismaClient();
-          const user = await freshPrisma.user.findUnique({
-            where: { email }
-          });
-          return user as AdapterUser | null;
-        }
-        throw error;
-      }
-    },
-    
-    getUserByAccount: async (providerAccountId) => {
-      try {
-        // Non-null assertion since we know this method exists
-        return await prismaAdapter.getUserByAccount!(providerAccountId);
-      } catch (error: any) {
-        if (error?.message?.includes('prepared statement') || 
-            error instanceof PrismaClientUnknownRequestError ||
-            error?.code === '42P05') {
-          // Use fresh client for this operation
-          const freshPrisma = getPrismaClient();
-          const account = await freshPrisma.account.findUnique({
-            where: {
-              provider_providerAccountId: {
-                provider: providerAccountId.provider,
-                providerAccountId: providerAccountId.providerAccountId,
-              },
-            },
-            select: { user: true },
-          });
-          return account?.user as AdapterUser | null;
-        }
-        throw error;
-      }
-    }
-  };
-  
-  return adapter;
+  // Otherwise fall back to Prisma
+  console.log('🔄 Falling back to Prisma adapter for NextAuth sessions');
+  return PrismaAdapter(prisma);
 }
 
 // Additional utility function to handle database operations with retry logic
@@ -186,9 +58,10 @@ async function safeDbOperation<T>(operation: (client: any) => Promise<T>): Promi
   }
 }
 
-// Define NextAuth configuration options
+// Modify the auth options to use database strategy and Redis adapter when available
+// Change the session strategy and ensure the adapter is properly configured
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
+  adapter: createRedisEnhancedAdapter(),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || '',
@@ -305,11 +178,11 @@ export const authOptions: NextAuthOptions = {
           }
           return null;
         }
-      },
+      }
     }),
   ],
   session: {
-    strategy: 'jwt',
+    strategy: 'database',
     maxAge: 30 * 24 * 60 * 60, // 30 days
     updateAge: 24 * 60 * 60, // 24 hours
   },
@@ -325,6 +198,7 @@ export const authOptions: NextAuthOptions = {
         sameSite: 'lax',
         path: '/',
         secure: process.env.NODE_ENV === 'production',
+        domain: process.env.COOKIE_DOMAIN || undefined,
       },
     },
     callbackUrl: {
@@ -334,6 +208,7 @@ export const authOptions: NextAuthOptions = {
         sameSite: 'lax',
         path: '/',
         secure: process.env.NODE_ENV === 'production',
+        domain: process.env.COOKIE_DOMAIN || undefined,
       },
     },
     csrfToken: {
@@ -343,6 +218,7 @@ export const authOptions: NextAuthOptions = {
         sameSite: 'lax',
         path: '/',
         secure: process.env.NODE_ENV === 'production',
+        domain: process.env.COOKIE_DOMAIN || undefined,
       },
     },
   },
@@ -364,8 +240,18 @@ export const authOptions: NextAuthOptions = {
       
       return token;
     },
-    async session({ session, token }) {
-      if (token && typeof token.id === 'string') {
+    async session({ session, token, user }) {
+      // When using database sessions, user parameter will be available instead of token
+      if (user) {
+        session.user = {
+          ...session.user,
+          id: user.id,
+          email: user.email as string,
+          name: user.name as string | null,
+          image: user.image as string | null
+        };
+      } else if (token && typeof token.id === 'string') {
+        // Fallback to token-based data if user is not available
         session.user = {
           ...session.user,
           id: token.id,
@@ -382,13 +268,9 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
-  jwt: {
-    // Use the same secret as Supabase JWT for token verification
-    secret: process.env.NEXTAUTH_SECRET || process.env.SUPABASE_JWT_SECRET,
-    // Explicitly set maximum age to align with Supabase's expiration
-    maxAge: 7 * 24 * 60 * 60, // 7 days - should match Supabase settings
-  },
   debug: process.env.NODE_ENV === 'development',
+  // Make sure the secret matches Supabase JWT secret for compatibility
+  secret: process.env.NEXTAUTH_SECRET || process.env.SUPABASE_JWT_SECRET,
 };
 
 // Helper function to clean auth cookies in responses
