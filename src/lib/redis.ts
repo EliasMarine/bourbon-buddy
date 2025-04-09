@@ -2,28 +2,42 @@ import Redis from 'ioredis';
 
 // Define connection options based on environment variables
 const redisUrl = process.env.REDIS_URL || '';
+const disableRedis = process.env.DISABLE_REDIS === 'true';
 
 // Track if Redis is enabled
-const isRedisEnabled = !!redisUrl && process.env.USE_REDIS_FOR_SESSIONS === 'true';
+const isRedisEnabled = !disableRedis && !!redisUrl && process.env.USE_REDIS_FOR_SESSIONS === 'true';
 
 // Add more detailed debug logging
 console.log(`Redis enabled: ${isRedisEnabled}`);
 console.log(`Redis URL present: ${!!redisUrl}`);
 console.log(`Redis URL: ${redisUrl ? redisUrl.substring(0, 9) + '...' : 'not set'}`);
 console.log(`USE_REDIS_FOR_SESSIONS: ${process.env.USE_REDIS_FOR_SESSIONS}`);
+console.log(`DISABLE_REDIS: ${disableRedis}`);
+
+// Check URL validity without causing exceptions
+let isValidRedisUrl = false;
 if (redisUrl) {
-  // Log URL pattern without exposing credentials
-  const redisUrlObj = new URL(redisUrl);
-  console.log(`Redis connection attempted to host: ${redisUrlObj.hostname}`);
-  console.log(`Redis URL format valid: ${redisUrl.startsWith('redis://') || redisUrl.startsWith('rediss://')}`);
+  try {
+    // Validate URL format
+    const urlPattern = /^redis(s)?:\/\//;
+    isValidRedisUrl = urlPattern.test(redisUrl);
+    if (isValidRedisUrl) {
+      console.log(`Redis URL format appears valid`);
+    } else {
+      console.warn(`Redis URL doesn't match expected pattern (redis:// or rediss://)`);
+    }
+  } catch (error) {
+    console.error('Invalid Redis URL:', error);
+    isValidRedisUrl = false;
+  }
 } else {
   console.log('No Redis URL provided');
 }
 
-// Create a Redis client if enabled
+// Create a Redis client if enabled and URL is valid
 let redisClient: Redis | null = null;
 
-if (isRedisEnabled) {
+if (isRedisEnabled && isValidRedisUrl && !disableRedis) {
   try {
     redisClient = new Redis(redisUrl, {
       // Set reasonable connection timeouts
@@ -43,10 +57,14 @@ if (isRedisEnabled) {
       console.warn('Redis connection error:', err.message);
       // Don't crash the app on connection issues
     });
+    
+    console.log('Redis client initialized successfully');
   } catch (error) {
     console.error('Failed to initialize Redis client:', error);
     redisClient = null;
   }
+} else {
+  console.log(`Redis client NOT initialized. Enabled: ${isRedisEnabled}, Valid URL: ${isValidRedisUrl}, Disabled flag: ${disableRedis}`);
 }
 
 // Export the redis client
@@ -54,7 +72,7 @@ export const redis = redisClient;
 
 // Function to create a namespaced key for different use cases
 export function getRedisKey(namespace: string, key: string): string {
-  return `${namespace}:${key}`;
+  return `${process.env.REDIS_PREFIX || ''}${namespace}:${key}`;
 }
 
 // Session management functions with fallbacks

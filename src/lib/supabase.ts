@@ -294,8 +294,69 @@ export function createMiddlewareClient(request: NextRequest) {
   }
 }
 
+// Add a flag to check if we should use REST API only
+const useRestOnly = process.env.USE_SUPABASE_REST_ONLY === 'true';
+const fallbackToRest = process.env.FALLBACK_TO_REST_API === 'true'; 
+const enableOfflineFallback = process.env.ENABLE_OFFLINE_FALLBACK === 'true';
+
+// Log the configuration
+console.log('Supabase configuration:');
+console.log('- USE_SUPABASE_REST_ONLY:', useRestOnly);
+console.log('- FALLBACK_TO_REST_API:', fallbackToRest);
+console.log('- ENABLE_OFFLINE_FALLBACK:', enableOfflineFallback);
+
+// Track database connection status
+let isDatabaseReachable = !useRestOnly; // Assume database is reachable unless REST-only mode
+let connectionTested = false;
+
+// Function to test database connectivity (to be called once)
+async function testDatabaseConnectivity() {
+  if (connectionTested) return isDatabaseReachable;
+  
+  try {
+    if (useRestOnly) {
+      console.log('REST-only mode enabled, skipping database connectivity test');
+      isDatabaseReachable = false;
+      connectionTested = true;
+      return false;
+    }
+    
+    // Create a database client
+    const dbClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    
+    // Try a simple query
+    const { data, error } = await dbClient
+      .from('_prisma_migrations')
+      .select('*')
+      .limit(1);
+    
+    if (error) {
+      console.error('Database connection test failed:', error.message);
+      isDatabaseReachable = false;
+    } else {
+      console.log('Database connection test successful');
+      isDatabaseReachable = true;
+    }
+  } catch (error) {
+    console.error('Error testing database connectivity:', error);
+    isDatabaseReachable = false;
+  }
+  
+  connectionTested = true;
+  console.log('Database reachable:', isDatabaseReachable);
+  return isDatabaseReachable;
+}
+
 // Supabase client for server usage (with service key)
-export const createSupabaseServerClient = () => {
+export const createSupabaseServerClient = async () => {
+  // Run connection test if not already done
+  if (!connectionTested) {
+    await testDatabaseConnectivity();
+  }
+  
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   // Use SUPABASE_SERVICE_ROLE_KEY as primary, with SUPABASE_SERVICE_KEY as fallback
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
@@ -303,29 +364,42 @@ export const createSupabaseServerClient = () => {
   if (!isValidSupabaseConfig(supabaseUrl, supabaseKey)) {
     console.error('Invalid or missing Supabase environment variables');
     // Return a mock client that returns empty data for all operations
-    return {
-      from: () => ({
-        select: () => ({ data: [], count: 0, error: null }),
-        insert: () => ({ data: null, error: null }),
-        update: () => ({ data: null, error: null }),
-        delete: () => ({ data: null, error: null }),
-        eq: () => ({ data: [], count: 0, error: null, select: () => ({ data: [], count: 0, error: null }) }),
-      }),
-      storage: {
-        from: () => ({
-          upload: () => ({ data: null, error: null }),
-          download: () => ({ data: null, error: null }),
-          getPublicUrl: () => ({ data: { publicUrl: '' } }),
-        }),
-      },
-      auth: {
-        getSession: () => Promise.resolve({ data: { session: null }, error: null }),
-      }
-    } as any;
+    return getMockClient();
+  }
+
+  if (useRestOnly || (fallbackToRest && !isDatabaseReachable)) {
+    console.log('Using REST API client for Supabase operations');
+    // Return a client that uses the REST API
+    return createClient(supabaseUrl!, supabaseKey!);
   }
 
   return createClient(supabaseUrl!, supabaseKey!);
 };
+
+// Helper function to generate a mock client when Supabase is unavailable
+function getMockClient() {
+  console.warn('Creating mock Supabase client due to connection issues');
+  
+  return {
+    from: () => ({
+      select: () => ({ data: [], count: 0, error: null }),
+      insert: () => ({ data: null, error: null }),
+      update: () => ({ data: null, error: null }),
+      delete: () => ({ data: null, error: null }),
+      eq: () => ({ data: [], count: 0, error: null, select: () => ({ data: [], count: 0, error: null }) }),
+    }),
+    storage: {
+      from: () => ({
+        upload: () => ({ data: null, error: null }),
+        download: () => ({ data: null, error: null }),
+        getPublicUrl: () => ({ data: { publicUrl: '' } }),
+      }),
+    },
+    auth: {
+      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+    }
+  } as any;
+}
 
 /**
  * Creates a Supabase client with admin privileges
