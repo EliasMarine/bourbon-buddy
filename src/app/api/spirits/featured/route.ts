@@ -85,7 +85,7 @@ export async function GET(
     }
 
     // If we still don't have a user email, return unauthorized
-    if (!userEmail) {
+    if (!userEmail && process.env.NODE_ENV !== 'development') {
       console.log(`[${debugId}] ⛔ No authenticated user found after all checks`);
       return NextResponse.json(
         { 
@@ -94,6 +94,10 @@ export async function GET(
         },
         { status: 401 }
       );
+    } else if (!userEmail) {
+      // In development, use a placeholder email
+      console.log(`[${debugId}] 🛠️ Development mode: proceeding with placeholder user`);
+      userEmail = 'dev@example.com';
     }
 
     // Build query conditions
@@ -120,35 +124,52 @@ export async function GET(
       whereConditions.type = subcategory;
     }
 
-    // Get spirits with high ratings or recently added
-    const spirits = await prisma.spirit.findMany({
-      select: {
-        id: true,
-        name: true,
-        brand: true,
-        type: true,
-        category: true,
-        imageUrl: true,
-        rating: true,
-        ownerId: true,
-        owner: {
-          select: {
-            name: true,
-            image: true,
-          }
+    try {
+      console.log(`[${debugId}] 🔍 Executing database query to find featured spirits`);
+      
+      // Get spirits with high ratings or recently added
+      const spirits = await prisma.spirit.findMany({
+        select: {
+          id: true,
+          name: true,
+          brand: true,
+          type: true,
+          category: true,
+          imageUrl: true,
+          rating: true,
+          ownerId: true,
+          owner: {
+            select: {
+              name: true,
+              image: true,
+            }
+          },
+          createdAt: true,
         },
-        createdAt: true,
-      },
-      where: whereConditions,
-      orderBy: [
-        { rating: 'desc' },
-        { createdAt: 'desc' }
-      ],
-      take: Math.min(limit, 50) // Limit maximum to 50 for performance
-    });
+        where: whereConditions,
+        orderBy: [
+          { rating: 'desc' },
+          { createdAt: 'desc' }
+        ],
+        take: Math.min(limit, 50) // Limit maximum to 50 for performance
+      });
 
-    console.log(`[${debugId}] ✅ Found ${spirits.length} featured spirits`);
-    return NextResponse.json({ spirits });
+      console.log(`[${debugId}] ✅ Found ${spirits.length} featured spirits`);
+      return NextResponse.json({ spirits });
+    } catch (queryError) {
+      console.error(`[${debugId}] ❌ Database query error:`, queryError);
+      
+      // Return a fallback response with empty data for development
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[${debugId}] 🛠️ Development mode: returning mock data`);
+        return NextResponse.json({ spirits: [] });
+      }
+      
+      return NextResponse.json(
+        { error: 'Database Error', message: 'Failed to fetch featured spirits' },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error('Error fetching featured spirits:', error);
     return NextResponse.json(

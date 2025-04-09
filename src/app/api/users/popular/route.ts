@@ -87,7 +87,7 @@ export async function GET(request: Request) {
     }
 
     // If we still don't have a user email, return unauthorized
-    if (!userEmail) {
+    if (!userEmail && process.env.NODE_ENV !== 'development') {
       console.log(`[${debugId}] ⛔ No authenticated user found after all checks`);
       return NextResponse.json(
         { 
@@ -96,35 +96,56 @@ export async function GET(request: Request) {
         },
         { status: 401 }
       );
+    } else if (!userEmail) {
+      // In development, use a placeholder email
+      console.log(`[${debugId}] 🛠️ Development mode: proceeding with placeholder user`);
+      userEmail = 'dev@example.com';
     }
 
-    // Use a single optimized query with JOIN and COUNT
-    // This avoids prepared statement conflicts by reducing query count
-    const users = await prisma.$queryRaw<PopularUser[]>`
-      SELECT 
-        u.id, 
-        u.name, 
-        u.username, 
-        u.email, 
-        u.image, 
-        COUNT(s.id) as "spiritsCount"
-      FROM "User" u
-      LEFT JOIN "Spirit" s ON s."ownerId" = u.id
-      WHERE u.email != ${userEmail}
-      GROUP BY u.id, u.name, u.username, u.email, u.image
-      HAVING COUNT(s.id) > 0
-      ORDER BY "spiritsCount" DESC
-      LIMIT 12
-    `;
-
-    // Convert bigint to number for JSON serialization
-    const formattedUsers = users.map(user => ({
-      ...user,
-      spiritsCount: Number(user.spiritsCount)
-    }));
-
-    console.log(`[${debugId}] ✅ Found ${formattedUsers.length} popular users`);
-    return NextResponse.json({ users: formattedUsers });
+    try {
+      console.log(`[${debugId}] 🔍 Executing database query to find popular users`);
+      
+      // Use a single optimized query with JOIN and COUNT
+      // This avoids prepared statement conflicts by reducing query count
+      const users = await prisma.$queryRaw<PopularUser[]>`
+        SELECT 
+          u.id, 
+          u.name, 
+          u.username, 
+          u.email, 
+          u.image, 
+          COUNT(s.id) as "spiritsCount"
+        FROM "User" u
+        LEFT JOIN "Spirit" s ON s."ownerId" = u.id
+        WHERE u.email != ${userEmail}
+        GROUP BY u.id, u.name, u.username, u.email, u.image
+        HAVING COUNT(s.id) > 0
+        ORDER BY "spiritsCount" DESC
+        LIMIT 12
+      `;
+      
+      // Convert bigint to number for JSON serialization
+      const formattedUsers = users.map(user => ({
+        ...user,
+        spiritsCount: Number(user.spiritsCount)
+      }));
+      
+      console.log(`[${debugId}] ✅ Found ${formattedUsers.length} popular users`);
+      return NextResponse.json({ users: formattedUsers });
+    } catch (queryError) {
+      console.error(`[${debugId}] ❌ Database query error:`, queryError);
+      
+      // Return a fallback response with empty data for development
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[${debugId}] 🛠️ Development mode: returning mock data`);
+        return NextResponse.json({ users: [] });
+      }
+      
+      return NextResponse.json(
+        { error: 'Database Error', message: 'Failed to fetch popular users' },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error('Error fetching popular users:', error);
     
