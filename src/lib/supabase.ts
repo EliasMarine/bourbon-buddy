@@ -5,6 +5,9 @@ import { NextRequest, NextResponse } from 'next/server';
 // Don't import next/headers directly - import dynamically in server functions
 import type { CookieOptions } from '@supabase/ssr';
 
+// Storage configuration
+export const STORAGE_BUCKET = 'bourbon-buddy-prod';
+
 // Global singleton for browser client
 let supabaseBrowserClientInstance: ReturnType<typeof createSsrBrowserClient> | null = null;
 
@@ -287,7 +290,94 @@ export const withSupabaseAdmin = async <T>(
 /**
  * Gets the public URL for a file in storage
  */
-export function getStorageUrl(bucket: string, path: string) {
+export function getStorageUrl(bucket: string = STORAGE_BUCKET, path: string) {
   const client = createBrowserClient();
   return client.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+}
+
+/**
+ * Uploads a file to storage
+ * @param path Path to store the file at
+ * @param file File to upload
+ * @param options Upload options
+ * @returns Supabase upload response
+ */
+export async function uploadFile(
+  path: string, 
+  file: File, 
+  options?: { 
+    bucket?: string, 
+    upsert?: boolean, 
+    contentType?: string 
+  }
+) {
+  const client = createBrowserClient();
+  const bucket = options?.bucket || STORAGE_BUCKET;
+  
+  return client.storage.from(bucket).upload(path, file, {
+    upsert: options?.upsert ?? false,
+    contentType: options?.contentType,
+  });
+}
+
+/**
+ * Downloads a file from storage
+ * @param path Path of the file to download
+ * @param options Download options
+ * @returns Supabase download response
+ */
+export async function downloadFile(
+  path: string, 
+  options?: { bucket?: string, transform?: { width?: number, height?: number, quality?: number } }
+) {
+  const client = createBrowserClient();
+  const bucket = options?.bucket || STORAGE_BUCKET;
+  
+  return client.storage.from(bucket).download(path, {
+    transform: options?.transform,
+  });
+}
+
+/**
+ * Lists files in a directory
+ * @param directory Directory to list files from (pass empty string for root)
+ * @param options List options
+ * @returns Supabase list response
+ */
+export async function listFiles(
+  directory: string = '',
+  options?: { 
+    bucket?: string, 
+    limit?: number, 
+    offset?: number, 
+    sortBy?: { column: string, order: 'asc' | 'desc' }
+  }
+) {
+  const client = createBrowserClient();
+  const bucket = options?.bucket || STORAGE_BUCKET;
+  
+  return client.storage.from(bucket).list(directory, {
+    limit: options?.limit,
+    offset: options?.offset,
+    sortBy: options?.sortBy,
+  });
+}
+
+/**
+ * Removes a file from storage
+ * @param paths Path or array of paths to delete
+ * @param options Delete options
+ * @returns Supabase remove response
+ */
+export async function removeFiles(
+  paths: string | string[],
+  options?: { bucket?: string }
+) {
+  const client = createBrowserClient();
+  const bucket = options?.bucket || STORAGE_BUCKET;
+  
+  // Accept both single string and array of strings
+  const pathsArray = Array.isArray(paths) ? paths : [paths];
+  
+  return client.storage.from(bucket).remove(pathsArray);
 } 
