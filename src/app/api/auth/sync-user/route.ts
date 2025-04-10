@@ -40,6 +40,7 @@ export async function POST() {
       // Create user in database
       user = await prisma.user.create({
         data: {
+          id: supabaseUser.id,
           email: supabaseUser.email!,
           name: name,
           username: metadata.username || `user_${supabaseUser.id.substring(0, 8)}`,
