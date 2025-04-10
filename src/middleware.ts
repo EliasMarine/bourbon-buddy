@@ -160,12 +160,12 @@ export async function middleware(request: NextRequest) {
     if (process.env.NODE_ENV === 'production') {
       headers.set('Content-Security-Policy', 
         "default-src 'self'; " +
-        `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com; ` +
-        `script-src-elem 'self' 'nonce-${nonce}' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com; ` +
+        `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live; ` +
+        `script-src-elem 'self' 'nonce-${nonce}' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live; ` +
         "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data: blob: https:; " +
         "font-src 'self' data:; " +
-        "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com " + 
+        "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://vercel.live " + 
         allowedDomains.map(domain => `https://${domain}`).join(' ') + "; " +
         "worker-src 'self' blob:; " +
         "frame-src 'self' https://appleid.apple.com; " +

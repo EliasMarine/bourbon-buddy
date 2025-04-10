@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { redirect, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -38,6 +38,8 @@ export default function DashboardPage() {
   });
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const statsLoadedRef = useRef(false);
+  const fetchingRef = useRef(false);
 
   console.log(`[${DEBUG_ID}] 🔐 Auth status: ${status}`);
   console.log(`[${DEBUG_ID}] 👤 Session:`, session ? "Present" : "Not present");
@@ -51,12 +53,25 @@ export default function DashboardPage() {
     });
     
     const fetchStats = async () => {
+      // Prevent concurrent fetches
+      if (fetchingRef.current) {
+        console.log(`[${DEBUG_ID}] ⏸️ Fetch already in progress, skipping`);
+        return;
+      }
+      
       if (!session) {
         console.log(`[${DEBUG_ID}] ⚠️ No session found, skipping stats fetch`);
         return;
       }
       
+      // Skip if already loaded and same session to prevent loops
+      if (statsLoadedRef.current && !loading) {
+        console.log(`[${DEBUG_ID}] ✅ Stats already loaded, skipping fetch`);
+        return;
+      }
+      
       try {
+        fetchingRef.current = true;
         console.log(`[${DEBUG_ID}] 🌐 Fetching collection stats from API`);
         const startTime = Date.now();
         const response = await fetch('/api/collection/stats');
@@ -71,6 +86,7 @@ export default function DashboardPage() {
             favorites: data.favorites || 0,
             tastings: data.tastings || 0
           });
+          statsLoadedRef.current = true;
         } else {
           console.warn(`[${DEBUG_ID}] ⚠️ Failed to fetch stats with status ${response.status}, using default values`);
           
@@ -89,14 +105,20 @@ export default function DashboardPage() {
         setError(`Network error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       } finally {
         setLoading(false);
+        fetchingRef.current = false;
       }
     };
 
     if (status !== 'loading') {
       console.log(`[${DEBUG_ID}] 🚀 Authentication status resolved, fetching stats`);
-      fetchStats();
+      // Use setTimeout to debounce rapid consecutive calls
+      const timeoutId = setTimeout(() => {
+        fetchStats();
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
     }
-  }, [status, session]);
+  }, [status, loading]); // Add loading to the dependencies since we use it in the effect
 
   // Show loading state while checking auth
   if (status === 'loading' || loading) {
