@@ -41,6 +41,7 @@ const protectedRoutes = [
 // Public routes accessible without authentication
 const publicRoutes = [
   '/login',
+  '/signup',
   '/auth',
   '/api/auth',
   '/api/csrf',
@@ -91,9 +92,6 @@ function getAllowedDomains(): string[] {
   return Array.from(new Set(domains))
 }
 
-// CSRF-related cookie paths that need special handling
-const csrfCookies = ['csrf_secret', 'next-auth.csrf-token']
-
 // Supabase-related cookies to monitor
 const supabaseCookies = ['sb-access-token', 'sb-refresh-token']
 
@@ -107,7 +105,9 @@ export async function middleware(request: NextRequest) {
   
   try {
     // Create a default response we'll modify as needed
-    const response = NextResponse.next()
+    const response = NextResponse.next({
+      request,
+    })
     
     // Add primary headers
     const headers = new Headers(response.headers)
@@ -181,107 +181,66 @@ export async function middleware(request: NextRequest) {
     
     // Create the Supabase client
     log(debugId, `🔑 Creating Supabase client with URL: ${process.env.NEXT_PUBLIC_SUPABASE_URL?.substring(0, 15)}...`);
+    
+    // Updated Supabase client with correct cookie handling
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
           getAll() {
-            log(debugId, `🍪 getAll cookies called for Supabase client`)
-            const cookies = request.cookies.getAll()
-            
-            // Log presence of auth cookies specifically
-            const authCookies = cookies.filter(c => 
-              supabaseCookies.includes(c.name)
-            )
-            
-            if (authCookies.length > 0) {
-              log(debugId, `🍪 Found Supabase auth cookies:`, 
-                authCookies.map(c => ({ name: c.name, length: c.value.length }))
-              )
-            } else {
-              log(debugId, `⚠️ No Supabase auth cookies found`)
-            }
-            
-            return cookies
+            return request.cookies.getAll()
           },
           setAll(cookiesToSet) {
-            log(debugId, `🍪 setAll called with ${cookiesToSet.length} cookies`)
-            
-            // Apply cookies to the response
             cookiesToSet.forEach(({ name, value, options }) => {
+              request.cookies.set(name, value)
               response.cookies.set(name, value, options)
-              log(debugId, `🍪 Setting cookie: ${name}, length: ${value.length}`)
             })
-            
-            // Return void - this matches the expected type signature
-            return
           }
-        }
+        },
       }
     )
     
     // Fetch the session with detailed error handling
     log(debugId, `🔑 Fetching Supabase auth session`)
-    let sessionResult
+    let user = null;
     
     try {
-      sessionResult = await supabase.auth.getSession()
+      const { data, error } = await supabase.auth.getUser();
       
-      if (sessionResult.error) {
-        logError(debugId, `❌ Supabase session error:`, sessionResult.error.message)
+      if (error) {
+        logError(debugId, `❌ Supabase user error:`, error.message);
+      } else if (data.user) {
+        user = data.user;
+        log(debugId, `👤 User authenticated: ${user.email}`);
+      } else {
+        log(debugId, `👤 No user found`);
       }
     } catch (error) {
-      logError(debugId, `🔥 Critical error fetching session:`, error)
+      logError(debugId, `🔥 Critical error fetching user:`, error);
       
       // Return a friendlier error response in production
       if (process.env.NODE_ENV === 'production') {
         // Let users continue their browsing experience despite auth errors
-        return response
+        return response;
       }
     }
     
-    const session = sessionResult?.data.session
-    
-    // Check if user is authenticated via Supabase
-    let isAuthenticated = !!session
-    let userName = session?.user?.email || null
-    
-    // Check for NextAuth session cookie as fallback
-    const nextAuthSessionCookie = request.cookies.get('next-auth.session-token')
-    const hasNextAuthSession = !!nextAuthSessionCookie
-    
-    log(debugId, `🔐 Auth state: Supabase=${isAuthenticated}, NextAuth=${hasNextAuthSession}`)
-    
-    // Log more details about the session if present
-    if (session) {
-      log(debugId, `👤 User authenticated: ${session.user.email}`)
-      
-      // Add user info to response headers for server components
-      response.headers.set('x-user-id', session.user.id)
-      if (session.user.email) {
-        response.headers.set('x-user-email', session.user.email)
-      }
-    } else if (hasNextAuthSession) {
-      log(debugId, `👤 No Supabase session, but NextAuth session is present`)
-      // We'll fallback to using the NextAuth authentication for transition
-      isAuthenticated = true
-    } else {
-      log(debugId, `👤 User not authenticated`)
-    }
+    // Check if user is authenticated
+    const isAuthenticated = !!user;
     
     // Check if this is a protected route
     const isProtectedRoute = protectedRoutes.some(route => 
       request.nextUrl.pathname.startsWith(route)
-    )
+    );
     
     // Check if URL requires authentication
     if (isProtectedRoute && !isAuthenticated) {
-      log(debugId, `🔒 Protected route access attempt without authentication: ${request.nextUrl.pathname}`)
+      log(debugId, `🔒 Protected route access attempt without authentication: ${request.nextUrl.pathname}`);
       
       // For API routes, return 401 instead of redirecting
       if (request.nextUrl.pathname.startsWith('/api/')) {
-        log(debugId, `🚫 API access denied, returning 401`)
+        log(debugId, `🚫 API access denied, returning 401`);
         return new NextResponse(
           JSON.stringify({ 
             error: 'Authentication required',
@@ -295,35 +254,43 @@ export async function middleware(request: NextRequest) {
               ...Object.fromEntries(headers)
             }
           }
-        )
+        );
       }
       
       // For regular routes, redirect to login
-      log(debugId, `🔄 Redirecting to login page`)
-      const redirectUrl = new URL('/login', request.url)
-      redirectUrl.searchParams.set('callbackUrl', request.nextUrl.pathname)
+      log(debugId, `🔄 Redirecting to login page`);
+      const redirectUrl = new URL('/login', request.url);
+      redirectUrl.searchParams.set('callbackUrl', request.nextUrl.pathname);
       
       return NextResponse.redirect(redirectUrl, {
         headers: Object.fromEntries(headers)
-      })
+      });
+    }
+    
+    // If authenticated, pass user info in headers for server components
+    if (user) {
+      response.headers.set('x-user-id', user.id);
+      if (user.email) {
+        response.headers.set('x-user-email', user.email);
+      }
     }
     
     // Apply all headers to the response
     // Convert headers to an object for better compatibility
-    const headerEntries = Array.from(headers.entries())
+    const headerEntries = Array.from(headers.entries());
     headerEntries.forEach(([key, value]) => {
-      response.headers.set(key, value)
-    })
+      response.headers.set(key, value);
+    });
     
-    log(debugId, `✅ Middleware processing complete`)
-    return response
+    log(debugId, `✅ Middleware processing complete`);
+    return response;
   } catch (error) {
-    logError(debugId, `🔥 Critical middleware error:`, error)
+    logError(debugId, `🔥 Critical middleware error:`, error);
     
     // In production, don't block the request even if middleware fails
     if (process.env.NODE_ENV === 'production') {
-      console.warn(`[${debugId}] ⚠️ Bypassing middleware due to critical error`)
-      return NextResponse.next()
+      console.warn(`[${debugId}] ⚠️ Bypassing middleware due to critical error`);
+      return NextResponse.next();
     }
     
     // In development, show the error
@@ -338,7 +305,7 @@ export async function middleware(request: NextRequest) {
           'Content-Type': 'application/json'
         }
       }
-    )
+    );
   }
 }
 
