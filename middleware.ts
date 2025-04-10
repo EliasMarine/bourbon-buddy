@@ -45,7 +45,7 @@ function generateCSP(isDev: boolean) {
   // Build the complete CSP
   return `
     default-src 'self';
-    script-src 'self' 'unsafe-inline' 'unsafe-eval' ${appleAuthDomains.join(' ')};
+    script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' ${appleAuthDomains.join(' ')};
     style-src 'self' 'unsafe-inline';
     connect-src ${connectSrc};
     img-src 'self' data: blob: https:;

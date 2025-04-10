@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { generateDebugId } from '@/lib/debug-utils'
+import crypto from 'crypto'
 
 // Helper function to determine if verbose logging is enabled
 function isVerboseLoggingEnabled(): boolean {
@@ -98,6 +99,20 @@ const supabaseCookies = ['sb-access-token', 'sb-refresh-token']
 // List of allowed domains
 const allowedDomains = getAllowedDomains()
 
+// Helper function to get the base path from a URL
+function getBasePath(path: string): string {
+  const segments = path.split('/').filter(Boolean);
+  return segments.length > 0 ? `/${segments[0]}` : '/';
+}
+
+// Convert arrays to Sets for O(1) lookups
+const protectedRoutesSet = new Set(protectedRoutes.map(route => {
+  // If the route ends with a slash like '/api/spirits/', we want the base path
+  return route.endsWith('/') ? route.slice(0, -1) : route;
+}));
+
+const publicRoutesSet = new Set(publicRoutes);
+
 export async function middleware(request: NextRequest) {
   // Add debug ID to track individual requests through the logs
   const debugId = generateDebugId()
@@ -109,9 +124,13 @@ export async function middleware(request: NextRequest) {
       request,
     })
     
+    // Generate a random nonce for CSP
+    const nonce = Buffer.from(crypto.randomUUID()).toString('base64')
+    
     // Add primary headers
     const headers = new Headers(response.headers)
     headers.set('x-debug-id', debugId)
+    headers.set('x-nonce', nonce) // Pass nonce to layouts/pages
     
     // Security headers
     headers.set('X-XSS-Protection', '1; mode=block')
@@ -119,12 +138,30 @@ export async function middleware(request: NextRequest) {
     headers.set('X-Frame-Options', 'DENY')
     headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
     
+    /**
+     * Content Security Policy (CSP) Implementation
+     * 
+     * We use a random nonce for each request to secure inline scripts.
+     * To use this nonce in your components:
+     * 
+     * 1. Server components: Use headers() from next/headers to get the nonce:
+     *    const nonce = headers().get('x-nonce')
+     * 
+     * 2. Client components: Pass the nonce as a prop from a parent server component
+     * 
+     * 3. Use the nonce in your script tags:
+     *    <script nonce={nonce}>...</script>
+     * 
+     * This approach allows us to avoid 'unsafe-inline' for scripts while still
+     * being able to use inline scripts when necessary.
+     */
+    
     // Only add CSP in production to avoid local development issues
     if (process.env.NODE_ENV === 'production') {
       headers.set('Content-Security-Policy', 
         "default-src 'self'; " +
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com; " +
-        "script-src-elem 'self' 'unsafe-inline' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com; " +
+        `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com; ` +
+        `script-src-elem 'self' 'nonce-${nonce}' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com; ` +
         "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data: blob: https:; " +
         "font-src 'self' data:; " +
@@ -141,16 +178,32 @@ export async function middleware(request: NextRequest) {
         "child-src 'self' blob:;"
       )
     } else {
-      // In development mode, allow everything but still set basic security headers
-      // This allows Apple Sign-In to work in local development
+      // In development mode, allow specific domains but still maintain security
+      // This allows Apple Sign-In to work in local development while being more secure
+      const appleAuthDomains = [
+        'https://appleid.cdn-apple.com',
+        'https://appleid.apple.com',
+        'https://www.apple.com',
+        'https://signin.apple.com',
+        'https://idmsa.apple.com',
+        'https://gsa.apple.com',
+        'https://idmsa.apple.com.cn'
+      ];
+
+      const devDomains = [
+        ...allowedDomains.map(domain => `https://${domain}`),
+        ...appleAuthDomains
+      ].join(' ');
+
       headers.set('Content-Security-Policy', 
-        "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; " +
-        "script-src * 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' data: blob:; " +
-        "connect-src * 'unsafe-inline'; " +
-        "img-src * data: blob:; " +
-        "frame-src *; " +
-        "style-src * 'unsafe-inline';"
-      )
+        `default-src 'self' ${devDomains} data: blob:; ` +
+        `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' ${devDomains} data: blob:; ` +
+        `script-src-elem 'self' 'nonce-${nonce}' 'unsafe-inline' ${devDomains}; ` +
+        `connect-src 'self' ${devDomains} http://localhost:* ws://localhost:* https://*.supabase.co https://*.supabase.in wss://*.supabase.co 'unsafe-inline'; ` +
+        `img-src 'self' ${devDomains} data: blob:; ` +
+        `frame-src 'self' ${devDomains}; ` +
+        `style-src 'self' 'unsafe-inline';`
+      );
     }
     
     // Skip processing for static assets to improve performance
@@ -163,13 +216,16 @@ export async function middleware(request: NextRequest) {
       return response
     }
     
-    // Determine if this is a public path that doesn't need authentication
-    const isPublicPath = publicRoutes.some(route => 
-      request.nextUrl.pathname.startsWith(route)
-    )
-    
+    // Get the base path for efficient route checking
+    const pathname = request.nextUrl.pathname;
+    const basePath = getBasePath(pathname);
+
+    // Determine if this is a public path that doesn't need authentication - O(1) lookup for most cases
+    const isPublicPath = publicRoutesSet.has(basePath) || 
+      publicRoutes.some(route => pathname.startsWith(route));
+
     if (isPublicPath) {
-      log(debugId, `🔓 Public path, skipping auth check: ${request.nextUrl.pathname}`)
+      log(debugId, `🔓 Public path, skipping auth check: ${pathname}`)
       return response
     }
     
@@ -250,17 +306,16 @@ export async function middleware(request: NextRequest) {
     // Check if user is authenticated
     const isAuthenticated = !!user;
     
-    // Check if this is a protected route
-    const isProtectedRoute = protectedRoutes.some(route => 
-      request.nextUrl.pathname.startsWith(route)
-    );
+    // Check if this is a protected route - O(1) lookup for most cases
+    const isProtectedRoute = protectedRoutesSet.has(basePath) || 
+      protectedRoutes.some(route => pathname.startsWith(route));
     
     // Check if URL requires authentication
     if (isProtectedRoute && !isAuthenticated) {
-      log(debugId, `🔒 Protected route access attempt without authentication: ${request.nextUrl.pathname}`);
+      log(debugId, `🔒 Protected route access attempt without authentication: ${pathname}`);
       
       // For API routes, return 401 instead of redirecting
-      if (request.nextUrl.pathname.startsWith('/api/')) {
+      if (pathname.startsWith('/api/')) {
         log(debugId, `🚫 API access denied, returning 401`);
         return new NextResponse(
           JSON.stringify({ 

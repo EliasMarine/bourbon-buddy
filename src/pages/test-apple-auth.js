@@ -43,7 +43,15 @@ export default function TestAppleAuth() {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'apple',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`
+          redirectTo: `${window.location.origin}/auth/callback`,
+          scopes: 'name email',
+          queryParams: {
+            domain_hint: window.location.hostname,
+            site_url: window.location.origin,
+            redirect_uri: `${window.location.origin}/auth/callback`,
+            response_mode: 'query',
+            response_type: 'code id_token'
+          }
         }
       })
       

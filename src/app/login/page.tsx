@@ -69,10 +69,14 @@ export default function LoginPage() {
       // Special handling for Apple provider
       if (provider === 'apple') {
         options.scopes = 'name email';
-        // Explicitly set the site URL to match the current origin
+        // Add all required parameters for Apple Sign In
         options.queryParams = {
           domain_hint: window.location.hostname,
-          site_url: window.location.origin
+          site_url: window.location.origin,
+          redirect_uri: `${window.location.origin}/auth/callback`,
+          // Include additional required parameters
+          response_mode: 'query',
+          response_type: 'code id_token'
         };
       }
 
