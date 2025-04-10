@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/supabase-auth';
+// Removed authOptions import - not needed with Supabase Auth;
 import { prisma } from '@/lib/prisma';
 
 export async function PUT(request: Request) {
-  const session = await getServerSession(authOptions);
+  const user = await getCurrentUser();
 
-  if (!session?.user?.id) {
+  if (!user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

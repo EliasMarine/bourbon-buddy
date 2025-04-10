@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { ArrowLeft, X, Search, Check } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -25,7 +25,7 @@ interface GoogleImageSearchResponse {
 export default function EditSpiritPage() {
   const params = useParams();
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { data: session, status } = useSupabaseSession();
   const [spirit, setSpirit] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({

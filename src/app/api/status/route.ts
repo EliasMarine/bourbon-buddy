@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma, isDatabaseConnected } from '@/lib/prisma';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/supabase-auth';
+// Removed authOptions import - not needed with Supabase Auth;
 
 // Define interface for the status response
 interface SystemStatus {
@@ -24,8 +24,8 @@ interface SystemStatus {
 
 export async function GET(request: Request) {
   // Check authorization for sensitive information
-  const session = await getServerSession(authOptions);
-  const isAuthenticated = !!session?.user;
+  const user = await getCurrentUser();
+  const isAuthenticated = !!user;
   
   // Create basic status object
   const status: SystemStatus = {

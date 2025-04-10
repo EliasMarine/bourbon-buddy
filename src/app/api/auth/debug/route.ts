@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/supabase-auth';
+// Removed authOptions import - not needed with Supabase Auth;
 import { createServerClient } from '@supabase/ssr';
 import { getCsrfCookieName } from '@/lib/csrf';
 
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Get NextAuth session
-    const session = await getServerSession(authOptions);
+    const user = await getCurrentUser();
 
     // Create Supabase client
     const supabase = createServerClient(
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
       referer: request.headers.get('referer'),
       nextAuth: {
         authenticated: !!session,
-        email: session?.user?.email || null,
+        email: user?.email || null,
         sessionExpiry: session?.expires || null,
       },
       supabase: {

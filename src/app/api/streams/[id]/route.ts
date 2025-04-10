@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
+import { getCurrentUser } from '@/lib/supabase-auth';
 import { PrismaClient } from '@prisma/client';
-import { authOptions } from '@/lib/auth';
+// Removed authOptions import - not needed with Supabase Auth;
 import { prisma } from '@/lib/prisma';
 
 // GET /api/streams/[id] - Get a specific stream
@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   try {
     // Extract the ID from the URL
     const streamId = request.nextUrl.pathname.split('/').pop();
-    const session = await getServerSession(authOptions);
+    const user = await getCurrentUser();
     
     console.log('Fetching stream with ID:', streamId);
 
@@ -59,9 +59,9 @@ export async function PUT(request: NextRequest) {
   try {
     // Extract the ID from the URL
     const streamId = request.nextUrl.pathname.split('/').pop();
-    const session = await getServerSession(authOptions);
+    const user = await getCurrentUser();
 
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -115,9 +115,9 @@ export async function DELETE(request: NextRequest) {
   try {
     // Extract the ID from the URL
     const streamId = request.nextUrl.pathname.split('/').pop();
-    const session = await getServerSession(authOptions);
+    const user = await getCurrentUser();
 
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }

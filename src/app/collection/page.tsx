@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import SpiritCard from '@/components/collection/SpiritCard';
@@ -12,7 +12,7 @@ import { ChevronDown, ChevronUp, Plus } from 'lucide-react';
 
 export default function CollectionPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { data: session, status } = useSupabaseSession();
   const [spirits, setSpirits] = useState<Spirit[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isFormVisible, setIsFormVisible] = useState(false);

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useSession } from 'next-auth/react'
+import { useSupabaseSession } from '@/hooks/use-supabase-session'
 import { useSupabase } from '@/components/providers/SupabaseProvider'
 
 // Simple UI components since we don't have access to the specific UI library
@@ -83,7 +83,7 @@ function Badge({
 }
 
 interface SessionInfo {
-  nextAuth: {
+  sessionAuth: {
     authenticated: boolean
     email: string | null
     name: string | null
@@ -108,8 +108,7 @@ interface SessionInfo {
 
 export default function SessionDebugger() {
   // Add a safeguard for SSR/prerendering
-  const session = useSession()
-  const nextAuthSession = session?.data
+  const { data: session } = useSupabaseSession()
   
   const supabase = useSupabase()
   const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
@@ -144,7 +143,7 @@ export default function SessionDebugger() {
     if (typeof window !== 'undefined') {
       fetchSessionStatus()
     }
-  }, [nextAuthSession])
+  }, [session])
 
   const handleManualSync = async () => {
     setIsLoading(true)
@@ -204,28 +203,28 @@ export default function SessionDebugger() {
         ) : (
           <div className="space-y-4">
             <div>
-              <h3 className="text-lg font-medium">NextAuth</h3>
+              <h3 className="text-lg font-medium">Session Auth</h3>
               <div className="flex items-center gap-2 mt-1">
-                <Badge variant={sessionInfo?.nextAuth.authenticated ? "success" : "destructive"}>
-                  {sessionInfo?.nextAuth.authenticated ? "Authenticated" : "Not authenticated"}
+                <Badge variant={sessionInfo?.sessionAuth.authenticated ? "success" : "destructive"}>
+                  {sessionInfo?.sessionAuth.authenticated ? "Authenticated" : "Not authenticated"}
                 </Badge>
-                {sessionInfo?.nextAuth.email && (
-                  <span className="text-sm text-gray-500">{sessionInfo.nextAuth.email}</span>
+                {sessionInfo?.sessionAuth.email && (
+                  <span className="text-sm text-gray-500">{sessionInfo.sessionAuth.email}</span>
                 )}
               </div>
               
-              {/* Display NextAuth token information */}
+              {/* Display session token information */}
               <div className="mt-3 text-sm">
                 <p>
-                  <span className="font-medium">Access Token: </span>
-                  <Badge variant={nextAuthSession?.accessToken ? "success" : "destructive"}>
-                    {nextAuthSession?.accessToken ? "Available" : "Missing"}
+                  <span className="font-medium">Session Status: </span>
+                  <Badge variant={session ? "success" : "destructive"}>
+                    {session ? "Available" : "Missing"}
                   </Badge>
                 </p>
                 
-                {nextAuthSession?.accessToken && (
+                {session && (
                   <div className="mt-1 text-xs text-gray-500 overflow-hidden text-ellipsis">
-                    Token: {nextAuthSession.accessToken.substring(0, 15)}...
+                    User ID: {session.user?.id?.substring(0, 15)}...
                   </div>
                 )}
               </div>

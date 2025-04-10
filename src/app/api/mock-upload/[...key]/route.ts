@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/supabase-auth';
+// Removed authOptions import - not needed with Supabase Auth;
 
 // Safe error handler that prevents leaking sensitive information
 function handleError(error: unknown) {
@@ -19,8 +19,8 @@ function handleError(error: unknown) {
 export async function PUT(request: NextRequest) {
   try {
     // Authentication temporarily disabled for testing
-    // const session = await getServerSession(authOptions);
-    // if (!session?.user) {
+    // const user = await getCurrentUser();
+    // if (!user) {
     //   return NextResponse.json(
     //     { error: 'Unauthorized' },
     //     { status: 401 }

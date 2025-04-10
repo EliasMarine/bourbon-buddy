@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -37,7 +37,7 @@ interface SpiritDetails {
 
 export default function SpiritPage() {
   const params = useParams();
-  const { data: session, status } = useSession({ required: true });
+  const { data: session, status } = useSupabaseSession({ required: true });
   const router = useRouter();
   const [spirit, setSpirit] = useState<SpiritDetails | null>(null);
   const [loading, setLoading] = useState(true);

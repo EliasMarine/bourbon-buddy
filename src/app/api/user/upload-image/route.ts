@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/supabase-auth';
+// Removed authOptions import - not needed with Supabase Auth;
 import { prisma } from '@/lib/prisma';
 
 export async function POST(request: NextRequest) {
   try {
     // Check authentication
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
+    const user = await getCurrentUser();
+    if (!user) {
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }
@@ -38,12 +38,24 @@ export async function POST(request: NextRequest) {
       ? { image: imageUrl } 
       : { coverPhoto: imageUrl };
 
-    const user = await prisma.user.update({
-      where: { id: session.user.id },
+    // Find user in database by email
+    const dbUser = await prisma.user.findUnique({
+      where: { email: user.email }
+    });
+
+    if (!dbUser) {
+      return NextResponse.json(
+        { error: 'User not found in database' },
+        { status: 404 }
+      );
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: dbUser.id },
       data: updateData,
     });
 
-    if (!user) {
+    if (!updatedUser) {
       return NextResponse.json(
         { error: 'Failed to update user' },
         { status: 500 }
@@ -54,11 +66,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        image: user.image,
-        coverPhoto: user.coverPhoto
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        image: updatedUser.image,
+        coverPhoto: updatedUser.coverPhoto
       }
     });
   } catch (error) {

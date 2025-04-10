@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
+import { getCurrentUser } from '@/lib/supabase-auth';
 import { PrismaClient } from '@prisma/client';
-import { authOptions } from '@/lib/auth';
+// Removed authOptions import - not needed with Supabase Auth;
 import { prisma } from '@/lib/prisma';
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
+    const user = await getCurrentUser();
 
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -24,12 +24,12 @@ export async function POST(request: Request) {
       );
     }
 
-    // Get user
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
+    // Get user from database
+    const dbUser = await prisma.user.findUnique({
+      where: { email: user.email },
     });
 
-    if (!user) {
+    if (!dbUser) {
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     }
 
     // Prevent self-subscription
-    if (user.id === hostId) {
+    if (dbUser.id === hostId) {
       return NextResponse.json(
         { error: 'Cannot subscribe to yourself' },
         { status: 400 }
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       where: {
         hostId_userId: {
           hostId,
-          userId: user.id,
+          userId: dbUser.id,
         },
       },
     });
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
         where: {
           hostId_userId: {
             hostId,
-            userId: user.id,
+            userId: dbUser.id,
           },
         },
       });
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     await prisma.streamSubscription.create({
       data: {
         hostId,
-        userId: user.id,
+        userId: dbUser.id,
       },
     });
 

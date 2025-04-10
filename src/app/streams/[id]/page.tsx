@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { useSession } from 'next-auth/react';
+import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
@@ -140,7 +140,7 @@ export default function StreamPage() {
   const params = useParams();
   const id = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : '';
   const router = useRouter();
-  const { data: session, status } = useSession({ required: true });
+  const { data: session, status } = useSupabaseSession({ required: true });
   const [stream, setStream] = useState<Stream | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -628,7 +628,7 @@ export default function StreamPage() {
       
       setStream(data.stream);
       
-      const userIsHost = session?.user?.email === data.stream.host.email;
+      const userIsHost = user?.email === data.stream.host.email;
       setIsHost(userIsHost);
       
       if (userIsHost) {
@@ -849,7 +849,7 @@ export default function StreamPage() {
 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !socket || !session?.user) return;
+    if (!newMessage.trim() || !socket || !user) return;
 
     const message: ChatMessage = {
       id: Date.now().toString(),
@@ -1433,8 +1433,8 @@ export default function StreamPage() {
       id: Date.now().toString(),
       content: newComment,
       user: {
-        name: session?.user?.name || 'Anonymous',
-        avatar: session?.user?.image || undefined,
+        name: user?.name || 'Anonymous',
+        avatar: user?.image || undefined,
       },
       timestamp: new Date(),
       likes: 0,
@@ -1921,7 +1921,7 @@ export default function StreamPage() {
                 <ChatBox 
                   streamId={id} 
                   isHost={isHost} 
-                  userName={session?.user?.name || 'Anonymous'} 
+                  userName={user?.name || 'Anonymous'} 
                   socket={socket}
                   isCollapsed={isChatCollapsed}
                   onToggleCollapse={() => setIsChatCollapsed(!isChatCollapsed)}

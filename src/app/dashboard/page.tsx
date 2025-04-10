@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { redirect, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -29,8 +29,7 @@ console.log(`[${DEBUG_ID}] 🚀 Dashboard page component initialized`);
 export default function DashboardPage() {
   console.log(`[${DEBUG_ID}] 🔄 Dashboard page rendering`);
   
-  const { data: nextAuthSession, status: nextAuthStatus } = useSession();
-  const [supabaseSession, setSupabaseSession] = useState<any>(null);
+  const { data: session, status } = useSupabaseSession();
   const [loading, setLoading] = useState(true);
   const [collectionStats, setCollectionStats] = useState({
     totalSpirits: 0,
@@ -40,65 +39,20 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  console.log(`[${DEBUG_ID}] 🔐 NextAuth status: ${nextAuthStatus}`);
-  console.log(`[${DEBUG_ID}] 👤 NextAuth session:`, nextAuthSession ? "Present" : "Not present");
-
-  // Check for Supabase session
-  useEffect(() => {
-    console.log(`[${DEBUG_ID}] 🔍 Checking Supabase session effect triggered`);
-    console.log(`[${DEBUG_ID}] 🔐 NextAuth status in effect: ${nextAuthStatus}`);
-    
-    const checkSupabaseSession = async () => {
-      try {
-        console.log(`[${DEBUG_ID}] 🔨 Creating Supabase browser client`);
-        const supabase = createSupabaseBrowserClient();
-        console.log(`[${DEBUG_ID}] ✅ Supabase client created`);
-        
-        console.log(`[${DEBUG_ID}] 🔐 Fetching Supabase session`);
-        const startTime = Date.now();
-        const { data, error } = await supabase.auth.getSession();
-        console.log(`[${DEBUG_ID}] ⏱️ getSession took ${Date.now() - startTime}ms`);
-        
-        if (error) {
-          console.error(`[${DEBUG_ID}] ❌ Supabase session error:`, error);
-          setError(`Supabase auth error: ${error.message}`);
-        } else {
-          console.log(`[${DEBUG_ID}] 🔑 Supabase session:`, data.session ? "Present" : "Not present");
-          if (data.session?.user) {
-            console.log(`[${DEBUG_ID}] 👤 Supabase user found: ${data.session.user.id.substring(0, 8)}...`);
-          }
-          setSupabaseSession(data.session);
-        }
-      } catch (error) {
-        console.error(`[${DEBUG_ID}] ❌ Error checking Supabase session:`, error);
-        // Show detailed error in development but not in production
-        setError(process.env.NODE_ENV !== 'production' 
-          ? `Error: ${error instanceof Error ? error.message : String(error)}` 
-          : 'Error checking authentication status');
-      } finally {
-        console.log(`[${DEBUG_ID}] ✓ Finished checking Supabase session`);
-        setLoading(false);
-      }
-    };
-
-    if (nextAuthStatus !== 'loading') {
-      console.log(`[${DEBUG_ID}] 🚀 NextAuth done loading, checking Supabase session`);
-      checkSupabaseSession();
-    }
-  }, [nextAuthStatus]);
+  console.log(`[${DEBUG_ID}] 🔐 Auth status: ${status}`);
+  console.log(`[${DEBUG_ID}] 👤 Session:`, session ? "Present" : "Not present");
 
   // Fetch collection stats
   useEffect(() => {
     console.log(`[${DEBUG_ID}] 📊 Collection stats effect triggered`);
     console.log(`[${DEBUG_ID}] 📋 Effect state:`, { 
       loading, 
-      hasNextAuthSession: !!nextAuthSession, 
-      hasSupabaseSession: !!supabaseSession 
+      hasSession: !!session
     });
     
     const fetchStats = async () => {
-      if (!nextAuthSession && !supabaseSession) {
-        console.log(`[${DEBUG_ID}] ⚠️ No auth sessions found, skipping stats fetch`);
+      if (!session) {
+        console.log(`[${DEBUG_ID}] ⚠️ No session found, skipping stats fetch`);
         return;
       }
       
@@ -133,17 +87,19 @@ export default function DashboardPage() {
       } catch (error) {
         console.error(`[${DEBUG_ID}] ❌ Error fetching collection stats:`, error);
         setError(`Network error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        setLoading(false);
       }
     };
 
-    if (!loading) {
-      console.log(`[${DEBUG_ID}] 🚀 Loading complete, fetching stats`);
+    if (status !== 'loading') {
+      console.log(`[${DEBUG_ID}] 🚀 Authentication status resolved, fetching stats`);
       fetchStats();
     }
-  }, [loading, nextAuthSession, supabaseSession]);
+  }, [status, session]);
 
   // Show loading state while checking auth
-  if (nextAuthStatus === 'loading' || loading) {
+  if (status === 'loading' || loading) {
     console.log(`[${DEBUG_ID}] ⏳ Showing loading state`);
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -174,15 +130,15 @@ export default function DashboardPage() {
   }
 
   // Redirect if no session
-  if (!nextAuthSession && !supabaseSession) {
-    console.log(`[${DEBUG_ID}] 🔄 No auth sessions found, redirecting to login`);
+  if (!session) {
+    console.log(`[${DEBUG_ID}] 🔄 No session found, redirecting to login`);
     redirect('/login');
     return null;
   }
 
-  // Determine user info from either auth system
-  const user = nextAuthSession?.user || supabaseSession?.user;
-  const userName = user?.name || user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
+  // Determine user info from session
+  const user = session?.user;
+  const userName = user?.name || user?.email?.split('@')[0] || 'User';
   console.log(`[${DEBUG_ID}] 👤 Rendering for user: ${userName}`);
 
   console.log(`[${DEBUG_ID}] ✅ Dashboard page fully rendered`);
@@ -216,7 +172,7 @@ export default function DashboardPage() {
       {process.env.NODE_ENV !== 'production' && (
         <div className="fixed top-0 right-0 bg-gray-800 text-white p-2 text-xs z-50 opacity-70 hover:opacity-100">
           <div>Debug ID: {DEBUG_ID}</div>
-          <div>Auth: {nextAuthSession ? 'NextAuth' : supabaseSession ? 'Supabase' : 'None'}</div>
+          <div>Auth: {session ? 'Supabase' : 'None'}</div>
         </div>
       )}
       

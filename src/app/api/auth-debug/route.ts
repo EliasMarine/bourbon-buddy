@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
+import { getCurrentUser } from '@/lib/supabase-auth';
 import { createClient } from '@supabase/supabase-js';
 import { createServerClient as createSsrServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -172,7 +172,7 @@ export async function GET(req: NextRequest) {
         hasError: !!supabaseClientError,
         errorMessage: supabaseClientError,
         // Only include in non-prod for privacy
-        userId: isProd && sessionData.session ? undefined : sessionData.session?.user.id
+        userId: isProd && sessionData.session ? undefined : sessionData.user.id
       };
       
       const response = {

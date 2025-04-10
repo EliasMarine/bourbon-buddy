@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/supabase-auth';
+// Removed authOptions import - not needed with Supabase Auth;
 import { prisma } from '@/lib/prisma';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 
@@ -21,11 +21,11 @@ export async function GET(request: Request) {
     console.log(`[${debugId}] 🔍 Fetching popular users`);
     
     // Try to get session from NextAuth first
-    const session = await getServerSession(authOptions);
+    const user = await getCurrentUser();
     let userEmail: string | undefined;
     
     // If no NextAuth session, try to get from Supabase
-    if (!session?.user?.email) {
+    if (!user?.email) {
       console.log(`[${debugId}] ℹ️ No NextAuth session, checking Supabase`);
       
       // Create Supabase server client

@@ -1,14 +1,14 @@
 import { NextResponse, NextRequest } from 'next/server';
-import { getServerSession } from 'next-auth/next';
+import { getCurrentUser } from '@/lib/supabase-auth';
 import { PrismaClient } from '@prisma/client';
-import { authOptions } from '@/lib/auth';
+// Removed authOptions import - not needed with Supabase Auth;
 import { prisma } from '@/lib/prisma';
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const user = await getCurrentUser();
 
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -17,12 +17,12 @@ export async function POST(request: NextRequest) {
 
     const streamId = request.nextUrl.pathname.split('/')[4];
 
-    // Get user
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
+    // Get user from database
+    const dbUser = await prisma.user.findUnique({
+      where: { email: user.email },
     });
 
-    if (!user) {
+    if (!dbUser) {
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       where: {
         streamId_userId: {
           streamId,
-          userId: user.id,
+          userId: dbUser.id,
         },
       },
     });
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
         where: {
           streamId_userId: {
             streamId,
-            userId: user.id,
+            userId: dbUser.id,
           },
         },
       });
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       await prisma.streamLike.create({
         data: {
           streamId,
-          userId: user.id,
+          userId: dbUser.id,
         },
       });
       isLiked = true;

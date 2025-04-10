@@ -1,12 +1,12 @@
 import { NextResponse, NextRequest } from 'next/server';
-import { getServerSession } from 'next-auth/next';
+import { getCurrentUser } from '@/lib/supabase-auth';
 import { PrismaClient } from '@prisma/client';
-import { authOptions } from '@/lib/auth';
+// Removed authOptions import - not needed with Supabase Auth;
 import { prisma } from '@/lib/prisma';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const user = await getCurrentUser();
     const streamId = request.nextUrl.pathname.split('/')[4]; // Extract ID from pathname
 
     // Get total likes count
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     });
 
     // If user is not logged in, return only public data
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json({
         likes: likesCount,
         isLiked: false,
@@ -23,12 +23,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Get user
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
+    // Get user from database
+    const dbUser = await prisma.user.findUnique({
+      where: { email: user.email },
     });
 
-    if (!user) {
+    if (!dbUser) {
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
       where: {
         streamId_userId: {
           streamId,
-          userId: user.id,
+          userId: dbUser.id,
         },
       },
     });
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
       where: {
         hostId_userId: {
           hostId: stream.hostId,
-          userId: user.id,
+          userId: dbUser.id,
         },
       },
     });

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { getCurrentUser } from '@/lib/supabase-auth';
+import { createSupabaseServerClient } from '@/lib/supabase';
 import { generateDebugId } from '@/lib/supabase';
 
 export async function GET(req: Request) {
@@ -9,41 +9,23 @@ export async function GET(req: Request) {
   
   try {
     // Get the session
-    console.log(`[${debugId}] 🔐 Getting NextAuth session`);
-    const startNextAuthTime = Date.now();
-    const session = await getServerSession();
-    console.log(`[${debugId}] ⏱️ NextAuth getServerSession took ${Date.now() - startNextAuthTime}ms`);
-    console.log(`[${debugId}] 🔑 NextAuth session: ${session ? "Found" : "Not found"}`);
+    console.log(`[${debugId}] 🔐 Getting user from Supabase Auth`);
+    const startAuthTime = Date.now();
+    const user = await getCurrentUser();
+    console.log(`[${debugId}] ⏱️ Supabase getCurrentUser took ${Date.now() - startAuthTime}ms`);
+    console.log(`[${debugId}] 🔑 Supabase user: ${user ? "Found" : "Not found"}`);
     
-    if (session?.user) {
-      console.log(`[${debugId}] 👤 User from NextAuth: ${session.user.id?.substring(0, 8) || 'unknown'}...`);
+    if (user) {
+      console.log(`[${debugId}] 👤 User from Supabase Auth: ${user.id.substring(0, 8)}...`);
     }
     
     console.log(`[${debugId}] 🔨 Creating Supabase server client`);
     const startSupabaseClientTime = Date.now();
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     console.log(`[${debugId}] ⏱️ Creating Supabase client took ${Date.now() - startSupabaseClientTime}ms`);
     
-    // Check for supabase session if NextAuth session not found
-    let userId = session?.user?.id;
-    
-    if (!userId) {
-      console.log(`[${debugId}] 🔍 No NextAuth session, checking Supabase session`);
-      const startSupabaseAuthTime = Date.now();
-      const { data: { session: supabaseSession }, error: sessionError } = await supabase.auth.getSession();
-      console.log(`[${debugId}] ⏱️ Supabase getSession took ${Date.now() - startSupabaseAuthTime}ms`);
-      
-      if (sessionError) {
-        console.error(`[${debugId}] ❌ Supabase session error:`, sessionError);
-      }
-      
-      console.log(`[${debugId}] 🔑 Supabase session: ${supabaseSession ? "Found" : "Not found"}`);
-      userId = supabaseSession?.user?.id;
-      
-      if (userId) {
-        console.log(`[${debugId}] 👤 User from Supabase: ${userId.substring(0, 8)}...`);
-      }
-    }
+    // Check for user ID
+    let userId = user?.id;
     
     // If no user is authenticated, return zero values instead of error
     if (!userId) {

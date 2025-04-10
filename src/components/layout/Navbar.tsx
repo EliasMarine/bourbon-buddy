@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { useSession, signOut } from 'next-auth/react';
+import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { usePathname } from 'next/navigation';
 import Image from 'next/image';
 import { 
@@ -17,7 +17,7 @@ import SafeImage from '@/components/ui/SafeImage';
 import { createSupabaseBrowserClient } from '@/lib/supabase';
 
 export default function Navbar() {
-  const { data: session, status } = useSession();
+  const { data: session, status, signOut } = useSupabaseSession();
   const pathname = usePathname();
   const [isScrolled, setIsScrolled] = useState(false);
   const [showFloatingNav, setShowFloatingNav] = useState(false);
@@ -93,7 +93,7 @@ export default function Navbar() {
     return pathname.startsWith(path);
   };
 
-  // Enhanced sign out function that handles both NextAuth and Supabase
+  // Enhanced sign out function that handles Supabase Auth
   const handleSignOut = async () => {
     try {
       console.log('🚪 Starting sign out process');
@@ -138,14 +138,16 @@ export default function Navbar() {
       // Wait a moment for Supabase to clean up
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Use NextAuth's signOut for final cleanup and redirect
-      console.log('🔄 Starting NextAuth sign out');
-      await signOut({ 
-        callbackUrl: '/', 
-        redirect: true 
-      });
+      // Use signOut from useSupabaseSession
+      if (signOut) {
+        console.log('🔄 Using session signOut');
+        await signOut();
+      }
       
       console.log('✅ Sign out process complete');
+      
+      // Redirect to home page
+      window.location.href = '/';
     } catch (error) {
       console.error('❌ Error during sign out:', error);
       
@@ -161,8 +163,8 @@ export default function Navbar() {
         window.location.href = '/';
       } catch (fallbackError) {
         console.error('❌ Even fallback logout failed:', fallbackError);
-        // Last resort: just use NextAuth signOut
-        await signOut({ callbackUrl: '/' });
+        // Last resort: just redirect
+        window.location.href = '/';
       }
     }
   };

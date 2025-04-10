@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/supabase-auth';
+// Removed authOptions import - not needed with Supabase Auth;
 import { prisma } from '@/lib/prisma';
 
 // Remove the direct PrismaClient instantiation
@@ -9,7 +9,7 @@ import { prisma } from '@/lib/prisma';
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
+    const user = await getCurrentUser();
     
     // Check if we have a session
     const sessionInfo = session ? {
@@ -46,7 +46,7 @@ export async function GET() {
     
     // Check if the session user exists in the database
     let sessionUserFound = false;
-    if (session?.user?.email) {
+    if (user?.email) {
       try {
         const user = await prisma.user.findUnique({
           where: { email: session.user.email },

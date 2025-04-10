@@ -1,7 +1,7 @@
 import { NextResponse, NextRequest } from 'next/server';
-import { getServerSession } from 'next-auth/next';
+import { getCurrentUser } from '@/lib/supabase-auth';
 import { PrismaClient } from '@prisma/client';
-import { authOptions } from '@/lib/auth';
+// Removed authOptions import - not needed with Supabase Auth;
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 
@@ -12,9 +12,9 @@ const TipSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const user = await getCurrentUser();
 
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -27,12 +27,12 @@ export async function POST(request: NextRequest) {
     // Validate request body
     const validatedData = TipSchema.parse(body);
 
-    // Get user
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
+    // Get user from database
+    const dbUser = await prisma.user.findUnique({
+      where: { email: user.email },
     });
 
-    if (!user) {
+    if (!dbUser) {
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Prevent self-tipping
-    if (user.id === stream.hostId) {
+    if (dbUser.id === stream.hostId) {
       return NextResponse.json(
         { error: 'Cannot tip your own stream' },
         { status: 400 }
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
         amount: validatedData.amount,
         message: validatedData.message,
         streamId,
-        senderId: user.id,
+        senderId: dbUser.id,
         hostId: stream.hostId,
       },
     });

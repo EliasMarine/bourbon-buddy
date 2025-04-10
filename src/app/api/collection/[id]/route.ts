@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
+import { getUserFromRequest } from '@/lib/supabase-auth';
 import { PrismaClient } from '@prisma/client';
-import { authOptions } from '@/lib/auth';
 import { SpiritSchema } from '@/lib/validations/spirit';
 import { ZodError } from 'zod';
 import { prisma } from '@/lib/prisma';
@@ -12,10 +11,10 @@ export async function GET(request: NextRequest) {
     // Get the ID from the URL
     const id = request.nextUrl.pathname.split('/').pop();
     
-    // Get user session
-    const session = await getServerSession(authOptions);
+    // Get user from request
+    const user = await getUserFromRequest(request);
 
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -55,12 +54,12 @@ export async function PUT(request: NextRequest) {
     // Get the ID from the URL
     const id = request.nextUrl.pathname.split('/').pop();
     
-    // Get user session
-    const session = await getServerSession(authOptions);
+    // Get user from request
+    const user = await getUserFromRequest(request);
 
     console.log(`Attempting to update spirit with ID: ${id}`);
     
-    if (!session?.user?.email) {
+    if (!user?.email) {
       console.log('Update failed: User not authenticated');
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -84,7 +83,7 @@ export async function PUT(request: NextRequest) {
         where: {
           id,
           owner: {
-            email: session.user.email
+            email: user.email
           }
         },
         include: {
@@ -93,7 +92,7 @@ export async function PUT(request: NextRequest) {
       });
 
       if (!existingSpirit) {
-        console.log(`Spirit not found or does not belong to user: ${session.user.email}`);
+        console.log(`Spirit not found or does not belong to user: ${user.email}`);
         
         // Check if spirit exists at all (for clearer error message)
         const anySpirit = await prisma.spirit.findUnique({
@@ -165,13 +164,13 @@ export async function DELETE(request: NextRequest) {
     // Get the ID from the URL
     const id = request.nextUrl.pathname.split('/').pop();
     
-    // Get user session
-    const session = await getServerSession(authOptions);
+    // Get user from request
+    const user = await getUserFromRequest(request);
     
     console.log(`Received DELETE request for spirit ID: ${id}`);
-    console.log('Session user:', session?.user);
+    console.log('Session user:', user);
 
-    if (!session?.user?.email) {
+    if (!user?.email) {
       console.log('Unauthorized: No user in session');
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -180,12 +179,12 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Check if spirit exists and belongs to user
-    console.log(`Looking for spirit with ID: ${id} owned by: ${session.user.email}`);
+    console.log(`Looking for spirit with ID: ${id} owned by: ${user.email}`);
     const existingSpirit = await prisma.spirit.findFirst({
       where: {
         id,
         owner: {
-          email: session.user.email
+          email: user.email
         }
       },
       include: {
@@ -268,10 +267,10 @@ export async function PATCH(request: NextRequest) {
     // Get the ID from the URL
     const id = request.nextUrl.pathname.split('/').pop();
     
-    // Get user session
-    const session = await getServerSession(authOptions);
+    // Get user from request
+    const user = await getUserFromRequest(request);
     
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -295,7 +294,7 @@ export async function PATCH(request: NextRequest) {
       where: {
         id,
         owner: {
-          email: session.user.email
+          email: user.email
         }
       }
     });

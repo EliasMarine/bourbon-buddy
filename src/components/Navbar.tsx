@@ -2,10 +2,10 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { useSession, signOut } from 'next-auth/react';
+import { useSupabaseSession } from '@/hooks/use-supabase-session';
 
 export default function Navbar() {
-  const { data: session, status } = useSession();
+  const { data: session, status, signOut } = useSupabaseSession();
 
   return (
     <nav className="bg-gray-800 text-white">
@@ -25,7 +25,7 @@ export default function Navbar() {
                   Dashboard
                 </Link>
                 <button
-                  onClick={() => signOut()}
+                  onClick={() => signOut && signOut()}
                   className="bg-red-600 px-4 py-2 rounded hover:bg-red-700"
                 >
                   Sign Out

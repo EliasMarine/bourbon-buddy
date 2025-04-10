@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/supabase-auth';
+// Removed authOptions import - not needed with Supabase Auth;
 import { v4 as uuidv4 } from 'uuid';
 import { uploadLimiter } from '@/lib/rate-limiters';
 import { validateCsrfToken } from '@/lib/csrf';
@@ -146,8 +146,8 @@ export async function POST(request: NextRequest) {
     }
     
     // Check authentication
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
+    const user = await getCurrentUser();
+    if (!user) {
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }

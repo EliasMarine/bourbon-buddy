@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/supabase-auth';
+// Removed authOptions import - not needed with Supabase Auth;
 import { createClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
 
@@ -22,21 +22,21 @@ export async function POST() {
   
   try {
     // Get the current NextAuth session
-    const session = await getServerSession(authOptions);
+    const user = await getCurrentUser();
     
     // Log session details (with some redaction for privacy)
     console.log(`[${debugId}] 📊 NextAuth session:`, {
       hasSession: !!session,
-      hasUser: !!session?.user,
-      hasEmail: !!session?.user?.email,
-      email: session?.user?.email ? `${session.user.email.substring(0, 3)}...` : null,
-      hasName: !!session?.user?.name,
-      hasImage: !!session?.user?.image,
+      hasUser: !!user,
+      hasEmail: !!user?.email,
+      email: user?.email ? `${session.user.email.substring(0, 3)}...` : null,
+      hasName: !!user?.name,
+      hasImage: !!user?.image,
       hasAccessToken: !!session?.accessToken,
     });
     
     // If no session, return unauthorized
-    if (!session?.user?.email) {
+    if (!user?.email) {
       console.log(`[${debugId}] ❌ No valid NextAuth session found`);
       return NextResponse.json(
         { error: 'Unauthorized', message: 'Authentication required' },

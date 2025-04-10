@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { redirect } from 'next/navigation';
 import { toast } from 'sonner';
 import { ArrowLeft, Shield, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
 
 export default function SecuritySettingsPage() {
-  const { data: session, status } = useSession();
+  const { data: session, status } = useSupabaseSession();
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 

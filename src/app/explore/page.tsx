@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import Link from 'next/link';
 import Image from 'next/image';
 import { toast } from 'sonner';
@@ -251,7 +251,7 @@ function RangeFilter({
 }
 
 export default function ExplorePage() {
-  const { data: session, status } = useSession({ required: true });
+  const { data: session, status } = useSupabaseSession({ required: true });
   const [loading, setLoading] = useState(true);
   const [popularUsers, setPopularUsers] = useState<CollectionUser[]>([]);
   const [featuredSpirits, setFeaturedSpirits] = useState<SpiritPreview[]>([]);

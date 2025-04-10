@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { Spirit } from '@/types';
 import { Wine, ArrowLeft, Building2, Award, Droplets, Star, Tag, ExternalLink, Share2, Copy, Check, Search, Edit, X, Image as ImageIcon } from 'lucide-react';
 import Link from 'next/link';
@@ -67,7 +67,7 @@ interface GoogleImageSearchResponse {
 export default function SpiritDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { data: session, status } = useSupabaseSession();
   const [isLoading, setIsLoading] = useState(true);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);

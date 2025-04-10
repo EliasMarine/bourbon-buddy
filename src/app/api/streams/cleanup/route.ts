@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { getCurrentUser } from '@/lib/supabase-auth';
+// Removed authOptions import - not needed with Supabase Auth;
 
 // Constants for stream cleanup
 const CLEANUP_PERIODS = {
@@ -15,13 +15,13 @@ const CLEANUP_PERIODS = {
 export async function POST(request: Request) {
   try {
     // Check for authorization - only allow authenticated users or internal calls
-    const session = await getServerSession(authOptions);
+    const user = await getCurrentUser();
     
     // Check if request is from the app itself (internal cleanup)
     const isInternalRequest = request.headers.get('x-internal-request') === process.env.INTERNAL_API_SECRET;
     
     // If not an internal request and no session, reject
-    if (!isInternalRequest && !session?.user?.email) {
+    if (!isInternalRequest && !user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseBrowserClient } from '@/lib/supabase';
-import { getServerSession } from 'next-auth';
+import { getCurrentUser } from '@/lib/supabase-auth';
 import { cookies } from 'next/headers';
 import { RequestCookie } from 'next/dist/compiled/@edge-runtime/cookies';
 
