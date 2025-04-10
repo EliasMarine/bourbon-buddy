@@ -1,5 +1,4 @@
 import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
@@ -12,30 +11,64 @@ export async function GET(request: NextRequest) {
   const code = requestUrl.searchParams.get('code')
   const callbackUrl = requestUrl.searchParams.get('callbackUrl') || '/dashboard'
   
+  // For debugging/logging purposes
+  console.log('Auth callback received:', {
+    url: request.url,
+    hasCode: !!code, 
+    callbackUrl,
+    origin: requestUrl.origin,
+    hostname: requestUrl.hostname
+  })
+  
+  // Create a response to the destination URL
+  const redirectUrl = new URL(callbackUrl, requestUrl.origin)
+  const response = NextResponse.redirect(redirectUrl)
+  
   if (code) {
-    const cookieStore = cookies()
-    
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll()
+    try {
+      // Create a Supabase client using the authorization code
+      // This uses the same cookie handling pattern from middleware.ts
+      const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            getAll() {
+              return request.cookies.getAll()
+            },
+            setAll(cookiesToSet) {
+              cookiesToSet.forEach(({ name, value, options }) => {
+                request.cookies.set(name, value)
+                response.cookies.set(name, value, options)
+              })
+            }
           },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options)
-            })
-          },
-        },
+        }
+      )
+      
+      // Exchange the code for a session
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+      
+      if (error) {
+        console.error('Exchange code error:', error)
+        // Redirect to login with error message
+        const errorUrl = new URL('/login', requestUrl.origin)
+        errorUrl.searchParams.set('error', 'authentication_error')
+        return NextResponse.redirect(errorUrl)
       }
-    )
-    
-    // Exchange the code for a session
-    await supabase.auth.exchangeCodeForSession(code)
+      
+      if (data?.session) {
+        console.log('OAuth sign-in successful, redirecting to:', callbackUrl)
+      }
+    } catch (error) {
+      console.error('Exception during code exchange:', error)
+      const errorUrl = new URL('/login', requestUrl.origin)
+      errorUrl.searchParams.set('error', 'unknown_error')
+      return NextResponse.redirect(errorUrl)
+    }
+  } else {
+    console.warn('Auth callback received without code')
   }
   
-  // Redirect to the callback URL or dashboard
-  return NextResponse.redirect(new URL(callbackUrl, requestUrl.origin))
+  return response
 } 

@@ -55,21 +55,34 @@ export default function SignUp() {
     setError('');
     
     try {
+      const redirectUrl = `${window.location.origin}/auth/callback?callbackUrl=${encodeURIComponent('/dashboard')}`;
+      const options: any = {
+        redirectTo: redirectUrl,
+      };
+      
+      // Special handling for Apple provider
+      if (provider === 'apple') {
+        options.scopes = 'name email';
+        // Explicitly set the site URL to match the current origin
+        options.queryParams = {
+          domain_hint: window.location.hostname,
+          site_url: window.location.origin
+        };
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: provider as any,
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback?callbackUrl=/dashboard`,
-        },
+        options
       });
       
       if (error) {
         console.error(`${provider} signup error:`, error);
-        setError(`Could not sign up with ${provider}. Please try again later.`);
+        setError(`Could not sign up with ${provider}. ${error.message}`);
         setIsLoading(false);
       }
     } catch (error: any) {
-      console.error(`${provider} signup error:`, error);
-      setError(`Could not sign up with ${provider}. Please try again later.`);
+      console.error(`${provider} sign-up error:`, error);
+      setError(`Could not sign up with ${provider}. ${error.message || 'Please try again later.'}`);
       setIsLoading(false);
     }
   };

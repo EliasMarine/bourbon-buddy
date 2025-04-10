@@ -123,12 +123,34 @@ export async function middleware(request: NextRequest) {
     if (process.env.NODE_ENV === 'production') {
       headers.set('Content-Security-Policy', 
         "default-src 'self'; " +
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com; " +
+        "script-src-elem 'self' 'unsafe-inline' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com; " +
         "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data: blob: https:; " +
         "font-src 'self' data:; " +
         "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com " + 
-        allowedDomains.map(domain => `https://${domain}`).join(' ')
+        allowedDomains.map(domain => `https://${domain}`).join(' ') + "; " +
+        "worker-src 'self' blob:; " +
+        "frame-src 'self' https://appleid.apple.com; " +
+        "object-src 'none'; " +
+        "base-uri 'self'; " +
+        "form-action 'self'; " +
+        "frame-ancestors 'self'; " +
+        "manifest-src 'self'; " +
+        "media-src 'self'; " +
+        "child-src 'self' blob:; " +
+        "prefetch-src 'self'"
+      )
+    } else {
+      // In development mode, allow everything but still set basic security headers
+      // This allows Apple Sign-In to work in local development
+      headers.set('Content-Security-Policy', 
+        "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; " +
+        "script-src * 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' data: blob:; " +
+        "connect-src * 'unsafe-inline'; " +
+        "img-src * data: blob:; " +
+        "frame-src *; " +
+        "style-src * 'unsafe-inline';"
       )
     }
     

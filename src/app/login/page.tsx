@@ -60,11 +60,24 @@ export default function LoginPage() {
     setError('');
 
     try {
+      const redirectUrl = `${window.location.origin}/auth/callback?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+      const options: any = {
+        redirectTo: redirectUrl,
+      };
+      
+      // Special handling for Apple provider
+      if (provider === 'apple') {
+        options.scopes = 'name email';
+        // Explicitly set the site URL to match the current origin
+        options.queryParams = {
+          domain_hint: window.location.hostname,
+          site_url: window.location.origin
+        };
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: provider as any, // Type cast to satisfy TS
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback?callbackUrl=${encodeURIComponent(callbackUrl)}`,
-        },
+        options
       });
 
       if (error) {
