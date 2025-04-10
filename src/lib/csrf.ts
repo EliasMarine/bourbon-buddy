@@ -78,8 +78,15 @@ export function createCsrfCookie(secret: string, createdAt: number) {
   // Should cookies be secure in this environment?
   const isSecure = process.env.NODE_ENV === 'production'
   
-  // Use environment variable for domain if set
-  const domain = process.env.COOKIE_DOMAIN || undefined
+  // Set domain for production environment
+  let domain = process.env.COOKIE_DOMAIN || undefined
+  
+  // Auto-set domain for production to ensure cookie works with the main domain
+  if (process.env.NODE_ENV === 'production' && !domain) {
+    // Start without the dot prefix to be more compatible with some browsers
+    domain = 'bourbonbuddy.live'
+    console.log(`Auto-setting domain to: ${domain} for CSRF cookie in production`)
+  }
   
   // Store both the secret and the creation time as JSON string
   const cookieValue = JSON.stringify({

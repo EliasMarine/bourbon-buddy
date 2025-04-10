@@ -270,8 +270,21 @@ export async function middleware(request: NextRequest) {
           },
           setAll(cookiesToSet) {
             cookiesToSet.forEach(({ name, value, options }) => {
+              // Ensure cookies have proper attributes
+              const domain = process.env.NODE_ENV === 'production' ? '.bourbonbuddy.live' : undefined;
+              const secure = process.env.NODE_ENV === 'production';
+              const cookieOptions = {
+                ...options,
+                domain,
+                secure,
+              };
+              
+              // Set cookies in both request and response
               request.cookies.set(name, value)
-              response.cookies.set(name, value, options)
+              response.cookies.set(name, value, cookieOptions)
+              
+              // Log cookie operations if in verbose mode
+              log(debugId, `🍪 Setting cookie: ${name} (domain: ${domain || 'default'}, secure: ${secure})`);
             })
           }
         },
