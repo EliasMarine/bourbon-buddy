@@ -16,6 +16,7 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [debugInfo, setDebugInfo] = useState<any>(null)
   const router = useRouter()
   const supabase = useSupabase()
   
@@ -25,30 +26,92 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
     try {
       setLoading(true)
       setError(null)
+      setDebugInfo(null)
+      
+      console.log('🔍 Login attempt:', { email, timestamp: new Date().toISOString() })
       
       // Validate form inputs
       if (!email || !password) {
-        setError('Please enter both email and password')
+        const validationError = 'Please enter both email and password'
+        console.log('⚠️ Validation error:', validationError)
+        setError(validationError)
         return
       }
       
+      console.log('✅ Form validation passed, attempting Supabase authentication...')
+      
       // Sign in with Supabase
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      const authResult = await supabase.auth.signInWithPassword({
         email,
         password
       })
       
+      // Log everything about the auth result for debugging
+      console.log('🔐 Supabase auth response:', JSON.stringify({
+        data: authResult.data,
+        error: authResult.error ? {
+          message: authResult.error.message,
+          name: authResult.error.name,
+          status: authResult.error.status,
+          code: authResult.error?.code
+        } : null
+      }, null, 2))
+      
+      const { data, error: signInError } = authResult
+      
       if (signInError) {
-        setError(signInError.message || 'Failed to sign in')
+        const errorMsg = signInError.message || 'Failed to sign in'
+        
+        // Set detailed debug info
+        setDebugInfo({
+          errorCode: signInError.code,
+          errorName: signInError.name,
+          errorStatus: signInError.status,
+          errorMessage: signInError.message,
+          timestamp: new Date().toISOString()
+        })
+        
+        console.error('❌ Login error:', {
+          message: errorMsg,
+          code: signInError.code,
+          name: signInError.name,
+          status: signInError.status
+        })
+        
+        // Show more user-friendly error messages
+        if (errorMsg.includes('Invalid login credentials')) {
+          setError('Invalid email or password. Please try again or reset your password if you forgot it.')
+        } else if (errorMsg.includes('Email not confirmed')) {
+          setError('Please verify your email address before signing in. Check your inbox for a verification link.')
+        } else {
+          setError(errorMsg)
+        }
+        
         return
       }
+      
+      // Log user info on success (partial, for privacy)
+      if (data?.user) {
+        console.log('✅ Login successful:', {
+          userId: data.user.id,
+          email: data.user.email?.substring(0, 3) + '***',
+          hasSession: !!data.session,
+          timestamp: new Date().toISOString()
+        })
+      }
+      
+      console.log('🔄 Redirecting to:', callbackUrl)
       
       // Successful login, redirect
       router.push(callbackUrl)
       router.refresh()
     } catch (err) {
-      console.error('Login error:', err)
+      console.error('🔥 Unexpected login error:', err)
       setError('An unexpected error occurred. Please try again.')
+      setDebugInfo({
+        unexpectedError: err instanceof Error ? err.message : String(err),
+        timestamp: new Date().toISOString()
+      })
     } finally {
       setLoading(false)
     }
@@ -60,6 +123,14 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
         {error && (
           <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
             <p className="text-sm text-red-700">{error}</p>
+            {debugInfo && (
+              <details className="mt-2 text-xs text-gray-500">
+                <summary>Debug information (click to expand)</summary>
+                <pre className="mt-1 p-2 bg-gray-100 rounded overflow-x-auto">
+                  {JSON.stringify(debugInfo, null, 2)}
+                </pre>
+              </details>
+            )}
           </div>
         )}
         
