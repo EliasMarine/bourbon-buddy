@@ -11,6 +11,7 @@ export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+  const registered = searchParams.get('registered') === 'true';
   const { status, data: session } = useSupabaseSession();
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -115,8 +116,19 @@ export default function LoginPage() {
             </Link>
           </p>
         </div>
+        
+        {/* Registration message */}
+        {registered && (
+          <div className="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded relative" role="alert">
+            <strong className="font-bold">Almost there! </strong>
+            <span className="block sm:inline">Please check your email to verify your account before signing in.</span>
+          </div>
+        )}
+        
         {error && (
-          <div className="text-red-500 text-sm text-center">{error}</div>
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+            <span className="block sm:inline">{error}</span>
+          </div>
         )}
 
         {/* Social Sign-in Buttons */}

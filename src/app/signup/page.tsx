@@ -10,12 +10,14 @@ export default function SignUp() {
   const router = useRouter();
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const supabase = useSupabase();
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
+    setSuccess(false);
     setIsLoading(true);
 
     const formData = new FormData(e.currentTarget);
@@ -42,7 +44,13 @@ export default function SignUp() {
         throw new Error(signUpError.message || 'Failed to create account. Please try again.');
       }
 
-      router.push('/login?registered=true');
+      // Show success message instead of immediately redirecting
+      setSuccess(true);
+      
+      // Redirect after a delay to let users read the verification message
+      setTimeout(() => {
+        router.push('/login?registered=true');
+      }, 5000);
     } catch (error: any) {
       setError(error.message);
     } finally {
@@ -102,6 +110,22 @@ export default function SignUp() {
               </Link>
             </p>
           </div>
+
+          {/* Success Message */}
+          {success && (
+            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative" role="alert">
+              <strong className="font-bold">Success! </strong>
+              <span className="block sm:inline">We've sent a verification email to your inbox. Please check your email and click the verification link to complete your registration.</span>
+            </div>
+          )}
+
+          {/* Error Message */}
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+              <strong className="font-bold">Error! </strong>
+              <span className="block sm:inline">{error}</span>
+            </div>
+          )}
 
           {/* Social Sign-up Buttons */}
           <div className="flex flex-col space-y-3">
@@ -218,10 +242,6 @@ export default function SignUp() {
                 />
               </div>
             </div>
-
-            {error && (
-              <div className="text-red-500 text-sm text-center">{error}</div>
-            )}
 
             <div>
               <button

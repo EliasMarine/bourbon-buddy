@@ -138,8 +138,7 @@ export async function middleware(request: NextRequest) {
         "frame-ancestors 'self'; " +
         "manifest-src 'self'; " +
         "media-src 'self'; " +
-        "child-src 'self' blob:; " +
-        "prefetch-src 'self'"
+        "child-src 'self' blob:;"
       )
     } else {
       // In development mode, allow everything but still set basic security headers
