@@ -1,11 +1,11 @@
-import { getServerSession } from 'next-auth/next';
 import { NextResponse } from 'next/server';
-import { authOptions } from '@/lib/auth';
+import { createServerComponentClient } from '@/lib/auth';
 
 export async function GET(request: Request) {
-  const session = await getServerSession(authOptions);
+  const supabase = createServerComponentClient();
+  const { data: { user }, error } = await supabase.auth.getUser();
 
-  if (!session) {
+  if (error || !user) {
     return NextResponse.json(
       { message: 'Unauthorized' },
       { status: 401 }
@@ -14,7 +14,12 @@ export async function GET(request: Request) {
 
   // Here you would typically fetch user data from your database
   return NextResponse.json({
-    user: session.user,
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.user_metadata?.full_name || user.user_metadata?.name,
+      image: user.user_metadata?.avatar_url
+    },
     // Add any additional user data here
   });
 } 

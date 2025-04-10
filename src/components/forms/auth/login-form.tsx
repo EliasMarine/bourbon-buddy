@@ -4,6 +4,7 @@ import { useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { CsrfFormWrapper } from './csrf-form-wrapper'
 import { useCsrf } from '@/hooks/use-csrf'
+import { useSupabase } from '@/components/providers/SupabaseProvider'
 
 interface LoginFormProps {
   callbackUrl?: string
@@ -16,6 +17,7 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const supabase = useSupabase()
   
   const handleSubmit = async (e: FormEvent<HTMLFormElement>, csrfHeaders: Record<string, string>) => {
     e.preventDefault()
@@ -30,32 +32,20 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
         return
       }
       
-      // Send login request with CSRF token
-      const response = await fetch('/api/auth/callback/credentials', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...csrfHeaders
-        },
-        body: JSON.stringify({ email, password, callbackUrl }),
+      // Sign in with Supabase
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password
       })
       
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        const errorMessage = data.message || `Login failed with status ${response.status}`
-        setError(errorMessage)
-        
-        // If it's a CSRF error, reload the page to get a fresh token
-        if (response.status === 403 && data.message?.includes('CSRF')) {
-          setTimeout(() => window.location.reload(), 2000)
-        }
-        
+      if (signInError) {
+        setError(signInError.message || 'Failed to sign in')
         return
       }
       
       // Successful login, redirect
-      const data = await response.json()
-      router.push(data.url || callbackUrl)
+      router.push(callbackUrl)
+      router.refresh()
     } catch (err) {
       console.error('Login error:', err)
       setError('An unexpected error occurred. Please try again.')

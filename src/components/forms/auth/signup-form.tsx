@@ -3,6 +3,7 @@
 import { useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { CsrfFormWrapper } from './csrf-form-wrapper'
+import { useSupabase } from '@/components/providers/SupabaseProvider'
 
 interface SignupFormProps {
   callbackUrl?: string
@@ -24,6 +25,7 @@ export function SignupForm({ callbackUrl = '/dashboard', className = '' }: Signu
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const router = useRouter()
+  const supabase = useSupabase()
   
   const handleSubmit = async (e: FormEvent<HTMLFormElement>, csrfHeaders: Record<string, string>) => {
     e.preventDefault()
@@ -39,38 +41,28 @@ export function SignupForm({ callbackUrl = '/dashboard', className = '' }: Signu
         return
       }
       
-      // Send signup request with CSRF token
-      const response = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...csrfHeaders
-        },
-        body: JSON.stringify({ email, username, password, name }),
+      // Sign up with Supabase
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username,
+            name,
+            full_name: name,
+          }
+        }
       })
       
-      const data = await response.json().catch(() => ({}))
-      
-      if (!response.ok) {
-        // Handle validation errors
-        if (data.errors && Array.isArray(data.errors)) {
-          setValidationErrors(data.errors)
-        } else {
-          setError(data.message || `Signup failed with status ${response.status}`)
-        }
-        
-        // If it's a CSRF error, reload the page to get a fresh token
-        if (response.status === 403 && data.message?.includes('CSRF')) {
-          setTimeout(() => window.location.reload(), 2000)
-        }
-        
+      if (signUpError) {
+        setError(signUpError.message || 'Failed to create account')
         return
       }
       
       // Successful signup
       setSuccess(true)
       
-      // Redirect or show success message
+      // Redirect to login page after successful signup
       setTimeout(() => {
         router.push('/login?newAccount=true')
       }, 2000)

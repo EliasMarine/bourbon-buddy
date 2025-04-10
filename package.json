@@ -28,6 +28,9 @@
     "db:migrate": "ts-node scripts/safe-migrate.ts",
     "db:cron-backup": "ts-node scripts/cron-backup.ts",
     "db:add-security-events": "prisma migrate resolve --applied add_security_events && prisma db push",
+    "test:auth": "node scripts/test-auth-flows.js",
+    "test:auth:quick": "node scripts/quick-auth-test.js",
+    "test:auth:browser": "node scripts/browser-auth-test.js",
     "vercel-build": "node scripts/fix-database-connection.js && tsc --noEmit && next lint && prisma generate && prisma db push --accept-data-loss && next build",
     "deploy": "node scripts/fix-database-connection.js && next build && vercel deploy --prod",
     "deploy:socket": "vercel deploy --prod",
@@ -37,8 +40,6 @@
     "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
   },
   "dependencies": {
-    "@auth/core": "^0.38.0",
-    "@auth/prisma-adapter": "^2.8.0",
     "@aws-sdk/client-s3": "^3.779.0",
     "@aws-sdk/s3-request-presigner": "^3.779.0",
     "@emoji-mart/data": "^1.2.1",
@@ -71,7 +72,6 @@
     "lucide-react": "^0.484.0",
     "nanoid": "^5.1.5",
     "next": "^15.2.4",
-    "next-auth": "^4.24.11",
     "pg": "^8.14.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

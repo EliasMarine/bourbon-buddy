@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { signIn } from 'next-auth/react';
+import { useSupabase } from '@/components/providers/SupabaseProvider';
 import { CsrfToken } from '@/components/CsrfToken';
 
 export default function SignUp() {
@@ -11,6 +11,7 @@ export default function SignUp() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
+  const supabase = useSupabase();
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -18,33 +19,27 @@ export default function SignUp() {
     setIsLoading(true);
 
     const formData = new FormData(e.currentTarget);
-    const data = {
-      name: formData.get('name'),
-      email: formData.get('email'),
-      password: formData.get('password'),
-      username: formData.get('username'),
-    };
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    const name = formData.get('name') as string;
+    const username = formData.get('username') as string;
 
     try {
-      const response = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-token': csrfToken || '',
-        },
-        body: JSON.stringify(data),
+      // Sign up with Supabase
+      const { error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name,
+            full_name: name,
+            username
+          }
+        }
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        if (response.status === 400) {
-          // Client errors (like validation errors) can show specific messages
-          throw new Error(errorData.message || 'Please check your information and try again.');
-        } else {
-          // Server errors should use generic messages
-          console.error('Signup server error:', errorData);
-          throw new Error('Unable to create your account. Please try again later.');
-        }
+      if (signUpError) {
+        throw new Error(signUpError.message || 'Failed to create account. Please try again.');
       }
 
       router.push('/login?registered=true');
@@ -55,9 +50,28 @@ export default function SignUp() {
     }
   };
 
-  const handleSocialSignUp = (provider: string) => {
+  const handleSocialSignUp = async (provider: string) => {
     setIsLoading(true);
-    signIn(provider, { callbackUrl: '/dashboard' });
+    setError('');
+    
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: provider as any,
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?callbackUrl=/dashboard`,
+        },
+      });
+      
+      if (error) {
+        console.error(`${provider} signup error:`, error);
+        setError(`Could not sign up with ${provider}. Please try again later.`);
+        setIsLoading(false);
+      }
+    } catch (error: any) {
+      console.error(`${provider} signup error:`, error);
+      setError(`Could not sign up with ${provider}. Please try again later.`);
+      setIsLoading(false);
+    }
   };
 
   return (
