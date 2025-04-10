@@ -258,8 +258,12 @@ export async function middleware(request: NextRequest) {
             setAll(cookiesToSet) {
               // Set cookies on both the request and the response
               cookiesToSet.forEach(({ name, value, options }) => {
-                request.cookies.set(name, value);
-                response.cookies.set(name, value, options);
+                try {
+                  request.cookies.set(name, value);
+                  response.cookies.set(name, value, options);
+                } catch (error) {
+                  console.error(`[${debugId}] 🍪 Error setting cookie ${name}:`, error);
+                }
               });
             },
           },
@@ -268,7 +272,8 @@ export async function middleware(request: NextRequest) {
       
       // IMPORTANT: Call getUser to refresh the session if needed
       // This is critical to prevent users from being logged out unexpectedly
-      const { data: { user: supabaseUser }, error } = await supabase.auth.getUser();
+      const { data, error } = await supabase.auth.getUser();
+      const supabaseUser = data?.user;
       
       if (error) {
         console.error(`[${debugId}] ❌ Supabase error ${error.status || ''} on ${request.nextUrl.pathname}:`, error.message);

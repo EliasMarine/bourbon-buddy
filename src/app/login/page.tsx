@@ -119,7 +119,7 @@ export default function LoginPage() {
         
         {/* Registration message */}
         {registered && (
-          <div className="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded relative" role="alert">
+          <div className="bg-amber-100 border border-amber-600 text-amber-800 px-4 py-3 rounded relative" role="alert">
             <strong className="font-bold">Almost there! </strong>
             <span className="block sm:inline">Please check your email to verify your account before signing in.</span>
           </div>

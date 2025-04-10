@@ -75,8 +75,8 @@ export async function GET(request: Request) {
         );
       }
     } else {
-      console.log(`[${debugId}] ✅ Found NextAuth session for user: ${session.user.email}`);
-      userEmail = session.user.email;
+      console.log(`[${debugId}] ✅ Found NextAuth session for user: ${user.email}`);
+      userEmail = user.email;
     }
     
     // Skip the authentication requirement if we're in development 

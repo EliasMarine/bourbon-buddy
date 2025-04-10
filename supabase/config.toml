@@ -1,0 +1,11 @@
+[auth.email.template.confirmation]
+subject = "Verify Your Email - Bourbon Buddy Registration"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Reset Your Password - Bourbon Buddy"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.magic_link]
+subject = "Your Sign-In Link - Bourbon Buddy"
+content_path = "./supabase/templates/magic_link.html" 

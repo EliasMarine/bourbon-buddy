@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the user ID for folder structure
-    const userId = session.user.id;
+    const userId = user.id;
     
     // Parse the form data
     const formData = await request.formData();

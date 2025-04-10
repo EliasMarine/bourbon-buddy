@@ -16,20 +16,39 @@ const isDev = process.env.NODE_ENV === 'development';
 // Validate DATABASE_URL to ensure it's properly set
 function validateDatabaseUrl(): void {
   const url = process.env.DATABASE_URL;
+  const isDev = process.env.NODE_ENV === 'development';
+  
+  // In production, we need a real database URL
+  const isProd = process.env.NODE_ENV === 'production';
   
   if (!url) {
     throw new Error('DATABASE_URL environment variable is not set');
   }
   
   // Check if the URL contains placeholder text
-  if (url.includes('username:password') || url.includes('your-database-url')) {
-    throw new Error('DATABASE_URL contains placeholder values. Please set a real database URL.');
+  const hasPlaceholders = url.includes('username:password') || url.includes('your-database-url');
+  
+  // Allow placeholder URLs in development for testing authentication flows
+  if (hasPlaceholders) {
+    if (isProd) {
+      throw new Error('DATABASE_URL contains placeholder values. Please set a real database URL.');
+    } else {
+      console.warn('⚠️ DATABASE_URL contains placeholder values. Some features will not work.');
+      console.warn('👉 This is allowed in development mode for testing authentication.');
+      // Continue anyway in development
+      return;
+    }
   }
   
   // Check if we're accidentally using the default placeholder pooler URL from Supabase
   if (url.includes('aws-0-us-west-1.pooler.supabase.com') && 
       (url.includes('postgres://postgres:postgres@') || url.includes('default_password'))) {
-    throw new Error('DATABASE_URL using default Supabase pooler URL. Please set the correct database URL.');
+    if (isProd) {
+      throw new Error('DATABASE_URL using default Supabase pooler URL. Please set the correct database URL.');
+    } else {
+      console.warn('⚠️ DATABASE_URL uses default Supabase pooler URL. Some features will not work.');
+      // Continue anyway in development
+    }
   }
 }
 

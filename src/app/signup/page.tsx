@@ -113,7 +113,7 @@ export default function SignUp() {
 
           {/* Success Message */}
           {success && (
-            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative" role="alert">
+            <div className="bg-amber-100 border border-amber-600 text-amber-800 px-4 py-3 rounded relative" role="alert">
               <strong className="font-bold">Success! </strong>
               <span className="block sm:inline">We've sent a verification email to your inbox. Please check your email and click the verification link to complete your registration.</span>
             </div>

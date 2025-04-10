@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation'
 import { useState, useEffect, createContext, useContext, useCallback } from 'react'
 import { Session, User, AuthChangeEvent } from '@supabase/supabase-js'
 
+// Generate a debug ID to trace this component instance
+const providerDebugId = Math.random().toString(36).substring(2, 8);
+
 // Create context for Supabase client
 const SupabaseContext = createContext<ReturnType<typeof createBrowserClient> | undefined>(undefined)
 
@@ -14,11 +17,13 @@ const SessionContext = createContext<{
   user: User | null
   isLoading: boolean
   status: 'loading' | 'authenticated' | 'unauthenticated'
+  error: string | null
 }>({
   session: null,
   user: null,
   isLoading: true,
-  status: 'loading'
+  status: 'loading',
+  error: null
 })
 
 /**
@@ -51,24 +56,38 @@ export default function SupabaseProvider({
 }: { 
   children: React.ReactNode
 }) {
-  const [supabase] = useState(() => createBrowserClient())
+  console.log(`[${providerDebugId}] 🔄 SupabaseProvider initializing`);
+  
+  const [supabase] = useState(() => {
+    console.log(`[${providerDebugId}] 🔨 Creating Supabase browser client`);
+    try {
+      return createBrowserClient();
+    } catch (err) {
+      console.error(`[${providerDebugId}] ❌ Failed to create Supabase client:`, err);
+      throw err; // Re-throw to prevent rendering with a broken client
+    }
+  });
+  
   const router = useRouter()
   const [session, setSession] = useState<Session | null>(null)
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   
   // Function to handle auth state changes
   const handleAuthChange = useCallback((event: AuthChangeEvent, session: Session | null) => {
+    console.log(`[${providerDebugId}] 🔄 Auth state changed: ${event}`);
+    
     setSession(session)
     setUser(session?.user ?? null)
     
     if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-      console.log('👤 User signed in:', session?.user?.email)
+      console.log(`[${providerDebugId}] 👤 User signed in:`, session?.user?.email)
       router.refresh()
     }
     
     if (event === 'SIGNED_OUT') {
-      console.log('👋 User signed out')
+      console.log(`[${providerDebugId}] 👋 User signed out`)
       router.refresh()
     }
     
@@ -77,26 +96,39 @@ export default function SupabaseProvider({
   
   // Fetch session on mount and set up auth listener
   useEffect(() => {
+    console.log(`[${providerDebugId}] 🔄 Setting up auth state listener`);
+    
     // Get initial session
     const initializeAuth = async () => {
       setIsLoading(true)
+      setError(null)
       
       try {
+        console.log(`[${providerDebugId}] 🔍 Fetching initial session`);
+        
         // Get the initial session
-        const { data: { session }, error } = await supabase.auth.getSession()
+        const { data, error } = await supabase.auth.getSession()
         
         if (error) {
-          console.error('Error fetching session:', error.message)
+          console.error(`[${providerDebugId}] ❌ Error fetching session:`, error.message)
+          setError(`Session fetch failed: ${error.message}`)
           return
         }
         
-        if (session) {
-          setSession(session)
-          setUser(session.user)
-          console.log('✅ Session restored for:', session.user.email)
+        const sessionData = data?.session;
+        
+        if (sessionData && sessionData.user) {
+          console.log(`[${providerDebugId}] ✅ Session restored for:`, sessionData.user.email)
+          setSession(sessionData)
+          setUser(sessionData.user)
+        } else {
+          console.log(`[${providerDebugId}] ℹ️ No active session found`)
+          setSession(null)
+          setUser(null)
         }
       } catch (error) {
-        console.error('Unexpected error getting session:', error)
+        console.error(`[${providerDebugId}] ❌ Unexpected error getting session:`, error)
+        setError(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`)
       } finally {
         setIsLoading(false)
       }
@@ -106,23 +138,45 @@ export default function SupabaseProvider({
     initializeAuth()
     
     // Set up auth state change listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthChange)
+    let subscription: { unsubscribe: () => void } | null = null;
+    
+    try {
+      const { data } = supabase.auth.onAuthStateChange(handleAuthChange)
+      subscription = data.subscription
+      console.log(`[${providerDebugId}] ✅ Auth state change listener initialized`)
+    } catch (error) {
+      console.error(`[${providerDebugId}] ❌ Failed to set up auth listener:`, error)
+      setError(`Auth listener error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
     
     // Clean up subscription
     return () => {
-      subscription.unsubscribe()
+      console.log(`[${providerDebugId}] 🧹 Cleaning up auth listener`)
+      if (subscription) {
+        subscription.unsubscribe()
+      }
     }
   }, [supabase, handleAuthChange])
   
   // Auth-related helper functions
   const signOut = useCallback(async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) {
-      console.error('Error signing out:', error.message)
+    try {
+      console.log(`[${providerDebugId}] 🔄 Signing out user`)
+      const { error } = await supabase.auth.signOut()
+      if (error) {
+        console.error(`[${providerDebugId}] ❌ Error signing out:`, error.message)
+        return false
+      }
+      console.log(`[${providerDebugId}] ✅ User signed out successfully`)
+      return true
+    } catch (error) {
+      console.error(`[${providerDebugId}] ❌ Unexpected error during sign out:`, error)
       return false
     }
-    return true
   }, [supabase])
+  
+  console.log(`[${providerDebugId}] 🔄 SupabaseProvider rendering with auth status:`, 
+    isLoading ? 'loading' : session ? 'authenticated' : 'unauthenticated');
   
   return (
     <SupabaseContext.Provider value={supabase}>
@@ -130,7 +184,8 @@ export default function SupabaseProvider({
         session,
         user,
         isLoading,
-        status: isLoading ? 'loading' : session ? 'authenticated' : 'unauthenticated'
+        status: isLoading ? 'loading' : session ? 'authenticated' : 'unauthenticated',
+        error
       }}>
         {children}
       </SessionContext.Provider>

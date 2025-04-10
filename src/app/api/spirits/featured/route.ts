@@ -84,7 +84,7 @@ export async function GET(
                   error: 'Unauthorized',
                   message: 'Authentication required to view featured spirits',
                   detail: 'No valid session found. Please log in.',
-                  debug: { hasNextAuth: !!session, authCookies: authCookies.map(c => c.split('=')[0]) }
+                  debug: { hasNextAuth: !!user, authCookies: authCookies.map(c => c.split('=')[0]) }
                 },
                 { status: 401 }
               );
@@ -106,8 +106,8 @@ export async function GET(
         );
       }
     } else {
-      console.log(`[${debugId}] ✅ Found NextAuth session for user: ${session.user.email}`);
-      userEmail = session.user.email;
+      console.log(`[${debugId}] ✅ Found NextAuth session for user: ${user.email}`);
+      userEmail = user.email;
     }
 
     // Skip the authentication requirement if we're in development 

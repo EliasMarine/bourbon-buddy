@@ -73,8 +73,8 @@ export async function POST(request: Request) {
     try {
       const validatedData = CreateStreamSchema.parse(body);
       
-      const user = await prisma.user.findUnique({
-        where: { email: session.user.email },
+      const dbUser = await prisma.user.findUnique({
+        where: { email: user.email },
         select: {
           id: true,
           name: true,
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
         },
       });
 
-      if (!user) {
+      if (!dbUser) {
         return NextResponse.json(
           { error: 'User not found' },
           { status: 404 }
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
         title: validatedData.title,
         description: validatedData.description || null, // Convert undefined to null
         privacy: validatedData.privacy,
-        hostId: user.id,
+        hostId: dbUser.id,
         isLive: false, // Start as not live until the host starts streaming
         startedAt: new Date(),
       };

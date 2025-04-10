@@ -117,20 +117,38 @@ let browserClient: any = null;
  */
 export function createBrowserClient() {
   const debugId = generateDebugId();
+  
   if (browserClient) {
     console.log(`[${debugId}] ♻️ Reusing existing browser client`);
     return browserClient;
   }
   
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error(`[${debugId}] ❌ Missing Supabase configuration. URL: ${!!supabaseUrl}, Key: ${!!supabaseAnonKey}`);
+    throw new Error('Supabase configuration is missing');
+  }
+  
   console.log(`[${debugId}] 🔨 Creating new browser client`);
   try {
     browserClient = createSsrBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      supabaseUrl,
+      supabaseAnonKey
     );
+    
+    // Verify the client was created correctly
+    if (!browserClient || typeof browserClient.auth !== 'object') {
+      console.error(`[${debugId}] ❌ Browser client creation failed - invalid client structure`);
+      browserClient = null;
+      throw new Error('Failed to initialize Supabase client correctly');
+    }
+    
     console.log(`[${debugId}] ✅ Browser client created successfully`);
   } catch (error) {
     console.error(`[${debugId}] ❌ Error creating browser client:`, error);
+    browserClient = null; // Reset so we can try again next time
     throw error;
   }
   

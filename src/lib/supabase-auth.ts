@@ -37,10 +37,17 @@ export function createRequestClient(req: NextRequest) {
           return req.cookies.get(name)?.value;
         },
         set(name: string, value: string, options: any) {
-          res.cookies.set(name, value, options);
+          res.cookies.set({
+            name,
+            value,
+            ...options,
+          });
         },
         remove(name: string, options: any) {
-          res.cookies.delete(name, options);
+          res.cookies.delete({
+            name,
+            ...options,
+          });
         },
       },
     }
@@ -122,7 +129,7 @@ export async function getCurrentUser() {
   'use server';
   
   // Note: For server components, we work directly with cookies() API
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   
   // Create a client that can read the server cookies
   const supabase = createServerClient(
@@ -134,25 +141,47 @@ export async function getCurrentUser() {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options: any) {
-          // In server components, we can only read cookies
-          // This function won't be used from server components
+          try {
+            cookieStore.set({
+              name,
+              value,
+              ...options,
+            });
+          } catch (error) {
+            // The `set` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
+          }
         },
         remove(name: string, options: any) {
-          // In server components, we can only read cookies
-          // This function won't be used from server components
+          try {
+            cookieStore.delete({
+              name,
+              ...options,
+            });
+          } catch (error) {
+            // The `remove` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
+          }
         },
       },
     }
   );
   
-  const { data, error } = await supabase.auth.getUser();
-  
-  if (error) {
-    console.error('Error getting current user:', error.message);
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    
+    if (error) {
+      console.error('Error getting current user:', error.message);
+      return null;
+    }
+    
+    return data.user;
+  } catch (error) {
+    console.error('Error in getCurrentUser:', error);
     return null;
   }
-  
-  return data.user;
 }
 
 /**
