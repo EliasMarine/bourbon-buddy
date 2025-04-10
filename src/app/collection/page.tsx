@@ -31,16 +31,49 @@ export default function CollectionPage() {
     }
   }, [session, status, router]);
 
-  const fetchCollection = async () => {
+  const fetchCollection = async (retryCount = 0) => {
     try {
+      setIsLoading(true);
       const response = await fetch('/api/collection');
+      
+      if (response.status === 401 && retryCount < 2) {
+        console.log('Authentication failed, attempting to sync user...');
+        
+        // Try to sync the user first
+        try {
+          await fetch('/api/auth/sync-user', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          console.log('User sync completed, retrying collection fetch...');
+          // Wait a moment for the sync to complete
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Try fetching again after sync
+          return fetchCollection(retryCount + 1);
+        } catch (syncError) {
+          console.error('Failed to sync user:', syncError);
+          toast('Failed to sync user account', { icon: '❌' });
+        }
+      }
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Failed to fetch collection: ${response.status}`);
+      }
+      
       const data = await response.json();
       
       // Sort spirits to show favorites first
-      const sortedSpirits = sortSpirits(data.spirits);
+      const sortedSpirits = sortSpirits(data.spirits || []);
       setSpirits(sortedSpirits);
     } catch (error) {
       console.error('Failed to fetch collection:', error);
+      toast('Failed to load collection', { icon: '❌' });
+      setSpirits([]);
     } finally {
       setIsLoading(false);
     }

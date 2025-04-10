@@ -49,6 +49,34 @@ export const useSessionContext = () => {
 }
 
 /**
+ * Sync the current user with the database
+ */
+async function syncUserWithDatabase() {
+  try {
+    console.log(`[${providerDebugId}] 🔄 Syncing user with database`);
+    const response = await fetch('/api/auth/sync-user', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    const data = await response.json();
+    
+    if (response.ok) {
+      console.log(`[${providerDebugId}] ✅ User sync successful:`, data.user?.email);
+      return true;
+    } else {
+      console.error(`[${providerDebugId}] ❌ User sync failed:`, data.error);
+      return false;
+    }
+  } catch (error) {
+    console.error(`[${providerDebugId}] ❌ Error during user sync:`, error);
+    return false;
+  }
+}
+
+/**
  * Provider for Supabase client and session state
  */
 export default function SupabaseProvider({ 
@@ -73,7 +101,18 @@ export default function SupabaseProvider({
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isSyncing, setIsSyncing] = useState(false)
   
+  // Sync user with database when authenticated
+  useEffect(() => {
+    if (user && !isLoading && !isSyncing) {
+      setIsSyncing(true);
+      syncUserWithDatabase().finally(() => {
+        setIsSyncing(false);
+      });
+    }
+  }, [user, isLoading, isSyncing]);
+
   // Function to handle auth state changes
   const handleAuthChange = useCallback((event: AuthChangeEvent, session: Session | null) => {
     console.log(`[${providerDebugId}] 🔄 Auth state changed: ${event}`);
@@ -83,6 +122,12 @@ export default function SupabaseProvider({
     
     if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
       console.log(`[${providerDebugId}] 👤 User signed in:`, session?.user?.email)
+      
+      // Sync user with database when signed in
+      if (session?.user) {
+        syncUserWithDatabase();
+      }
+      
       router.refresh()
     }
     
@@ -121,6 +166,9 @@ export default function SupabaseProvider({
           console.log(`[${providerDebugId}] ✅ Session restored for:`, sessionData.user.email)
           setSession(sessionData)
           setUser(sessionData.user)
+          
+          // Sync user with database when session is restored
+          syncUserWithDatabase();
         } else {
           console.log(`[${providerDebugId}] ℹ️ No active session found`)
           setSession(null)

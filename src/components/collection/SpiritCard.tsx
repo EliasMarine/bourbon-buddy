@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Spirit } from '@/types';
-import { Star, Trash2, Tag, Droplets, Wine, Heart } from 'lucide-react';
+import { Star, Trash2, Tag, Droplets, Wine, Heart, ImageIcon } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import BottleLevelIndicator from './BottleLevelIndicator';
@@ -17,6 +17,7 @@ interface SpiritCardProps {
 export default function SpiritCard({ spirit, onDelete, onToggleFavorite }: SpiritCardProps) {
   // State for delete confirmation dialog
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [imageError, setImageError] = useState(false);
 
   // Determine the rating using a 10-point scale
   const rating = spirit.rating ? Number(spirit.rating) : 0;
@@ -46,20 +47,28 @@ export default function SpiritCard({ spirit, onDelete, onToggleFavorite }: Spiri
     }
   };
 
+  const handleImageError = () => {
+    console.log(`Image failed to load for ${spirit.name}`);
+    setImageError(true);
+  };
+
   return (
     <>
       <Link href={`/collection/spirit/${spirit.id}`} className="block">
         <div className="bg-white/5 backdrop-blur-sm rounded-xl overflow-hidden border border-white/10 hover:border-amber-500/30 transition-all hover:shadow-lg hover:shadow-amber-500/10 group cursor-pointer">
-          <div className="relative h-60 w-full bg-white flex items-center justify-center">
-            {spirit.imageUrl ? (
+          <div className="relative h-60 w-full bg-gray-900 flex items-center justify-center">
+            {spirit.imageUrl && !imageError ? (
               <img
                 src={spirit.imageUrl}
                 alt={spirit.name}
                 className="object-contain max-h-56 max-w-[80%] transition-transform group-hover:scale-105"
+                onError={handleImageError}
+                loading="lazy"
               />
             ) : (
-              <div className="w-full h-full bg-gray-800 flex items-center justify-center">
-                <span className="text-gray-500">No image</span>
+              <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 bg-gray-800/50">
+                <ImageIcon className="w-12 h-12 mb-2 opacity-30" />
+                <span>{spirit.name}</span>
               </div>
             )}
             {/* Type badge */}

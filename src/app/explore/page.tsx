@@ -340,16 +340,37 @@ export default function ExplorePage() {
 
   // Fetch popular collections and featured spirits
   useEffect(() => {
-    const fetchCollections = async () => {
+    const fetchCollections = async (retryCount = 0) => {
       try {
         setLoading(true);
 
         // Fetch popular users with collections
         try {
           const usersResponse = await fetch('/api/users/popular');
-          if (!usersResponse.ok) {
-            throw new Error('Failed to fetch popular users');
+          
+          if (usersResponse.status === 401 && retryCount < 2) {
+            console.log('Authentication failed, attempting to sync user...');
+            
+            // Try to sync the user first
+            await fetch('/api/auth/sync-user', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            });
+            
+            console.log('User sync completed, retrying collection fetch...');
+            // Wait a moment for the sync to complete
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Try fetching again after sync
+            return fetchCollections(retryCount + 1);
           }
+          
+          if (!usersResponse.ok) {
+            throw new Error(`Failed to fetch popular users: ${usersResponse.status}`);
+          }
+          
           const usersData = await usersResponse.json();
           setPopularUsers(usersData.users || []);
         } catch (error) {
@@ -379,12 +400,35 @@ export default function ExplorePage() {
           ]);
         }
 
-        // Fetch featured spirits
+        // Fetch featured spirits with proper error handling
         try {
           const spiritsResponse = await fetch('/api/spirits/featured');
-          if (!spiritsResponse.ok) {
-            throw new Error('Failed to fetch featured spirits');
+          
+          if (spiritsResponse.status === 401 && retryCount < 2) {
+            console.log('Authentication failed, attempting to sync user...');
+            
+            // Try to sync the user first (if not already attempted)
+            if (retryCount === 0) {
+              await fetch('/api/auth/sync-user', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+              });
+              
+              console.log('User sync completed, retrying spirits fetch...');
+              // Wait a moment for the sync to complete
+              await new Promise(resolve => setTimeout(resolve, 500));
+              
+              // Try fetching again after sync
+              return fetchCollections(retryCount + 1);
+            }
           }
+          
+          if (!spiritsResponse.ok) {
+            throw new Error(`Failed to fetch featured spirits: ${spiritsResponse.status}`);
+          }
+          
           const spiritsData = await spiritsResponse.json();
           setFeaturedSpirits(spiritsData.spirits || []);
         } catch (error) {
@@ -473,8 +517,11 @@ export default function ExplorePage() {
       }
     };
 
-    fetchCollections();
-  }, [session]);
+    // Avoid refetching data if we already have it (to prevent flickering)
+    if (!featuredSpirits.length || !popularUsers.length) {
+      fetchCollections();
+    }
+  }, [session, featuredSpirits.length, popularUsers.length]);
 
   // Filter spirits based on search and filters
   const filteredSpirits = featuredSpirits.filter(spirit => {
