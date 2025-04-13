@@ -5,6 +5,7 @@ import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
 import ClientLayout from '../components/providers/ClientLayout'
 import SupabaseProvider from '../components/providers/SupabaseProvider'
+import AuthWrapper from '../components/auth/AuthWrapper'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -37,7 +38,9 @@ export default function RootLayout({
           <ClientLayout>
             <Navbar />
             <main className="pt-16">
-              {children}
+              <AuthWrapper>
+                {children}
+              </AuthWrapper>
             </main>
             <Footer />
             <Toaster position="top-right" richColors theme="dark" />
