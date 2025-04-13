@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Session, User } from '@supabase/supabase-js';
-import { useSupabase } from '@/components/providers/SupabaseProvider';
-import { useSessionContext } from '@/components/providers/SupabaseProvider';
+import { useSupabase, useSessionContext } from '@/components/providers/SupabaseProvider';
 import { useRouter } from 'next/navigation';
 
 export interface UseSupabaseSessionOptions {
@@ -46,11 +45,8 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
   } = options;
 
   const router = useRouter();
-  const supabase = useSupabase();
-  const sessionContext = useSessionContext();
-  
-  // Extract session data from context
-  const { session, user, isLoading, status } = sessionContext;
+  const { supabase: supabaseClient } = useSupabase();
+  const { session, user, isLoading, status } = useSessionContext();
 
   // Call the onSessionChange callback when session changes
   useEffect(() => {
@@ -73,7 +69,7 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
   // Function to fetch session
   const getSession = useCallback(async () => {
     try {
-      const { data: { session: supabaseSession }, error } = await supabase.auth.getSession();
+      const { data: { session: supabaseSession }, error } = await supabaseClient.auth.getSession();
       
       if (error) {
         console.error('Error getting session:', error.message);
@@ -85,12 +81,12 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
       console.error('Error in getSession:', err);
       return null;
     }
-  }, [supabase]);
+  }, [supabaseClient]);
   
   // Function to handle sign out
   const signOut = useCallback(async () => {
     try {
-      const { error } = await supabase.auth.signOut();
+      const { error } = await supabaseClient.auth.signOut();
       if (error) {
         console.error('Error signing out:', error.message);
         return false;
@@ -103,7 +99,7 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
       console.error('Error in signOut:', err);
       return false;
     }
-  }, [supabase, router]);
+  }, [supabaseClient, router]);
 
   return {
     session,
@@ -125,7 +121,7 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
     update: async (data: any) => {
       if (user) {
         try {
-          const { error } = await supabase.auth.updateUser(data);
+          const { error } = await supabaseClient.auth.updateUser(data);
           if (error) throw error;
           return await getSession();
         } catch (error) {

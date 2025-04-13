@@ -16,8 +16,8 @@ export function createClient() {
 /**
  * Creates a Supabase client for server components
  */
-export function createServerComponentClient() {
-  const cookieStore = cookies()
+export async function createServerComponentClient() {
+  const cookieStore = await cookies()
   
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,7 +25,10 @@ export function createServerComponentClient() {
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll()
+          return cookieStore.getAll().map(cookie => ({
+            name: cookie.name,
+            value: cookie.value,
+          }))
         },
         setAll(cookiesToSet) {
           try {
@@ -46,8 +49,8 @@ export function createServerComponentClient() {
 /**
  * Creates a Supabase client for server actions
  */
-export function createActionClient() {
-  const cookieStore = cookies()
+export async function createActionClient() {
+  const cookieStore = await cookies()
   
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,7 +58,10 @@ export function createActionClient() {
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll()
+          return cookieStore.getAll().map(cookie => ({
+            name: cookie.name,
+            value: cookie.value,
+          }))
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) =>
@@ -104,7 +110,7 @@ export function createMiddlewareClient(request: NextRequest) {
  * Redirects to login if not authenticated and redirectIfUnauthorized is true
  */
 export async function requireUser({ redirectIfUnauthorized = true }: { redirectIfUnauthorized?: boolean } = {}) {
-  const supabase = createServerComponentClient()
+  const supabase = await createServerComponentClient()
   
   const { data: { user } } = await supabase.auth.getUser()
   
@@ -119,7 +125,7 @@ export async function requireUser({ redirectIfUnauthorized = true }: { redirectI
  * Gets the current user in a server component
  */
 export async function getUser() {
-  const supabase = createServerComponentClient()
+  const supabase = await createServerComponentClient()
   
   const { data: { user } } = await supabase.auth.getUser()
   
@@ -130,7 +136,7 @@ export async function getUser() {
  * Gets the current session in a server component
  */
 export async function getSession() {
-  const supabase = createServerComponentClient()
+  const supabase = await createServerComponentClient()
   
   const { data: { session } } = await supabase.auth.getSession()
   
@@ -143,7 +149,7 @@ export async function getSession() {
 export async function signOut() {
   'use server'
   
-  const supabase = createActionClient()
+  const supabase = await createActionClient()
   
   await supabase.auth.signOut()
   redirect('/login')
@@ -155,7 +161,7 @@ export async function signOut() {
 export async function signInWithEmailPassword(email: string, password: string) {
   'use server'
   
-  const supabase = createActionClient()
+  const supabase = await createActionClient()
   
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
@@ -175,7 +181,7 @@ export async function signInWithEmailPassword(email: string, password: string) {
 export async function signUpWithEmailPassword(email: string, password: string) {
   'use server'
   
-  const supabase = createActionClient()
+  const supabase = await createActionClient()
   
   const { data, error } = await supabase.auth.signUp({
     email,

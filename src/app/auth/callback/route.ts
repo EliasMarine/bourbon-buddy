@@ -20,14 +20,16 @@ export async function GET(request: NextRequest) {
     hostname: requestUrl.hostname
   })
   
-  // Create a response to the destination URL
-  const redirectUrl = new URL(callbackUrl, requestUrl.origin)
-  const response = NextResponse.redirect(redirectUrl)
+  // Create redirect URLs
+  const verifyRegistrationUrl = new URL('/auth/verify-registration', requestUrl.origin)
+  verifyRegistrationUrl.searchParams.set('callbackUrl', callbackUrl)
   
   if (code) {
     try {
+      // Create a response - we'll update it with cookies later
+      const response = NextResponse.redirect(verifyRegistrationUrl)
+      
       // Create a Supabase client using the authorization code
-      // This uses the same cookie handling pattern from middleware.ts
       const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -38,7 +40,6 @@ export async function GET(request: NextRequest) {
             },
             setAll(cookiesToSet) {
               cookiesToSet.forEach(({ name, value, options }) => {
-                request.cookies.set(name, value)
                 response.cookies.set(name, value, options)
               })
             }
@@ -58,7 +59,19 @@ export async function GET(request: NextRequest) {
       }
       
       if (data?.session) {
-        console.log('OAuth sign-in successful, redirecting to:', callbackUrl)
+        console.log('OAuth sign-in successful')
+        
+        // Check if the user is already registered (to skip verification step)
+        const user = data.session.user
+        if (user?.app_metadata?.is_registered === true) {
+          console.log('User already registered, redirecting directly to:', callbackUrl)
+          // User is already registered, redirect directly to callbackUrl
+          response.headers.set('Location', new URL(callbackUrl, requestUrl.origin).toString())
+          return response
+        }
+        
+        // Otherwise, direct to verify-registration to handle registration
+        return response
       }
     } catch (error) {
       console.error('Exception during code exchange:', error)
@@ -68,7 +81,10 @@ export async function GET(request: NextRequest) {
     }
   } else {
     console.warn('Auth callback received without code')
+    // Redirect to login if no code was provided
+    return NextResponse.redirect(new URL('/login', requestUrl.origin))
   }
   
-  return response
+  // Fallback redirect to verify-registration
+  return NextResponse.redirect(verifyRegistrationUrl)
 } 
