@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { generateDebugId } from '@/lib/debug-utils'
-import crypto from 'crypto'
 
 // Helper function to determine if verbose logging is enabled
 function isVerboseLoggingEnabled(): boolean {
@@ -113,30 +112,63 @@ const protectedRoutesSet = new Set(protectedRoutes.map(route => {
 
 const publicRoutesSet = new Set(publicRoutes);
 
+// Define a set to track users who have been redirected to verify-registration
+// to prevent infinite redirect loops
+const redirectedUsers = new Set<string>();
+
+// Define a cleanup interval for the redirectedUsers set (clear entries older than 10 minutes)
+setInterval(() => {
+  redirectedUsers.clear();
+}, 10 * 60 * 1000);
+
+/**
+ * Auth middleware for handling authentication and authorization
+ */
 export async function middleware(request: NextRequest) {
   // Add debug ID to track individual requests through the logs
   const debugId = generateDebugId()
   log(debugId, `🔄 Middleware processing ${request.method} ${request.nextUrl.pathname}`)
   
   try {
-    // Create a default response we'll modify as needed
-    const response = NextResponse.next({
-      request,
-    })
+    // Create the Supabase client using cookies
+    log(debugId, `🔑 Creating Supabase client with URL: ${process.env.NEXT_PUBLIC_SUPABASE_URL?.substring(0, 15)}...`);
     
-    // Generate a random nonce for CSP
-    const nonce = Buffer.from(crypto.randomUUID()).toString('base64')
+    // Create a response to modify later
+    const response = NextResponse.next()
+    
+    // Create Supabase client with SSR
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll()
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              // Set cookies on both request (for this run) and response (for next time)
+              request.cookies.set(name, value)
+              response.cookies.set(name, value, options)
+            })
+          }
+        }
+      }
+    )
+    
+    // Generate a random nonce for CSP using Web Crypto API
+    const randomBytes = crypto.getRandomValues(new Uint8Array(16))
+    const nonce = btoa(String.fromCharCode.apply(null, Array.from(randomBytes)))
     
     // Add primary headers
-    const headers = new Headers(response.headers)
-    headers.set('x-debug-id', debugId)
-    headers.set('x-nonce', nonce) // Pass nonce to layouts/pages
+    response.headers.set('x-debug-id', debugId)
+    response.headers.set('x-nonce', nonce) // Pass nonce to layouts/pages
     
     // Security headers
-    headers.set('X-XSS-Protection', '1; mode=block')
-    headers.set('X-Content-Type-Options', 'nosniff')
-    headers.set('X-Frame-Options', 'DENY')
-    headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.set('X-XSS-Protection', '1; mode=block')
+    response.headers.set('X-Content-Type-Options', 'nosniff')
+    response.headers.set('X-Frame-Options', 'DENY')
+    response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
     
     /**
      * Content Security Policy (CSP) Implementation
@@ -158,7 +190,7 @@ export async function middleware(request: NextRequest) {
     
     // Only add CSP in production to avoid local development issues
     if (process.env.NODE_ENV === 'production') {
-      headers.set('Content-Security-Policy', 
+      response.headers.set('Content-Security-Policy', 
         "default-src 'self'; " +
         `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live; ` +
         `script-src-elem 'self' 'nonce-${nonce}' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live; ` +
@@ -176,6 +208,11 @@ export async function middleware(request: NextRequest) {
         "manifest-src 'self'; " +
         "media-src 'self'; " +
         "child-src 'self' blob:;"
+      )
+      
+      // Add the correct Permissions-Policy header instead of the deprecated Feature-Policy
+      response.headers.set('Permissions-Policy', 
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
       )
     } else {
       // In development mode, allow specific domains but still maintain security
@@ -195,15 +232,21 @@ export async function middleware(request: NextRequest) {
         ...appleAuthDomains
       ].join(' ');
 
-      headers.set('Content-Security-Policy', 
+      // More permissive CSP for development to avoid blocking scripts
+      response.headers.set('Content-Security-Policy', 
         `default-src 'self' ${devDomains} data: blob:; ` +
         `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' ${devDomains} data: blob:; ` +
-        `script-src-elem 'self' 'nonce-${nonce}' 'unsafe-inline' ${devDomains}; ` +
+        `script-src-elem 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' ${devDomains}; ` +
         `connect-src 'self' ${devDomains} http://localhost:* ws://localhost:* https://*.supabase.co https://*.supabase.in wss://*.supabase.co 'unsafe-inline'; ` +
         `img-src 'self' ${devDomains} data: blob:; ` +
         `frame-src 'self' ${devDomains}; ` +
         `style-src 'self' 'unsafe-inline';`
       );
+      
+      // Add the correct Permissions-Policy header for development too
+      response.headers.set('Permissions-Policy', 
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+      )
     }
     
     // Skip processing for static assets to improve performance
@@ -235,64 +278,8 @@ export async function middleware(request: NextRequest) {
       return response
     }
     
-    // Check for debugging cookies from browser dev tools
-    const debugCookie = request.cookies.get('bourbon_buddy_debug')
-    if (debugCookie) {
-      log(debugId, `🧪 Debug cookie found: ${debugCookie.value}`)
-    }
-    
-    // Get the domain for better error reporting
-    const domain = request.headers.get('host') || 'unknown'
-    
-    // Check specifically for Supabase cookies
-    const supabaseCookieValues = supabaseCookies.map(name => {
-      const cookie = request.cookies.get(name)
-      return {
-        name,
-        exists: !!cookie,
-        length: cookie?.value?.length || 0
-      }
-    })
-    
-    log(debugId, `🍪 Supabase cookies:`, supabaseCookieValues);
-    
-    // Create the Supabase client
-    log(debugId, `🔑 Creating Supabase client with URL: ${process.env.NEXT_PUBLIC_SUPABASE_URL?.substring(0, 15)}...`);
-    
-    // Updated Supabase client with correct cookie handling
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll()
-          },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              // Ensure cookies have proper attributes
-              const domain = process.env.NODE_ENV === 'production' ? '.bourbonbuddy.live' : undefined;
-              const secure = process.env.NODE_ENV === 'production';
-              const cookieOptions = {
-                ...options,
-                domain,
-                secure,
-              };
-              
-              // Set cookies in both request and response
-              request.cookies.set(name, value)
-              response.cookies.set(name, value, cookieOptions)
-              
-              // Log cookie operations if in verbose mode
-              log(debugId, `🍪 Setting cookie: ${name} (domain: ${domain || 'default'}, secure: ${secure})`);
-            })
-          }
-        },
-      }
-    )
-    
     // Fetch the session with detailed error handling
-    log(debugId, `🔑 Fetching Supabase auth session`)
+    log(debugId, `🔑 Fetching Supabase auth session`);
     let user = null;
     
     try {
@@ -302,7 +289,30 @@ export async function middleware(request: NextRequest) {
         logError(debugId, `❌ Supabase user error:`, error.message);
       } else if (data.user) {
         user = data.user;
-        log(debugId, `👤 User authenticated: ${user.email}`);
+        // Only log email in non-production for security
+        const emailPreview = process.env.NODE_ENV === 'production' 
+          ? '***' 
+          : user.email?.substring(0, 3) + '***';
+        log(debugId, `👤 User authenticated: ${emailPreview}`);
+        
+        // Check if user has the is_registered claim - this means they've been synced
+        // This avoids querying the database on every request
+        const isRegistered = user.app_metadata?.is_registered === true;
+        log(debugId, `👤 User registration status: ${isRegistered ? 'Registered' : 'Pending'}`);
+        
+        // For session debugging only
+        if (process.env.DEBUG_AUTH === 'true') {
+          console.log(`[${debugId}] 🔐 App metadata:`, user.app_metadata);
+          console.log(`[${debugId}] 🔐 User metadata:`, user.user_metadata);
+          
+          // Log if the user was synced recently
+          const lastSynced = user.app_metadata?.last_synced_at;
+          if (lastSynced) {
+            const syncTime = new Date(lastSynced);
+            const timeSinceSync = Date.now() - syncTime.getTime();
+            console.log(`[${debugId}] 🔄 Last synced: ${timeSinceSync / 1000}s ago`);
+          }
+        }
       } else {
         log(debugId, `👤 No user found`);
       }
@@ -319,16 +329,24 @@ export async function middleware(request: NextRequest) {
     // Check if user is authenticated
     const isAuthenticated = !!user;
     
+    // Check if user is registered in the database system
+    // Check in both app_metadata and user_metadata to be sure
+    const isRegistered = user?.app_metadata?.is_registered === true || 
+                         user?.user_metadata?.is_registered === true;
+    
     // Check if this is a protected route - O(1) lookup for most cases
     const isProtectedRoute = protectedRoutesSet.has(basePath) || 
       protectedRoutes.some(route => pathname.startsWith(route));
+    
+    // For API routes, we only need authentication, not full registration
+    const isApiRoute = pathname.startsWith('/api/');
     
     // Check if URL requires authentication
     if (isProtectedRoute && !isAuthenticated) {
       log(debugId, `🔒 Protected route access attempt without authentication: ${pathname}`);
       
       // For API routes, return 401 instead of redirecting
-      if (pathname.startsWith('/api/')) {
+      if (isApiRoute) {
         log(debugId, `🚫 API access denied, returning 401`);
         return new NextResponse(
           JSON.stringify({ 
@@ -340,7 +358,7 @@ export async function middleware(request: NextRequest) {
             status: 401,
             headers: {
               'Content-Type': 'application/json',
-              ...Object.fromEntries(headers)
+              ...Object.fromEntries(Array.from(response.headers.entries()))
             }
           }
         );
@@ -352,7 +370,86 @@ export async function middleware(request: NextRequest) {
       redirectUrl.searchParams.set('callbackUrl', request.nextUrl.pathname);
       
       return NextResponse.redirect(redirectUrl, {
-        headers: Object.fromEntries(headers)
+        headers: Object.fromEntries(Array.from(response.headers.entries()))
+      });
+    }
+    
+    // For protected routes that are not API routes, check if user is registered
+    // This allows API routes to work even when user registration is pending
+    if (isProtectedRoute && !isApiRoute && !isRegistered) {
+      log(debugId, `🔒 Route requires registration but user has pending registration status: ${pathname}`);
+      
+      // Check if we just recently synced the user by looking at the last_synced_at timestamp
+      const lastSynced = user?.app_metadata?.last_synced_at || user?.user_metadata?.last_synced_at;
+      if (lastSynced) {
+        const syncTime = new Date(lastSynced);
+        const timeSinceSync = Date.now() - syncTime.getTime();
+        
+        // If synced in the last 10 minutes, consider them registered
+        if (timeSinceSync < 10 * 60 * 1000) {
+          log(debugId, `User was synced ${timeSinceSync / 1000}s ago, considering registered`);
+          
+          // Pass user info in headers for server components
+          if (user) {
+            response.headers.set('x-user-id', user.id);
+            if (user.email) {
+              response.headers.set('x-user-email', user.email);
+            }
+          }
+          
+          log(debugId, `✅ Middleware processing complete after sync check`);
+          return response;
+        }
+      }
+      
+      // Try to force a refresh of the session to get the latest metadata
+      try {
+        const { data: refreshData } = await supabase.auth.refreshSession();
+        if (refreshData?.session?.user?.app_metadata?.is_registered === true) {
+          log(debugId, `User registration status updated after refresh, considering registered`);
+          
+          // Pass user info in headers for server components
+          if (user) {
+            response.headers.set('x-user-id', user.id);
+            if (user.email) {
+              response.headers.set('x-user-email', user.email);
+            }
+          }
+          
+          log(debugId, `✅ Middleware processing complete after session refresh`);
+          return response;
+        }
+      } catch (refreshError) {
+        logError(debugId, 'Error refreshing session:', refreshError);
+      }
+      
+      // Check if we've already redirected this user recently to prevent redirect loops
+      if (user && redirectedUsers.has(user.id)) {
+        log(debugId, `Already redirected user ${user.id} recently, allowing access to avoid loop`);
+        
+        // Pass user info in headers for server components
+        response.headers.set('x-user-id', user.id);
+        if (user.email) {
+          response.headers.set('x-user-email', user.email);
+        }
+        
+        log(debugId, `✅ Middleware processing complete to prevent redirect loop`);
+        return response;
+      }
+      
+      // Add user to redirected set to prevent future redirects for this user
+      if (user) {
+        redirectedUsers.add(user.id);
+        log(debugId, `Added user ${user.id} to redirect prevention set`);
+      }
+      
+      // Redirect to a route that will force sync the user
+      const redirectUrl = new URL('/auth/verify-registration', request.url);
+      redirectUrl.searchParams.set('callbackUrl', request.nextUrl.pathname);
+      redirectUrl.searchParams.set('t', Date.now().toString()); // Add timestamp to prevent caching
+      
+      return NextResponse.redirect(redirectUrl, {
+        headers: Object.fromEntries(Array.from(response.headers.entries()))
       });
     }
     
@@ -363,13 +460,6 @@ export async function middleware(request: NextRequest) {
         response.headers.set('x-user-email', user.email);
       }
     }
-    
-    // Apply all headers to the response
-    // Convert headers to an object for better compatibility
-    const headerEntries = Array.from(headers.entries());
-    headerEntries.forEach(([key, value]) => {
-      response.headers.set(key, value);
-    });
     
     log(debugId, `✅ Middleware processing complete`);
     return response;

@@ -7,57 +7,6 @@ function generateDebugId() {
   return Math.random().toString(36).substring(2, 8);
 }
 
-// Format CSP string by removing extra whitespace
-function formatCSP(csp: string) {
-  return csp.replace(/\s{2,}/g, ' ').trim();
-}
-
-// Generate an appropriate Content Security Policy based on environment
-function generateCSP(isDev: boolean) {
-  // Base domains needed for the app to function
-  const baseConnectSrc = [
-    "'self'",
-    "https://*.supabase.co",
-    "https://*.supabase.in",
-    "https://api.openai.com"
-  ];
-  
-  // Apple authentication domains
-  const appleAuthDomains = [
-    "https://appleid.cdn-apple.com",
-    "https://appleid.apple.com",
-    "https://apple.com",
-    "https://signin.apple.com",
-    "https://gsa.apple.com" // Additional Apple domain that might be needed in the future
-  ];
-  
-  // Add development-specific sources if in dev mode
-  if (isDev) {
-    baseConnectSrc.push(
-      "http://localhost:*",
-      "ws://localhost:*"
-    );
-  }
-  
-  // Combine all connect sources
-  const connectSrc = [...baseConnectSrc, ...appleAuthDomains].join(' ');
-  
-  // Build the complete CSP
-  return `
-    default-src 'self';
-    script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' ${appleAuthDomains.join(' ')};
-    style-src 'self' 'unsafe-inline';
-    connect-src ${connectSrc};
-    img-src 'self' data: blob: https:;
-    font-src 'self' data:;
-    frame-src ${appleAuthDomains.join(' ')};
-    object-src 'none';
-    base-uri 'self';
-    form-action 'self' ${appleAuthDomains.join(' ')};
-    upgrade-insecure-requests;
-  `;
-}
-
 // Helper to check if a path matches any of the patterns
 function isPathMatch(path: string, patterns: string[]) {
   return patterns.some(pattern => 
@@ -91,11 +40,11 @@ function externalResourceMiddleware(req: NextRequest) {
       }
     }
     
-    return NextResponse.next();
+    return null; // Continue to next middleware
   } catch (error) {
     console.error(`[${debugId}] ❌ Error in externalResourceMiddleware:`, error);
     // Don't block the request if middleware fails
-    return NextResponse.next();
+    return null;
   }
 }
 
@@ -105,6 +54,10 @@ export async function middleware(request: NextRequest) {
   
   try {
     console.log(`[${debugId}] 🔍 Processing ${request.method} ${request.nextUrl.pathname}`);
+    
+    // Check for HTTP to HTTPS upgrade
+    const resourceRedirect = externalResourceMiddleware(request);
+    if (resourceRedirect) return resourceRedirect;
     
     // Define static asset paths to skip processing
     const staticAssetPaths = [
@@ -174,27 +127,11 @@ export async function middleware(request: NextRequest) {
       '/forgot-password',
       '/explore',
       '/streams',
+      '/api/reporting', // CSP reporting endpoint
     ];
     
     // Check if the path matches any public path
     const isPublicPath = isPathMatch(request.nextUrl.pathname, publicPaths);
-    
-    // Set security headers
-    const headers = response.headers;
-    
-    // Generate and set Content Security Policy - exclude for static assets
-    if (!isStaticAsset) {
-      const isDev = process.env.NODE_ENV !== 'production';
-      headers.set('Content-Security-Policy', formatCSP(generateCSP(isDev)));
-    }
-    
-    // Set other security headers
-    headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
-    headers.set('X-Content-Type-Options', 'nosniff');
-    headers.set('X-Frame-Options', 'DENY');
-    headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-    headers.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=(), usb=()');
-    headers.set('X-XSS-Protection', '1; mode=block');
     
     // Skip auth checks for public paths and just return the response with headers
     if (isPublicPath) {
@@ -202,7 +139,7 @@ export async function middleware(request: NextRequest) {
       
       // Add cache control for static assets 
       if (request.nextUrl.pathname.startsWith('/_next/') || request.nextUrl.pathname.includes('/images/')) {
-        headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+        response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
       }
       return response;
     }
@@ -291,10 +228,10 @@ export async function middleware(request: NextRequest) {
       }
       
       // Add security headers for authenticated routes
-      headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-      headers.set('Pragma', 'no-cache');
-      headers.set('Expires', '0');
-      headers.set('Surrogate-Control', 'no-store');
+      response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      response.headers.set('Pragma', 'no-cache');
+      response.headers.set('Expires', '0');
+      response.headers.set('Surrogate-Control', 'no-store');
       
       // Check if the user is authenticated via Supabase
       if (!supabaseUser) {
@@ -311,7 +248,7 @@ export async function middleware(request: NextRequest) {
               status: 401,
               headers: {
                 'Content-Type': 'application/json',
-                ...Object.fromEntries(headers)
+                ...Object.fromEntries(response.headers)
               }
             }
           );
@@ -325,6 +262,58 @@ export async function middleware(request: NextRequest) {
       
       console.log(`[${debugId}] ✅ User authenticated for protected route`);
     }
+    
+    // security headers
+    const responseHeaders = new Headers(response.headers);
+    responseHeaders.set('X-DNS-Prefetch-Control', 'on');
+    responseHeaders.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+    responseHeaders.set('X-XSS-Protection', '1; mode=block');
+    responseHeaders.set('X-Content-Type-Options', 'nosniff');
+    responseHeaders.set('X-Frame-Options', 'SAMEORIGIN');
+    responseHeaders.set('Referrer-Policy', 'origin-when-cross-origin');
+    
+    // Add Permissions-Policy header (replacing deprecated Feature-Policy)
+    responseHeaders.set('Permissions-Policy', 'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()');
+    
+    // Content Security Policy based on environment
+    if (process.env.NODE_ENV === 'production') {
+      // Strict CSP for production
+      responseHeaders.set(
+        'Content-Security-Policy',
+        "default-src 'self'; " +
+        "script-src 'self' 'unsafe-inline' https://js.stripe.com https://cdn.jsdelivr.net https://cdn.paddle.com https://apis.google.com https://plausible.io; " +
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+        "img-src 'self' data: blob: https://*.supabase.co https://res.cloudinary.com https://source.unsplash.com https://images.unsplash.com; " +
+        "font-src 'self' https://fonts.gstatic.com; " +
+        "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://checkout.paddle.com; " +
+        "frame-src 'self' https://js.stripe.com https://checkout.paddle.com; " +
+        "object-src 'none'; " +
+        "base-uri 'self'; " +
+        "form-action 'self'; " +
+        "frame-ancestors 'self'; " +
+        "block-all-mixed-content; " +
+        "upgrade-insecure-requests"
+      );
+    } else {
+      // More permissive CSP for development
+      responseHeaders.set(
+        'Content-Security-Policy',
+        "default-src 'self'; " +
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://cdn.jsdelivr.net; " +
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+        "img-src 'self' data: blob: https://*.supabase.co https://res.cloudinary.com https://source.unsplash.com https://images.unsplash.com; " +
+        "font-src 'self' https://fonts.gstatic.com; " +
+        "connect-src 'self' localhost:* 127.0.0.1:* ws://localhost:* wss://localhost:* https://*.supabase.co wss://*.supabase.co; " +
+        "frame-src 'self' https://js.stripe.com; " +
+        "object-src 'none'; " +
+        "base-uri 'self'"
+      );
+    }
+    
+    // Apply the updated headers to the response
+    Object.entries(responseHeaders).forEach(([key, value]) => {
+      response.headers.set(key, value);
+    });
     
     console.log(`[${debugId}] ✅ Middleware processing complete`);
     return response;
