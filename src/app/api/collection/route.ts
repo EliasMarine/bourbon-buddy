@@ -1,242 +1,230 @@
-import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma'; // Use shared prisma client
+import { type NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { prisma, reconnectPrisma } from '@/lib/prisma';
+import { createServerClient } from '@supabase/ssr';
 import { SpiritSchema } from '@/lib/validations/spirit';
 import spiritCategories from '@/lib/spiritCategories';
 import { ZodError } from 'zod';
 import { collectionGetLimiter, collectionPostLimiter } from '@/lib/rate-limiters';
-import { createServerComponentClient } from '@/lib/auth';
 import { validateCsrfToken } from '@/lib/csrf';
-import { cookies } from 'next/headers';
 
-// Improved session verification helper
-async function verifySession() {
-  try {
-    // Check Supabase session
-    const supabase = createServerComponentClient();
-    const { data: { user: supabaseUser }, error: supabaseError } = await supabase.auth.getUser();
-    
-    if (supabaseError) {
-      console.error('Supabase session error:', supabaseError);
-    }
-    
-    if (!supabaseUser) {
-      console.warn('Session verification failed: No Supabase user');
-      return { 
-        authenticated: false, 
-        error: 'Unauthorized - Authentication required', 
-        statusCode: 401 
-      };
-    }
-    
-    // Find user in database
-    const user = await prisma.user.findUnique({
-      where: { email: supabaseUser.email },
-    });
-    
-    // Handle missing user
-    if (!user) {
-      console.warn(`User not found in database: ${supabaseUser.email}`);
-      return { 
-        authenticated: false, 
-        error: 'User not found in database', 
-        statusCode: 401
-      };
-    }
-    
-    // Return successful authentication
-    return {
-      authenticated: true,
-      user,
-      supabaseUser
-    };
-  } catch (error) {
-    console.error('Error verifying session:', error);
-    return {
-      authenticated: false,
-      error: 'Internal server error during authentication',
-      statusCode: 500
-    };
-  }
-}
+export const dynamic = 'force-dynamic';
 
 // GET /api/collection - Get user's collection
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const cookieStore = await cookies();
+  
+  // Use createServerClient with cookies to ensure proper auth
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch (err) {
+            console.error('Error setting cookies in collection route:', err);
+            // Continue anyway as this might be called from a route handler
+            // where cookie setting isn't supported
+          }
+        }
+      }
+    }
+  );
+  
   try {
-    // Verify user session
-    const { authenticated, user, error, statusCode, supabaseUser } = await verifySession();
+    // Get user directly to avoid session validation issues
+    const { data: userData, error: userError } = await supabase.auth.getUser();
     
-    if (!authenticated || !user) {
-      console.error('API authentication failed:', error);
-      return NextResponse.json(
-        { error },
-        { status: statusCode }
-      );
+    if (userError || !userData.user) {
+      console.error('Auth error in collection API:', userError || 'No user found');
+      return NextResponse.json({ 
+        error: 'Unauthorized', 
+        message: 'You must be signed in to access your collection.'
+      }, { status: 401 });
     }
     
-    // Ensure the Supabase user is authenticated
-    if (!supabaseUser) {
-      console.error('Supabase user not authenticated');
+    const userId = userData.user.id;
+    
+    // Get user's spirits from database
+    try {
+      const spirits = await prisma.spirit.findMany({
+        where: {
+          ownerId: userId,
+        },
+      });
+      
+      return NextResponse.json({ spirits });
+    } catch (dbError: any) {
+      console.error('Database error fetching collection:', dbError);
+      
+      // Check for specific database errors and provide more detailed handling
+      const isPrismaConnectionError = 
+        dbError.message?.includes('prepared statement') ||
+        dbError.code === '26000' || 
+        dbError.code === 'P2023' ||
+        dbError.message?.includes('connection');
+        
+      if (isPrismaConnectionError) {
+        // Use the dedicated reconnection utility
+        console.log('Attempting to recover database connection...');
+        const reconnected = await reconnectPrisma();
+        
+        if (reconnected) {
+          // Try the query again with the fresh connection
+          try {
+            console.log('Retrying query with fresh connection...');
+            const spirits = await prisma.spirit.findMany({
+              where: {
+                ownerId: userId,
+              },
+            });
+            
+            console.log('Retry successful!');
+            return NextResponse.json({ spirits });
+          } catch (retryError) {
+            console.error('Retry failed after reconnection:', retryError);
+          }
+        }
+        
+        // If reconnection or retry failed, send error response
+        return NextResponse.json(
+          { 
+            error: 'Database connection issue', 
+            message: 'The server is experiencing temporary database connection issues. Please try again in a moment.',
+            retryable: true 
+          },
+          { 
+            status: 503,
+            headers: {
+              'Retry-After': '5', // Suggest client retry after 5 seconds
+              'Cache-Control': 'no-store, no-cache'
+            }
+          }
+        );
+      }
+      
       return NextResponse.json(
-        { error: 'Supabase authentication required' },
-        { status: 401 }
+        { error: 'Failed to fetch collection', details: dbError.message },
+        { status: 500 }
       );
     }
-    
-    // Reconnect to database if needed
-    const spirits = await prisma.spirit.findMany({
-      where: { ownerId: user.id },
-      orderBy: { updatedAt: 'desc' }
-    });
-
-    return NextResponse.json({ spirits });
   } catch (error) {
-    console.error('Collection GET error:', error);
+    console.error('Error fetching collection:', error);
+    
     return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : String(error) },
+      { error: 'Failed to fetch collection', message: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
 }
 
 // POST /api/collection - Add new spirit to collection
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const cookieStore = await cookies();
+  
+  // Use createServerClient with cookies to ensure proper auth
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch (err) {
+            console.error('Error setting cookies in collection route:', err);
+            // Continue anyway as this might be called from a route handler
+            // where cookie setting isn't supported
+          }
+        }
+      }
+    }
+  );
+  
   try {
-    // Validate CSRF token first
-    const csrfToken = request.headers.get('x-csrf-token');
+    // Get user directly to avoid session validation issues
+    const { data: userData, error: userError } = await supabase.auth.getUser();
     
-    if (!csrfToken || !validateCsrfToken(request, csrfToken)) {
-      console.error('Invalid or missing CSRF token');
-      return NextResponse.json(
-        { error: 'Invalid or missing CSRF token' },
-        { status: 403 }
-      );
+    if (userError || !userData.user) {
+      console.error('Auth error in collection API:', userError || 'No user found');
+      return NextResponse.json({ 
+        error: 'Unauthorized', 
+        message: 'You must be signed in to add to your collection.'
+      }, { status: 401 });
     }
     
-    // Verify user session
-    const { authenticated, user, error, statusCode, supabaseUser } = await verifySession();
+    const userId = userData.user.id;
     
-    if (!authenticated || !user) {
-      console.error(`Session verification failed: ${error}`);
-      return NextResponse.json(
-        { error },
-        { status: statusCode }
-      );
-    }
-    
-    // Ensure the Supabase user is authenticated
-    if (!supabaseUser) {
-      console.error('Supabase user not authenticated');
-      return NextResponse.json(
-        { error: 'Supabase authentication required' },
-        { status: 401 }
-      );
-    }
-
-    const formData = await request.formData();
-    
-    // Convert FormData to an object and handle types properly
-    const data: Record<string, any> = {};
-    formData.forEach((value, key) => {
-      data[key] = value;
+    // Parse the request body
+    const body = await request.json().catch(err => {
+      console.error('Error parsing request body:', err);
+      return null;
     });
     
-    // Parse nose, palate, and finish notes (they're stored as JSON strings)
-    if (typeof data.nose === 'string') {
-      try {
-        data.nose = JSON.parse(data.nose as string);
-      } catch (e) {
-        // Fallback: store as a single item array if parsing fails
-        data.nose = data.nose ? [data.nose] : [];
-      }
+    if (!body) {
+      return NextResponse.json(
+        { error: 'Invalid request body' },
+        { status: 400 }
+      );
     }
     
-    if (typeof data.palate === 'string') {
-      try {
-        data.palate = JSON.parse(data.palate as string);
-      } catch (e) {
-        // Fallback: store as a single item array if parsing fails
-        data.palate = data.palate ? [data.palate] : [];
-      }
+    const { name, brand, type, description } = body;
+    
+    // Validate input
+    if (!name) {
+      return NextResponse.json(
+        { error: 'Spirit name is required' },
+        { status: 400 }
+      );
     }
     
-    if (typeof data.finish === 'string') {
-      try {
-        data.finish = JSON.parse(data.finish as string);
-      } catch (e) {
-        // Fallback: store as a single item array if parsing fails
-        data.finish = data.finish ? [data.finish] : [];
-      }
-    }
-    
-    // Set types correctly
-    const parsedData = {
-      name: String(data.name || ''),
-      brand: String(data.brand || ''),
-      type: String(data.type || ''),
-      category: String(data.category || 'whiskey'),
-      description: data.description ? String(data.description) : undefined,
-      nose: Array.isArray(data.nose) ? data.nose.join(',') : data.nose ? String(data.nose) : undefined,
-      palate: Array.isArray(data.palate) ? data.palate.join(',') : data.palate ? String(data.palate) : undefined,
-      finish: Array.isArray(data.finish) ? data.finish.join(',') : data.finish ? String(data.finish) : undefined,
-      notes: data.notes ? String(data.notes) : undefined,
-      imageUrl: data.imageUrl ? String(data.imageUrl) : undefined,
-      proof: data.proof ? (typeof data.proof === 'string' ? parseFloat(data.proof) : Number(data.proof)) : undefined,
-      price: data.price ? (typeof data.price === 'string' ? parseFloat(data.price) : Number(data.price)) : undefined,
-      rating: data.rating ? (typeof data.rating === 'string' ? parseFloat(data.rating) : Number(data.rating)) : undefined,
-      isFavorite: data.isFavorite === 'true' || data.isFavorite === true,
-      age: data.age ? (typeof data.age === 'string' ? parseFloat(data.age) : Number(data.age)) : undefined,
-      bottleLevel: data.bottleLevel ? (typeof data.bottleLevel === 'string' ? parseFloat(data.bottleLevel) : Number(data.bottleLevel)) : undefined
-    };
-    
-    // Validate input data using the schema
+    // Create the spirit
     try {
-      const validatedData = SpiritSchema.parse(parsedData);
-      
-      // Create the spirit
-      const createSpirit = {
-        name: validatedData.name,
-        brand: validatedData.brand,
-        type: validatedData.type,
-        category: validatedData.category,
-        description: validatedData.description,
-        proof: validatedData.proof,
-        imageUrl: validatedData.imageUrl,
-        notes: validatedData.notes,
-        nose: validatedData.nose,
-        palate: validatedData.palate,
-        finish: validatedData.finish,
-        price: validatedData.price,
-        rating: validatedData.rating,
-        isFavorite: validatedData.isFavorite || false,
-        bottleLevel: validatedData.bottleLevel !== undefined ? validatedData.bottleLevel : 100, // Default to full bottle (100)
-        ownerId: user.id
-      };
-
       const spirit = await prisma.spirit.create({
-        data: createSpirit,
+        data: {
+          name,
+          brand: brand || '',
+          type: type || 'whiskey',
+          description: description || '',
+          ownerId: userId,
+          category: 'whiskey',
+        },
       });
-
-      return NextResponse.json(spirit);
-    } catch (validationError) {
-      if (validationError instanceof ZodError) {
+      
+      return NextResponse.json({ spirit }, { status: 201 });
+    } catch (dbError: any) {
+      console.error('Database error creating spirit:', dbError);
+      
+      // Handle specific database errors
+      if (dbError.code === 'P2023' || dbError.message?.includes('prepared statement')) {
         return NextResponse.json(
-          { 
-            error: 'Validation error',
-            details: validationError.errors 
-          },
-          { status: 400 }
+          { error: 'Database connection error. Please try again.' },
+          { status: 503 }
         );
       }
       
       return NextResponse.json(
-        { error: 'Validation failed', details: validationError instanceof Error ? validationError.message : 'Unknown error' },
-        { status: 400 }
+        { error: 'Failed to create spirit', details: dbError.message },
+        { status: 500 }
       );
     }
   } catch (error) {
-    console.error('Collection POST error:', error);
+    console.error('Error creating spirit:', error);
+    
     return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : String(error) },
+      { error: 'Failed to create spirit', message: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }

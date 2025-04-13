@@ -127,7 +127,7 @@ async function fetchBingImages(query: string): Promise<ImageResult[]> {
           // Extract all image URLs with a more flexible regex
           const urlMatches = content.match(/"murl":"([^"]+)"/g) || [];
           
-          urlMatches.forEach(match => {
+          urlMatches.forEach((match: string) => {
             const url = match.replace(/"murl":"/, '').replace(/"$/, '');
             
             // Decode escaped URLs
@@ -155,6 +155,14 @@ async function fetchBingImages(query: string): Promise<ImageResult[]> {
         try {
           new URL(img.url);
           const lowerUrl = img.url.toLowerCase();
+          
+          // Skip Reddit and BusinessWire URLs as they don't work with our proxy
+          if (lowerUrl.includes('reddit.com') || 
+              lowerUrl.includes('redd.it') || 
+              lowerUrl.includes('businesswire.com')) {
+            return false;
+          }
+          
           // Prioritize URLs that look like they contain spirit bottle images
           return lowerUrl.endsWith('.jpg') || 
                  lowerUrl.endsWith('.jpeg') || 
@@ -243,6 +251,9 @@ function extractImageUrlsFromGoogleHtml(html: string): string[] {
         if (cleanUrl && 
             !cleanUrl.includes('gstatic.com') && 
             !cleanUrl.includes('google.com') && 
+            !cleanUrl.includes('reddit.com') &&
+            !cleanUrl.includes('redd.it') &&
+            !cleanUrl.includes('businesswire.com') &&
             !urlSet.has(cleanUrl)) {
           imageUrls.push(cleanUrl);
           urlSet.add(cleanUrl);
@@ -264,6 +275,9 @@ function extractImageUrlsFromGoogleHtml(html: string): string[] {
       if (cleanUrl && 
           !cleanUrl.includes('gstatic.com') && 
           !cleanUrl.includes('google.com') &&
+          !cleanUrl.includes('reddit.com') &&
+          !cleanUrl.includes('redd.it') &&
+          !cleanUrl.includes('businesswire.com') &&
           !urlSet.has(cleanUrl)) {
         imageUrls.push(cleanUrl);
         urlSet.add(cleanUrl);

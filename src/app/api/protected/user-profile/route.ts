@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerComponentClient } from '@/lib/auth';
 
 export async function GET(request: Request) {
-  const supabase = createServerComponentClient();
+  const supabase = await createServerComponentClient();
   const { data: { user }, error } = await supabase.auth.getUser();
 
   if (error || !user) {

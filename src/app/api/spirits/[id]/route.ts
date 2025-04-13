@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if the current user is the owner
-    const isOwner = spirit.owner.email === session.user.email;
+    const isOwner = spirit.owner.email === user.email;
 
     return NextResponse.json({ 
       spirit,

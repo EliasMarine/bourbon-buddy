@@ -1,28 +1,62 @@
-import { NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/supabase-auth';
-import { createSupabaseServerClient } from '@/lib/supabase';
-import { generateDebugId } from '@/lib/supabase';
+import { getSupabaseClient } from '@/lib/supabase-singleton';
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { generateDebugId } from '@/lib/debug-utils';
+import { cookies } from 'next/headers';
 
 export async function GET(req: Request) {
   const debugId = generateDebugId();
   console.log(`[${debugId}] 📊 API: /api/collection/stats called`);
   
   try {
-    // Get the session
+    // Get cookies for auth
+    const cookieStore = await cookies();
+    
+    // Create a Supabase client
+    console.log(`[${debugId}] 🔨 Creating Supabase API client`);
+    const startSupabaseClientTime = Date.now();
+    
+    // Use createServerClient with cookies to ensure proper auth
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) => {
+                cookieStore.set(name, value, options);
+              });
+            } catch (err) {
+              console.error(`[${debugId}] Error setting cookies:`, err);
+              // Continue anyway as this might be called from a route handler
+              // where cookie setting isn't supported
+            }
+          }
+        }
+      }
+    );
+    
+    console.log(`[${debugId}] ⏱️ Creating Supabase client took ${Date.now() - startSupabaseClientTime}ms`);
+    
+    // Get the authenticated user
     console.log(`[${debugId}] 🔐 Getting user from Supabase Auth`);
     const startAuthTime = Date.now();
-    const user = await getCurrentUser();
-    console.log(`[${debugId}] ⏱️ Supabase getCurrentUser took ${Date.now() - startAuthTime}ms`);
-    console.log(`[${debugId}] 🔑 Supabase user: ${user ? "Found" : "Not found"}`);
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    console.log(`[${debugId}] ⏱️ Supabase getUser took ${Date.now() - startAuthTime}ms`);
     
-    if (user) {
-      console.log(`[${debugId}] 👤 User from Supabase Auth: ${user.id.substring(0, 8)}...`);
+    if (authError) {
+      console.error(`[${debugId}] ❌ Auth error:`, authError);
+      return NextResponse.json({
+        totalSpirits: 0,
+        favorites: 0,
+        tastings: 0,
+        error: 'Authentication failed'
+      }, { status: 401 });
     }
-    
-    console.log(`[${debugId}] 🔨 Creating Supabase server client`);
-    const startSupabaseClientTime = Date.now();
-    const supabase = await createSupabaseServerClient();
-    console.log(`[${debugId}] ⏱️ Creating Supabase client took ${Date.now() - startSupabaseClientTime}ms`);
     
     // Check for user ID
     let userId = user?.id;
