@@ -1,9 +1,8 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSupabase } from './SupabaseProvider';
-import { useSupabaseSession } from '@/hooks/use-supabase-session';
 
 interface AuthProviderProps {
   children: React.ReactNode;
@@ -11,23 +10,32 @@ interface AuthProviderProps {
 
 export default function AuthProvider({ children }: AuthProviderProps) {
   const router = useRouter();
-  const { status } = useSupabaseSession();
-  const supabase = useSupabase();
+  const { supabase } = useSupabase();
+  
+  // Memoize router refresh to avoid unnecessary re-renders
+  const refreshWithDelay = useCallback(() => {
+    // Use a small delay to let renders batch and avoid flickering
+    setTimeout(() => router.refresh(), 100);
+  }, [router]);
   
   // Listen for auth state changes
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-        router.refresh();
+    if (typeof window === 'undefined') return;
+    
+    // Only set up the listener once, not on every render
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      // Only refresh for significant auth state changes
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+        console.log(`Auth state changed: ${event}`);
+        refreshWithDelay();
       }
     });
 
     return () => {
-      subscription.unsubscribe();
+      data.subscription.unsubscribe();
     };
-  }, [router, supabase]);
+  }, [supabase, refreshWithDelay]);
 
+  // Avoid unnecessary renders - pure passthrough component
   return <>{children}</>;
 } 

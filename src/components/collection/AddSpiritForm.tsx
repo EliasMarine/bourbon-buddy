@@ -247,7 +247,11 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
       if (data.images && data.images.length > 0) {
         // Filter out any broken or invalid image URLs
         const validImages = data.images.filter((img: {url: string; alt: string; source: string}) => 
-          img.url && img.url.startsWith('http')
+          img.url && 
+          img.url.startsWith('http') && 
+          !img.url.includes('reddit.com') && 
+          !img.url.includes('redd.it') && 
+          !img.url.includes('businesswire.com')
         );
         setAutoFetchedImages(validImages);
         
@@ -290,8 +294,9 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
   const selectImage = (index: number) => {
     if (index >= 0 && index < autoFetchedImages.length) {
       setSelectedImageIndex(index);
-      setImageUrl(autoFetchedImages[index].url);
-      setPreviewUrl(autoFetchedImages[index].url);
+      const originalUrl = autoFetchedImages[index].url;
+      setImageUrl(originalUrl); // Store the original URL to save in the database
+      setPreviewUrl(originalUrl); // The component will handle proxying for display
     }
   };
 
@@ -325,6 +330,7 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
       
       // Add the image URL if we have one
       if (imageUrl) {
+        // Always store the original URL, not the proxied one
         formData.set('imageUrl', imageUrl);
         console.log('Using image URL:', imageUrl);
       }
@@ -332,17 +338,23 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
       // Add bottle level
       formData.set('bottleLevel', bottleLevel.toString());
       
-      console.log("Form data being submitted:", {
-        name: formData.get('name'),
-        brand: formData.get('brand'),
-        type: formData.get('type'),
-        nose: formData.get('nose'),
-        palate: formData.get('palate'),
-        finish: formData.get('finish'),
-        imageUrl: formData.get('imageUrl'),
-        bottleLevel: formData.get('bottleLevel'),
-        releaseYear: formData.get('releaseYear')
+      // Convert FormData to a JavaScript object
+      const jsonData: Record<string, any> = {};
+      formData.forEach((value, key) => {
+        // Try to parse JSON values from the FormData
+        if (key === 'nose' || key === 'palate' || key === 'finish') {
+          jsonData[key] = JSON.parse(value as string);
+        } else if (key === 'isFavorite') {
+          jsonData[key] = value === 'true';
+        } else if (key === 'proof' || key === 'price' || key === 'rating' || key === 'bottleLevel' || key === 'releaseYear') {
+          const numValue = parseFloat(value as string);
+          jsonData[key] = isNaN(numValue) ? null : numValue;
+        } else {
+          jsonData[key] = value;
+        }
       });
+      
+      console.log("JSON data being submitted:", jsonData);
 
       // Submit the form
       await onAdd(formData);
@@ -607,7 +619,7 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
                 >
                   <div className="h-full flex items-center justify-center p-2">
                     <img 
-                      src={image.url} 
+                      src={`/api/proxy/image?url=${encodeURIComponent(image.url.replace(/\\u/g, '%u'))}`} 
                       alt={image.alt}
                       className="max-h-[85%] max-w-[85%] object-contain transform hover:scale-105 transition-transform duration-200" 
                     />
@@ -625,7 +637,7 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
                 <div className="flex flex-col md:flex-row gap-4 items-center">
                   <div className="flex items-center justify-center bg-gray-900/50 rounded-lg p-4 w-full md:w-1/3 h-[250px]">
                     <img
-                      src={previewUrl}
+                      src={previewUrl.startsWith('http') && !previewUrl.startsWith('http://localhost') && !previewUrl.startsWith('https://hjodvataujilredguzig.supabase.co') ? `/api/proxy/image?url=${encodeURIComponent(previewUrl.replace(/\\u/g, '%u'))}` : previewUrl}
                       alt="Selected spirit"
                       className="max-h-[220px] max-w-[80%] object-contain rounded-lg shadow-lg"
                     />
@@ -677,7 +689,7 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
           <div className="mt-4 p-4 bg-black/30 rounded-lg border border-white/10">
             <div className="flex items-center justify-center bg-gray-900/50 rounded-lg p-4 h-[250px]">
               <img
-                src={previewUrl}
+                src={previewUrl.startsWith('http') && !previewUrl.startsWith('http://localhost') && !previewUrl.startsWith('https://hjodvataujilredguzig.supabase.co') ? `/api/proxy/image?url=${encodeURIComponent(previewUrl.replace(/\\u/g, '%u'))}` : previewUrl}
                 alt="Preview"
                 className="max-h-[220px] max-w-[80%] object-contain rounded-lg shadow-lg"
               />

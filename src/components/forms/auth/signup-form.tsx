@@ -41,6 +41,8 @@ export function SignupForm({ callbackUrl = '/dashboard', className = '' }: Signu
         return
       }
       
+      console.log('✅ Form validation passed, attempting Supabase signup...')
+      
       // Sign up with Supabase
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
@@ -55,8 +57,35 @@ export function SignupForm({ callbackUrl = '/dashboard', className = '' }: Signu
       })
       
       if (signUpError) {
+        console.error('❌ Signup error:', signUpError)
         setError(signUpError.message || 'Failed to create account')
         return
+      }
+      
+      console.log('✅ Supabase signup successful, syncing user with database...')
+      
+      // Sync user with database after successful signup
+      try {
+        const syncResponse = await fetch('/api/auth/sync-user', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...csrfHeaders
+          }
+        })
+        
+        if (!syncResponse.ok) {
+          console.warn('⚠️ User sync failed:', {
+            status: syncResponse.status,
+            statusText: syncResponse.statusText
+          })
+          // Continue even if sync fails - user will be synced on next auth
+        } else {
+          console.log('✅ User sync successful')
+        }
+      } catch (syncError) {
+        console.error('❌ User sync error:', syncError)
+        // Continue even if sync fails
       }
       
       // Successful signup
@@ -65,9 +94,9 @@ export function SignupForm({ callbackUrl = '/dashboard', className = '' }: Signu
       // Redirect to login page after successful signup
       setTimeout(() => {
         router.push('/login?newAccount=true')
-      }, 2000)
+      }, 3000) // Slightly longer delay to give user time to read success message
     } catch (err) {
-      console.error('Signup error:', err)
+      console.error('🔥 Unexpected signup error:', err)
       setError('An unexpected error occurred. Please try again.')
     } finally {
       setLoading(false)
@@ -86,7 +115,10 @@ export function SignupForm({ callbackUrl = '/dashboard', className = '' }: Signu
       <div className="bg-green-50 p-6 rounded-md text-center">
         <h3 className="text-lg font-medium text-green-800">Account created successfully!</h3>
         <p className="mt-2 text-sm text-green-700">
-          Your account has been created. Redirecting you to login...
+          Please check your email for a verification link. You must verify your email before logging in.
+        </p>
+        <p className="mt-4 text-xs text-green-600">
+          Redirecting you to login page in a moment...
         </p>
       </div>
     )

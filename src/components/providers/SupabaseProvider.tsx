@@ -1,242 +1,355 @@
 'use client'
 
-import { createBrowserClient } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
-import { useState, useEffect, createContext, useContext, useCallback } from 'react'
-import { Session, User, AuthChangeEvent } from '@supabase/supabase-js'
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
+import { Session, User, AuthError } from '@supabase/supabase-js';
+import { getSupabaseClient } from '@/lib/supabase-singleton';
 
-// Generate a debug ID to trace this component instance
-const providerDebugId = Math.random().toString(36).substring(2, 8);
+// Create a context for Supabase
+interface SupabaseContextType {
+  supabase: ReturnType<typeof getSupabaseClient>;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  session: Session | null;
+  user: User | null;
+  error: AuthError | null;
+  refreshSession: () => Promise<void>;
+  isSyncing: boolean;
+  userSynced: boolean;
+}
 
-// Create context for Supabase client
-const SupabaseContext = createContext<ReturnType<typeof createBrowserClient> | undefined>(undefined)
-
-// Create context for session state
-const SessionContext = createContext<{
-  session: Session | null
-  user: User | null
-  isLoading: boolean
-  status: 'loading' | 'authenticated' | 'unauthenticated'
-  error: string | null
-}>({
+// Provide a default context value
+const defaultContextValue: SupabaseContextType = {
+  supabase: null as any, // Will be set properly in the provider
+  isLoading: true,
+  isAuthenticated: false,
   session: null,
   user: null,
-  isLoading: true,
-  status: 'loading',
-  error: null
-})
+  error: null,
+  refreshSession: async () => {},
+  isSyncing: false,
+  userSynced: false,
+};
+
+// Create the context
+const SupabaseContext = createContext<SupabaseContextType | undefined>(undefined);
+
+// Global tracking to prevent redundant syncs across hot reloads
+let globalUserSynced = false;
+
+/**
+ * Provider component that wraps your app and makes Supabase client available
+ * to any child component that calls useSupabase().
+ */
+export function SupabaseProvider({ children }: { children: React.ReactNode }) {
+  // Get the singleton Supabase client
+  const supabase = useMemo(() => getSupabaseClient(), []);
+  
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<AuthError | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [userSynced, setUserSynced] = useState(globalUserSynced);
+  
+  // Track last sync time to prevent redundant syncs
+  const lastSyncRef = useRef<Record<string, number>>({});
+  // Track the last auth event timestamp to prevent rapid successive updates
+  const lastAuthEventRef = useRef<Record<string, number>>({});
+  // Minimum time between syncs for the same user (5 seconds)
+  const MIN_SYNC_INTERVAL = 5000;
+  // Minimum time between processing similar auth events (1 second)
+  const MIN_AUTH_EVENT_INTERVAL = 1000;
+  
+  // Refresh session data
+  async function refreshSession() {
+    try {
+      setIsLoading(true);
+      
+      // Defensive check to ensure auth is initialized
+      if (!supabase?.auth) {
+        console.error('Supabase auth not initialized during refreshSession');
+        setError({ message: 'Authentication service unavailable', status: 500 } as AuthError);
+        setIsLoading(false);
+        return;
+      }
+      
+      // First try to refresh the session to get the latest metadata
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      
+      // If refresh fails, try getSession
+      if (refreshError) {
+        console.warn('Session refresh failed, falling back to getSession:', refreshError);
+        const { data, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error refreshing session:', error);
+          setError(error);
+          setIsLoading(false);
+          return;
+        }
+        
+        setSession(data.session);
+        setUser(data.session?.user || null);
+      } else {
+        // Use the refreshed session data
+        setSession(refreshData.session);
+        setUser(refreshData.session?.user || null);
+      }
+      
+      // Check for registration status in both app_metadata and user_metadata
+      const currentUser = refreshData?.session?.user || user;
+      if (currentUser) {
+        const isRegistered = currentUser.app_metadata?.is_registered === true || 
+                            currentUser.user_metadata?.is_registered === true;
+                            
+        const hasLastSyncTime = !!currentUser.app_metadata?.last_synced_at || 
+                               !!currentUser.user_metadata?.last_synced_at;
+        
+        // Mark as synced if registered or if we have a last_synced_at timestamp
+        if (isRegistered || hasLastSyncTime) {
+          console.log('User has is_registered flag or last_synced_at timestamp');
+          setUserSynced(true);
+          globalUserSynced = true;
+        }
+      }
+    } catch (err) {
+      console.error('Error in refreshSession:', err);
+      setError(err as AuthError);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+  
+  // Sync user to database with deduplication logic
+  async function syncUserToDatabase(user: User) {
+    try {
+      // Skip if already syncing
+      if (isSyncing) {
+        console.log('Skipping sync - already in progress');
+        return;
+      }
+      
+      // Skip if already synced
+      if (userSynced) {
+        console.log('Skipping sync - user already synced');
+        return;
+      }
+      
+      // Only sync in browser environment
+      if (typeof window === 'undefined') return;
+      
+      // Check if we've synced this user recently
+      const userId = user.id;
+      const now = Date.now();
+      const lastSync = lastSyncRef.current[userId] || 0;
+      
+      if (now - lastSync < MIN_SYNC_INTERVAL) {
+        console.log(`Skipping sync - last sync was ${(now - lastSync) / 1000}s ago`);
+        return;
+      }
+      
+      // Check if user is already registered via metadata in both places
+      const isRegistered = user.app_metadata?.is_registered === true || 
+                          user.user_metadata?.is_registered === true;
+                          
+      if (isRegistered) {
+        const lastSynced = user.app_metadata?.last_synced_at || user.user_metadata?.last_synced_at;
+        if (lastSynced) {
+          console.log(`User already registered with metadata timestamp ${lastSynced}`);
+          setUserSynced(true);
+          globalUserSynced = true;
+          return;
+        }
+      }
+      
+      // Mark as syncing
+      setIsSyncing(true);
+      
+      // First check registration status to avoid unnecessary syncs
+      try {
+        const timestamp = Date.now();
+        const checkResponse = await fetch(`/api/auth/check-status?t=${timestamp}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+        });
+        
+        if (checkResponse.ok) {
+          const data = await checkResponse.json();
+          if (data.isRegistered) {
+            console.log('User already registered according to API check');
+            lastSyncRef.current[userId] = now;
+            setUserSynced(true);
+            globalUserSynced = true;
+            setIsSyncing(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Error checking registration status:', err);
+        // Continue with sync if check fails
+      }
+      
+      // Call API route to sync user
+      console.log('Syncing user to database:', userId);
+      const timestamp = Date.now(); // Add timestamp to prevent caching
+      const response = await fetch(`/api/auth/sync-user?t=${timestamp}`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store',
+          'Pragma': 'no-cache'
+        },
+        cache: 'no-store',
+      });
+      
+      if (response.ok) {
+        console.log('User sync successful');
+        // Update last sync time
+        lastSyncRef.current[userId] = now;
+        setUserSynced(true);
+        globalUserSynced = true;
+        
+        // Refresh session to get updated metadata - wait a second for changes to propagate
+        setTimeout(async () => {
+          await refreshSession();
+        }, 1000);
+      } else {
+        console.warn(`User sync failed: ${response.status} ${response.statusText}`);
+      }
+    } catch (err) {
+      console.error('Error syncing user to database:', err);
+      // Don't throw - this is a background operation
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+  
+  useEffect(() => {
+    // Initialize session
+    refreshSession();
+    
+    // Defensive check to ensure auth is initialized
+    if (!supabase?.auth) {
+      console.error('Supabase auth not initialized during setup');
+      setError({ message: 'Authentication service unavailable', status: 500 } as AuthError);
+      setIsLoading(false);
+      return () => {};
+    }
+    
+    // Set up auth state change listener
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        // Implement debouncing for auth events to prevent rapid state changes
+        const now = Date.now();
+        const lastEventTime = lastAuthEventRef.current[event] || 0;
+        
+        // Don't process the same event if it occurred too recently
+        if (now - lastEventTime < MIN_AUTH_EVENT_INTERVAL) {
+          console.log(`Debouncing auth event ${event} - too soon after previous event`);
+          return;
+        }
+        
+        // Update the last event timestamp
+        lastAuthEventRef.current[event] = now;
+        
+        console.log(`Auth state changed: ${event}`);
+        
+        // For TOKEN_REFRESHED events, only update if we don't already have a session
+        if (event === 'TOKEN_REFRESHED' && !!session) {
+          if (!session) {
+            setSession(session);
+            setUser(session?.user || null);
+          }
+        } else {
+          // For other events, update normally
+          setSession(session);
+          setUser(session?.user || null);
+        }
+        
+        setIsLoading(false);
+        
+        // Only sync on SIGNED_IN event when we don't have a synced user already
+        if (session?.user && event === 'SIGNED_IN' && !userSynced) {
+          // Check if user is registered via metadata first
+          if (session.user.app_metadata?.is_registered === true) {
+            setUserSynced(true);
+            globalUserSynced = true;
+          } else {
+            // For SIGNED_IN, use a slight delay to avoid race conditions
+            setTimeout(() => {
+              syncUserToDatabase(session.user);
+            }, 500);
+          }
+        }
+      }
+    );
+    
+    // Clean up subscription on unmount
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, [supabase, userSynced]);
+  
+  const value = {
+    supabase,
+    isLoading,
+    isAuthenticated: !!session,
+    session,
+    user,
+    error,
+    refreshSession,
+    isSyncing,
+    userSynced,
+  };
+  
+  return (
+    <SupabaseContext.Provider value={value}>
+      {children}
+    </SupabaseContext.Provider>
+  );
+}
 
 /**
  * Hook to access Supabase client
  */
-export const useSupabase = () => {
-  const context = useContext(SupabaseContext)
-  if (context === undefined) {
-    throw new Error('useSupabase must be used within a SupabaseProvider')
+export function useSupabase() {
+  const context = useContext(SupabaseContext);
+  
+  if (!context) {
+    throw new Error('useSupabase must be used within a SupabaseProvider');
   }
-  return context
+  
+  return context;
 }
 
 /**
- * Hook to access current session state
+ * Hook to access Supabase session context with NextAuth-like API
+ * This provides a unified interface for session management
  */
-export const useSessionContext = () => {
-  const context = useContext(SessionContext)
-  if (context === undefined) {
-    throw new Error('useSessionContext must be used within a SupabaseProvider')
+export function useSessionContext() {
+  const context = useContext(SupabaseContext);
+  
+  if (!context) {
+    throw new Error('useSessionContext must be used within a SupabaseProvider');
   }
-  return context
+  
+  // Calculate status based on loading and session state
+  let status: 'loading' | 'authenticated' | 'unauthenticated';
+  
+  if (context.isLoading) {
+    status = 'loading';
+  } else if (context.session) {
+    status = 'authenticated';
+  } else {
+    status = 'unauthenticated';
+  }
+  
+  return {
+    ...context,
+    status
+  };
 }
 
-/**
- * Sync the current user with the database
- */
-async function syncUserWithDatabase() {
-  try {
-    console.log(`[${providerDebugId}] 🔄 Syncing user with database`);
-    const response = await fetch('/api/auth/sync-user', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-    
-    const data = await response.json();
-    
-    if (response.ok) {
-      console.log(`[${providerDebugId}] ✅ User sync successful:`, data.user?.email);
-      return true;
-    } else {
-      console.error(`[${providerDebugId}] ❌ User sync failed:`, data.error);
-      return false;
-    }
-  } catch (error) {
-    console.error(`[${providerDebugId}] ❌ Error during user sync:`, error);
-    return false;
-  }
-}
-
-/**
- * Provider for Supabase client and session state
- */
-export default function SupabaseProvider({ 
-  children 
-}: { 
-  children: React.ReactNode
-}) {
-  console.log(`[${providerDebugId}] 🔄 SupabaseProvider initializing`);
-  
-  const [supabase] = useState(() => {
-    console.log(`[${providerDebugId}] 🔨 Creating Supabase browser client`);
-    try {
-      return createBrowserClient();
-    } catch (err) {
-      console.error(`[${providerDebugId}] ❌ Failed to create Supabase client:`, err);
-      throw err; // Re-throw to prevent rendering with a broken client
-    }
-  });
-  
-  const router = useRouter()
-  const [session, setSession] = useState<Session | null>(null)
-  const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [isSyncing, setIsSyncing] = useState(false)
-  
-  // Sync user with database when authenticated
-  useEffect(() => {
-    if (user && !isLoading && !isSyncing) {
-      setIsSyncing(true);
-      syncUserWithDatabase().finally(() => {
-        setIsSyncing(false);
-      });
-    }
-  }, [user, isLoading, isSyncing]);
-
-  // Function to handle auth state changes
-  const handleAuthChange = useCallback((event: AuthChangeEvent, session: Session | null) => {
-    console.log(`[${providerDebugId}] 🔄 Auth state changed: ${event}`);
-    
-    setSession(session)
-    setUser(session?.user ?? null)
-    
-    if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-      console.log(`[${providerDebugId}] 👤 User signed in:`, session?.user?.email)
-      
-      // Sync user with database when signed in
-      if (session?.user) {
-        syncUserWithDatabase();
-      }
-      
-      router.refresh()
-    }
-    
-    if (event === 'SIGNED_OUT') {
-      console.log(`[${providerDebugId}] 👋 User signed out`)
-      router.refresh()
-    }
-    
-    setIsLoading(false)
-  }, [router])
-  
-  // Fetch session on mount and set up auth listener
-  useEffect(() => {
-    console.log(`[${providerDebugId}] 🔄 Setting up auth state listener`);
-    
-    // Get initial session
-    const initializeAuth = async () => {
-      setIsLoading(true)
-      setError(null)
-      
-      try {
-        console.log(`[${providerDebugId}] 🔍 Fetching initial session`);
-        
-        // Get the initial session
-        const { data, error } = await supabase.auth.getSession()
-        
-        if (error) {
-          console.error(`[${providerDebugId}] ❌ Error fetching session:`, error.message)
-          setError(`Session fetch failed: ${error.message}`)
-          return
-        }
-        
-        const sessionData = data?.session;
-        
-        if (sessionData && sessionData.user) {
-          console.log(`[${providerDebugId}] ✅ Session restored for:`, sessionData.user.email)
-          setSession(sessionData)
-          setUser(sessionData.user)
-          
-          // Sync user with database when session is restored
-          syncUserWithDatabase();
-        } else {
-          console.log(`[${providerDebugId}] ℹ️ No active session found`)
-          setSession(null)
-          setUser(null)
-        }
-      } catch (error) {
-        console.error(`[${providerDebugId}] ❌ Unexpected error getting session:`, error)
-        setError(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-    
-    // Initialize session
-    initializeAuth()
-    
-    // Set up auth state change listener
-    let subscription: { unsubscribe: () => void } | null = null;
-    
-    try {
-      const { data } = supabase.auth.onAuthStateChange(handleAuthChange)
-      subscription = data.subscription
-      console.log(`[${providerDebugId}] ✅ Auth state change listener initialized`)
-    } catch (error) {
-      console.error(`[${providerDebugId}] ❌ Failed to set up auth listener:`, error)
-      setError(`Auth listener error: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-    
-    // Clean up subscription
-    return () => {
-      console.log(`[${providerDebugId}] 🧹 Cleaning up auth listener`)
-      if (subscription) {
-        subscription.unsubscribe()
-      }
-    }
-  }, [supabase, handleAuthChange])
-  
-  // Auth-related helper functions
-  const signOut = useCallback(async () => {
-    try {
-      console.log(`[${providerDebugId}] 🔄 Signing out user`)
-      const { error } = await supabase.auth.signOut()
-      if (error) {
-        console.error(`[${providerDebugId}] ❌ Error signing out:`, error.message)
-        return false
-      }
-      console.log(`[${providerDebugId}] ✅ User signed out successfully`)
-      return true
-    } catch (error) {
-      console.error(`[${providerDebugId}] ❌ Unexpected error during sign out:`, error)
-      return false
-    }
-  }, [supabase])
-  
-  console.log(`[${providerDebugId}] 🔄 SupabaseProvider rendering with auth status:`, 
-    isLoading ? 'loading' : session ? 'authenticated' : 'unauthenticated');
-  
-  return (
-    <SupabaseContext.Provider value={supabase}>
-      <SessionContext.Provider value={{
-        session,
-        user,
-        isLoading,
-        status: isLoading ? 'loading' : session ? 'authenticated' : 'unauthenticated',
-        error
-      }}>
-        {children}
-      </SessionContext.Provider>
-    </SupabaseContext.Provider>
-  )
-} 
+// Default export for compatibility with layout import
+export default SupabaseProvider;

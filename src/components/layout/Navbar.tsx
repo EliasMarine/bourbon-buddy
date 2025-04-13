@@ -14,10 +14,11 @@ import {
 import GlencairnGlass from '../ui/icons/GlencairnGlass';
 import { getProfileImageUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
 import SafeImage from '@/components/ui/SafeImage';
-import { createSupabaseBrowserClient } from '@/lib/supabase';
+import { useSupabase } from '@/components/providers/SupabaseProvider';
 
 export default function Navbar() {
   const { data: session, status, signOut } = useSupabaseSession();
+  const { supabase } = useSupabase();
   const pathname = usePathname();
   const [isScrolled, setIsScrolled] = useState(false);
   const [showFloatingNav, setShowFloatingNav] = useState(false);
@@ -126,9 +127,6 @@ export default function Navbar() {
       } else {
         console.log('✅ Server logout successful');
       }
-      
-      // Get the Supabase client to clear browser state
-      const supabase = createSupabaseBrowserClient();
       
       // Sign out from Supabase client-side
       console.log('🔄 Signing out from Supabase');
@@ -412,7 +410,11 @@ export default function Navbar() {
             {/* Authentication/Profile Section */}
             <div className="hidden md:flex items-center">
               {status === 'loading' ? (
-                <div className="w-8 h-8 rounded-full bg-gray-700 animate-pulse"></div>
+                // Show a smoother loading state
+                <div className="flex items-center gap-2 bg-gray-800/80 px-4 py-2 rounded-lg animate-pulse">
+                  <div className="w-8 h-8 rounded-full bg-gray-700"></div>
+                  <div className="w-20 h-4 bg-gray-700 rounded"></div>
+                </div>
               ) : session ? (
                 <div className="relative">
                   <button
@@ -498,7 +500,18 @@ export default function Navbar() {
                 ))}
 
                 {/* Mobile Authentication */}
-                {status !== 'loading' && (
+                {status === 'loading' ? (
+                  // Show a nicer loading state for mobile
+                  <div className="mt-4 px-3 py-3 bg-gray-800/50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gray-700 animate-pulse"></div>
+                      <div className="space-y-2">
+                        <div className="w-24 h-4 bg-gray-700 rounded animate-pulse"></div>
+                        <div className="w-32 h-3 bg-gray-700/70 rounded animate-pulse"></div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
                   <>
                     {!session ? (
                       <div className="mt-4 grid gap-2">

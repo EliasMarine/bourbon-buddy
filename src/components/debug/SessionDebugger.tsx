@@ -1,8 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useSupabaseSession } from '@/hooks/use-supabase-session'
-import { useSupabase } from '@/components/providers/SupabaseProvider'
+import { useSupabase, useSessionContext } from '@/components/providers/SupabaseProvider'
 
 // Simple UI components since we don't have access to the specific UI library
 function Button({ 
@@ -107,10 +106,10 @@ interface SessionInfo {
 }
 
 export default function SessionDebugger() {
-  // Add a safeguard for SSR/prerendering
-  const { data: session } = useSupabaseSession()
-  
+  // Get session info from context
+  const { session, status } = useSessionContext()
   const supabase = useSupabase()
+  
   const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -145,6 +144,7 @@ export default function SessionDebugger() {
     }
   }, [session])
 
+  // Simplified sync function that doesn't try to use auth directly
   const handleManualSync = async () => {
     setIsLoading(true)
     try {
@@ -160,24 +160,8 @@ export default function SessionDebugger() {
         return
       }
       
-      const result = await response.json()
-      
-      if (result.properties) {
-        // Set the session in Supabase
-        const { error } = await supabase.auth.setSession({
-          access_token: result.properties.access_token,
-          refresh_token: result.properties.refresh_token
-        })
-        
-        if (error) {
-          setError(`Failed to set session: ${error.message}`)
-        } else {
-          // Wait a moment for the session to propagate
-          setTimeout(() => {
-            fetchSessionStatus()
-          }, 500)
-        }
-      }
+      // Refresh the page to apply the new session
+      window.location.reload()
     } catch (err) {
       setError(`Failed to sync sessions: ${err instanceof Error ? err.message : String(err)}`)
     } finally {

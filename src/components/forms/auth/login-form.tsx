@@ -98,6 +98,32 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
           hasSession: !!data.session,
           timestamp: new Date().toISOString()
         })
+        
+        // Sync user with database - critical step to prevent auth/DB sync issues
+        try {
+          console.log('🔄 Syncing user with database...')
+          const syncResponse = await fetch('/api/auth/sync-user', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...csrfHeaders
+            }
+          })
+          
+          if (!syncResponse.ok) {
+            console.warn('⚠️ User sync failed:', {
+              status: syncResponse.status,
+              statusText: syncResponse.statusText
+            })
+            // Continue with redirection even if sync fails
+            // The middleware will handle future requests
+          } else {
+            console.log('✅ User sync successful')
+          }
+        } catch (syncError) {
+          console.error('❌ User sync error:', syncError)
+          // Continue with redirection even if sync fails
+        }
       }
       
       console.log('🔄 Redirecting to:', callbackUrl)
