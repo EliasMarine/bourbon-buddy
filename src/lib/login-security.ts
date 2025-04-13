@@ -14,15 +14,31 @@ export interface FailedAttempt {
   lastAttempt: number;
   locked: boolean;
   lockExpires: number | null;
+  consecutiveLockouts: number; // Track how many times account has been locked
 }
 
 // Security configuration
 export const LOGIN_SECURITY = {
   MAX_ATTEMPTS: 5,               // Maximum failed attempts before lockout
-  LOCKOUT_DURATION: 15 * 60 * 1000,  // 15 minutes (in milliseconds)
+  // Progressive lockout durations based on consecutive lockouts
+  LOCKOUT_DURATIONS: [
+    15 * 60 * 1000,              // First lockout: 15 minutes
+    30 * 60 * 1000,              // Second lockout: 30 minutes
+    60 * 60 * 1000,              // Third lockout: 1 hour
+    3 * 60 * 60 * 1000,          // Fourth lockout: 3 hours
+    24 * 60 * 60 * 1000,         // Fifth+ lockout: 24 hours
+  ],
   ATTEMPT_WINDOW: 60 * 60 * 1000,    // 1 hour window to count attempts (in milliseconds)
   SUSPICIOUS_IP_THRESHOLD: 10,   // Attempts from different accounts on same IP
-  IP_BAN_DURATION: 24 * 60 * 60 * 1000  // 24 hours (in milliseconds)
+  IP_BAN_DURATION: 24 * 60 * 60 * 1000,  // 24 hours (in milliseconds)
+  // Track IP lockout counts for progressive blocking
+  IP_BLOCK_DURATIONS: [
+    1 * 60 * 60 * 1000,          // First block: 1 hour
+    3 * 60 * 60 * 1000,          // Second block: 3 hours
+    12 * 60 * 60 * 1000,         // Third block: 12 hours
+    24 * 60 * 60 * 1000,         // Fourth block: 24 hours
+    7 * 24 * 60 * 60 * 1000,     // Fifth+ block: 7 days
+  ]
 }
 
 // In-memory store for failed attempts (in production, use Redis or database)
@@ -30,8 +46,30 @@ export const LOGIN_SECURITY = {
 const failedLoginAttempts = new Map<string, FailedAttempt>();
 
 // Track suspicious IPs (multiple failed logins across different accounts)
-// Map: ip -> { count, timestamp }
-const suspiciousIPs = new Map<string, { count: number, since: number, locked: boolean, lockExpires: number | null }>();
+// Map: ip -> { count, timestamp, locked, lockExpires, blockCount }
+const suspiciousIPs = new Map<string, { 
+  count: number, 
+  since: number, 
+  locked: boolean, 
+  lockExpires: number | null,
+  blockCount: number 
+}>();
+
+/**
+ * Get the appropriate lockout duration based on consecutive lockout count
+ */
+function getLockoutDuration(consecutiveLockouts: number): number {
+  const index = Math.min(consecutiveLockouts, LOGIN_SECURITY.LOCKOUT_DURATIONS.length - 1);
+  return LOGIN_SECURITY.LOCKOUT_DURATIONS[index];
+}
+
+/**
+ * Get the appropriate IP block duration based on block count
+ */
+function getIpBlockDuration(blockCount: number): number {
+  const index = Math.min(blockCount, LOGIN_SECURITY.IP_BLOCK_DURATIONS.length - 1);
+  return LOGIN_SECURITY.IP_BLOCK_DURATIONS[index];
+}
 
 /**
  * Checks if an account is locked due to too many failed attempts
@@ -49,6 +87,7 @@ export function isAccountLocked(identifier: string): boolean {
   if (attempts.locked && attempts.lockExpires && Date.now() >= attempts.lockExpires) {
     attempts.locked = false;
     attempts.count = 0;
+    // Note: we don't reset consecutiveLockouts because we want to track historical lockouts
     failedLoginAttempts.set(identifier, attempts);
     return false;
   }
@@ -71,6 +110,7 @@ export function isIPBlocked(ip: string): boolean {
   if (ipInfo.locked && ipInfo.lockExpires && Date.now() >= ipInfo.lockExpires) {
     ipInfo.locked = false;
     ipInfo.count = 0;
+    // Note: we don't reset blockCount because we want to track historical blocks
     suspiciousIPs.set(ip, ipInfo);
     return false;
   }
@@ -92,7 +132,8 @@ export function recordFailedLoginAttempt(identifier: string, ip?: string): void 
       firstAttempt: now,
       lastAttempt: now,
       locked: false,
-      lockExpires: null
+      lockExpires: null,
+      consecutiveLockouts: 0
     });
   } else {
     // Reset count if window has passed
@@ -102,7 +143,8 @@ export function recordFailedLoginAttempt(identifier: string, ip?: string): void 
         firstAttempt: now,
         lastAttempt: now,
         locked: false,
-        lockExpires: null
+        lockExpires: null,
+        consecutiveLockouts: attempts.consecutiveLockouts // Preserve lockout history
       });
     } else {
       // Increment counter and update timestamps
@@ -112,16 +154,18 @@ export function recordFailedLoginAttempt(identifier: string, ip?: string): void 
       // Lock account if too many attempts
       if (attempts.count >= LOGIN_SECURITY.MAX_ATTEMPTS) {
         attempts.locked = true;
-        attempts.lockExpires = now + LOGIN_SECURITY.LOCKOUT_DURATION;
+        attempts.lockExpires = now + getLockoutDuration(attempts.consecutiveLockouts);
+        attempts.consecutiveLockouts += 1;
         
-        // Log security event for account lockout
+        // Log security event for account lockout - mask identifier for privacy
+        const maskedIdentifier = maskIdentifier(identifier);
         logSecurityEvent(
           'account_lockout',
           { 
-            identifier,
+            identifier: maskedIdentifier,
             ip: ip || 'unknown',
             attempts: attempts.count,
-            lockDuration: LOGIN_SECURITY.LOCKOUT_DURATION / 60000
+            lockDuration: getLockoutDuration(attempts.consecutiveLockouts - 1) / 60000 // Convert to minutes
           },
           'high'
         );
@@ -133,7 +177,7 @@ export function recordFailedLoginAttempt(identifier: string, ip?: string): void 
   
   // Track for IP-based blocking (if IP is provided)
   if (ip) {
-    const ipData = suspiciousIPs.get(ip) || { count: 0, since: now, locked: false, lockExpires: null };
+    const ipData = suspiciousIPs.get(ip) || { count: 0, since: now, locked: false, lockExpires: null, blockCount: 0 };
     
     // Reset if older than window
     if (now - ipData.since > LOGIN_SECURITY.ATTEMPT_WINDOW) {
@@ -141,23 +185,26 @@ export function recordFailedLoginAttempt(identifier: string, ip?: string): void 
       ipData.since = now;
       ipData.locked = false;
       ipData.lockExpires = null;
+      // Note: we don't reset blockCount to maintain history of blocks
     } else {
       ipData.count += 1;
       
       // If IP has too many attempts across different accounts, block it
       if (ipData.count >= LOGIN_SECURITY.SUSPICIOUS_IP_THRESHOLD) {
         ipData.locked = true;
-        ipData.lockExpires = now + LOGIN_SECURITY.IP_BAN_DURATION;
+        ipData.lockExpires = now + getIpBlockDuration(ipData.blockCount);
         
         logSecurityEvent(
           'ip_blocked',
           { 
             ip,
             attempts: ipData.count,
-            lockDuration: LOGIN_SECURITY.IP_BAN_DURATION / 3600000
+            lockDuration: getIpBlockDuration(ipData.blockCount) / 3600000 // Convert to hours
           },
           'critical'
         );
+        
+        ipData.blockCount += 1; // Increment after using to calculate the current duration
       }
     }
     
@@ -166,10 +213,66 @@ export function recordFailedLoginAttempt(identifier: string, ip?: string): void 
 }
 
 /**
+ * Helper function to mask email addresses or other identifiers for privacy in logs
+ * Preserves first 2 and last 2 characters of username part, and full domain
+ */
+function maskIdentifier(identifier: string): string {
+  // Check if it's likely an email address
+  if (identifier.includes('@')) {
+    const [username, domain] = identifier.split('@');
+    
+    if (username.length <= 4) {
+      // Very short usernames just show first character
+      return `${username.charAt(0)}***@${domain}`;
+    } else {
+      // Longer usernames show first 2 and last 2 chars
+      return `${username.slice(0, 2)}***${username.slice(-2)}@${domain}`;
+    }
+  }
+  
+  // For non-email identifiers, mask the middle portion
+  if (identifier.length <= 4) {
+    return identifier.charAt(0) + '***';
+  } else {
+    return `${identifier.slice(0, 2)}***${identifier.slice(-2)}`;
+  }
+}
+
+/**
  * Resets failed login attempts on successful login
  */
-export function resetFailedLoginAttempts(identifier: string): void {
-  failedLoginAttempts.delete(identifier);
+export function resetFailedLoginAttempts(identifier: string, ip?: string): void {
+  // Get current attempts record
+  const attempts = failedLoginAttempts.get(identifier);
+  
+  if (attempts) {
+    // Preserve the consecutiveLockouts count but reset the current lock
+    failedLoginAttempts.set(identifier, {
+      count: 0,
+      firstAttempt: Date.now(),
+      lastAttempt: Date.now(),
+      locked: false,
+      lockExpires: null,
+      consecutiveLockouts: attempts.consecutiveLockouts
+    });
+    
+    // Log the reset
+    logSecurityEvent(
+      'login_attempt_reset',
+      { 
+        email: maskIdentifier(identifier),
+        ip: ip || '::1'
+      },
+      'low'
+    );
+  } else {
+    // Clean up entry completely if it doesn't exist
+    failedLoginAttempts.delete(identifier);
+  }
+  
+  // Note: We don't reset IP blocks on successful login
+  // This is intentional to prevent attackers from trying different 
+  // username/password combinations from the same IP
 }
 
 /**
@@ -199,7 +302,24 @@ export function getAccountStatus(identifier: string): {
 }
 
 /**
- * Clears expired locks and old records (maintenance)
+ * For API endpoints that need to log account lock status
+ */
+export function logAccountLockStatus(identifier: string, ip: string) {
+  const status = getAccountStatus(identifier);
+  logSecurityEvent(
+    'account_lock_status_check',
+    {
+      email: maskIdentifier(identifier),
+      ip,
+      isLocked: status.isLocked
+    },
+    'low'
+  );
+  return status;
+}
+
+/**
+ * Cleans up expired locks and old records (maintenance)
  * Should be called periodically, such as via a cron job
  */
 export function cleanupExpiredLocks(): void {
@@ -226,6 +346,79 @@ export function cleanupExpiredLocks(): void {
       suspiciousIPs.delete(ip);
     }
   });
+}
+
+/**
+ * Resets all security data
+ * CAUTION: Only use in test environments or during maintenance windows
+ */
+export function resetAllSecurityData(authToken?: string): boolean {
+  // Safety check - this should only run in development or with proper authorization
+  if (process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') {
+    if (!authToken || authToken !== process.env.SECURITY_RESET_TOKEN) {
+      logSecurityEvent(
+        'unauthorized_security_reset',
+        { environment: process.env.NODE_ENV },
+        'critical'
+      );
+      return false;
+    }
+  }
+  
+  // Clear all data
+  failedLoginAttempts.clear();
+  suspiciousIPs.clear();
+  
+  logSecurityEvent(
+    'security_data_reset',
+    { environment: process.env.NODE_ENV },
+    'high'
+  );
+  
+  return true;
+}
+
+/**
+ * Clears the future-dated test log entries that were 
+ * generated during testing. This should be run before
+ * moving to production.
+ */
+export function clearTestLogEntries(): void {
+  if (process.env.NODE_ENV === 'production') {
+    // This should not run in production
+    return;
+  }
+  
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    
+    // Only attempt if filesystem is available
+    if (!fs.existsSync(path.join(process.cwd(), 'logs'))) {
+      return;
+    }
+    
+    const securityLog = path.join(process.cwd(), 'logs', 'security.log');
+    const criticalLog = path.join(process.cwd(), 'logs', 'critical-security.log');
+    
+    // Clear the old log files
+    if (fs.existsSync(securityLog)) {
+      fs.writeFileSync(securityLog, '');
+    }
+    
+    if (fs.existsSync(criticalLog)) {
+      fs.writeFileSync(criticalLog, '');
+    }
+    
+    // Log the cleanup action
+    logSecurityEvent(
+      'test_logs_cleared',
+      { timestamp: new Date().toISOString() },
+      'medium'
+    );
+  } catch (error) {
+    console.error('Failed to clear test logs:', error);
+  }
 }
 
 /**

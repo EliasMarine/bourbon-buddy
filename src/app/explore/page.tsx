@@ -517,11 +517,11 @@ export default function ExplorePage() {
       }
     };
 
-    // Avoid refetching data if we already have it (to prevent flickering)
-    if (!featuredSpirits.length || !popularUsers.length) {
+    // Only fetch if we need to (when status is authenticated or both collections are empty)
+    if (status === 'authenticated' && (popularUsers.length === 0 || featuredSpirits.length === 0)) {
       fetchCollections();
     }
-  }, [session, featuredSpirits.length, popularUsers.length]);
+  }, [status]); // Only re-run when authentication status changes
 
   // Filter spirits based on search and filters
   const filteredSpirits = featuredSpirits.filter(spirit => {

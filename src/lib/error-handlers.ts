@@ -20,10 +20,72 @@ if (!IS_SERVERLESS && LOG_TO_FILE) {
 }
 
 /**
+ * Helper function to sanitize potentially sensitive data from logs
+ */
+function sanitizeForLogs(data: any): any {
+  if (!data) return data;
+  
+  // Handle different types appropriately
+  if (typeof data !== 'object') return data;
+  
+  // Clone to avoid mutating the original object
+  const sanitized = Array.isArray(data) ? [...data] : {...data};
+  
+  // Fields that should be completely masked
+  const sensitiveFields = [
+    'password', 'passwordHash', 'secret', 'token', 'accessToken', 'refreshToken',
+    'apiKey', 'key', 'credentials', 'pin', 'ssn', 'creditCard'
+  ];
+  
+  // Fields that should be partially masked (like emails, names)
+  const partialMaskFields = [
+    'email', 'identifier', 'username', 'name', 'firstName', 'lastName',
+    'address', 'phone', 'mobile'
+  ];
+  
+  // Process all properties
+  for (const key in sanitized) {
+    if (sensitiveFields.includes(key.toLowerCase())) {
+      // Completely mask sensitive values
+      sanitized[key] = '********';
+    } else if (partialMaskFields.includes(key.toLowerCase())) {
+      // Partially mask PII
+      if (typeof sanitized[key] === 'string') {
+        const value = sanitized[key];
+        
+        // Handle email addresses specially
+        if (key.toLowerCase() === 'email' || (typeof value === 'string' && value.includes('@'))) {
+          const [username, domain] = value.split('@');
+          if (username.length <= 4) {
+            sanitized[key] = `${username.charAt(0)}***@${domain}`;
+          } else {
+            sanitized[key] = `${username.slice(0, 2)}***${username.slice(-2)}@${domain}`;
+          }
+        } else if (value.length <= 4) {
+          // Short values
+          sanitized[key] = `${value.charAt(0)}***`;
+        } else {
+          // Longer values
+          sanitized[key] = `${value.slice(0, 2)}***${value.slice(-2)}`;
+        }
+      }
+    } else if (typeof sanitized[key] === 'object' && sanitized[key] !== null) {
+      // Recursively sanitize nested objects
+      sanitized[key] = sanitizeForLogs(sanitized[key]);
+    }
+  }
+  
+  return sanitized;
+}
+
+/**
  * Logs security events to console and/or file based on environment
  */
 export function logSecurityEvent(eventType: string, details: any, severity: 'low' | 'medium' | 'high' | 'critical' = 'medium', userId?: string) {
   const timestamp = new Date().toISOString();
+  
+  // Sanitize sensitive information from details
+  const sanitizedDetails = sanitizeForLogs(details);
   
   // Format log entry
   const logEntry = JSON.stringify({
@@ -31,7 +93,7 @@ export function logSecurityEvent(eventType: string, details: any, severity: 'low
     type: eventType,
     severity,
     userId: userId || 'unknown',
-    details,
+    details: sanitizedDetails,
     environment: process.env.NODE_ENV || 'development'
   });
   
@@ -45,7 +107,7 @@ export function logSecurityEvent(eventType: string, details: any, severity: 'low
       critical: '\x1b[41m\x1b[37m', // white on red background
     };
     
-    console.log(`${severityColors[severity]}[SECURITY ${severity.toUpperCase()}]\x1b[0m ${timestamp} - ${eventType} - ${JSON.stringify(details)}`);
+    console.log(`${severityColors[severity]}[SECURITY ${severity.toUpperCase()}]\x1b[0m ${timestamp} - ${eventType} - ${JSON.stringify(sanitizedDetails)}`);
   }
   
   // Skip file logging in serverless environments or if explicitly disabled
@@ -167,11 +229,17 @@ export function handlePrismaError(error: unknown, context = 'operation', userId?
  * Safe error message for authentication errors
  * To be used with NextAuth and auth-related routes
  */
-export function handleAuthError(error: unknown, userId?: string) {
-  // Log authentication errors
-  const errorDetails = error instanceof Error 
-    ? { message: error.message, name: error.name, stack: error.stack } 
-    : { error };
+export function handleAuthError(error: unknown, userId?: string, identifierHint?: string) {
+  // Safely serialize error details
+  let errorDetails: Record<string, any> = error instanceof Error 
+    ? { message: error.message, name: error.name, stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined } 
+    : { error: String(error) };
+  
+  // Include masked identifier if provided, for better tracking of login attempts
+  if (identifierHint) {
+    // Use sanitizeForLogs to mask the identifier
+    errorDetails.identifier = sanitizeForLogs({ identifier: identifierHint }).identifier;
+  }
   
   logSecurityEvent('auth_error', errorDetails, 'high', userId);
   
@@ -182,13 +250,35 @@ export function handleAuthError(error: unknown, userId?: string) {
       'Invalid email or password',
       'This username or email is already taken',
       'User with this email or username already exists',
-      'Your account has been locked due to multiple failed attempts'
+      'Your account has been locked due to multiple failed attempts',
+      'Too many requests, please try again later'
     ];
     
-    if (safeErrors.includes(error.message)) {
+    // Safe error messages that should be shown directly to users
+    const isSafeError = safeErrors.some(safeMsg => 
+      error.message.includes(safeMsg) || error.message === safeMsg
+    );
+    
+    if (isSafeError) {
       // For invalid login attempts, log as potential security threat
-      if (error.message === 'Invalid email or password') {
-        logSecurityEvent('failed_login_attempt', { message: error.message }, 'medium', userId);
+      if (error.message.includes('Invalid email or password')) {
+        logSecurityEvent('failed_login_attempt', { 
+          message: error.message,
+          identifier: identifierHint ? sanitizeForLogs({ identifier: identifierHint }).identifier : undefined
+        }, 'medium', userId);
+      }
+      
+      // For lockout messages
+      if (error.message.includes('account has been locked') || error.message.includes('Too many requests')) {
+        return NextResponse.json(
+          { message: error.message },
+          { 
+            status: 429, // Too Many Requests
+            headers: {
+              'Retry-After': '900', // 15 min in seconds
+            }
+          }
+        );
       }
       
       return NextResponse.json(

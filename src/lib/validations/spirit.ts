@@ -64,16 +64,22 @@ export const SpiritSchema = z.object({
     })
     .nullable()
     .optional(),
-  nose: z.string()
-    .max(500, 'Nose description must be less than 500 characters')
+  nose: z.union([
+    z.string().max(500, 'Nose description must be less than 500 characters'),
+    z.array(z.string())
+  ])
     .nullable()
     .optional(),
-  palate: z.string()
-    .max(500, 'Palate description must be less than 500 characters')
+  palate: z.union([
+    z.string().max(500, 'Palate description must be less than 500 characters'),
+    z.array(z.string())
+  ])
     .nullable()
     .optional(),
-  finish: z.string()
-    .max(500, 'Finish description must be less than 500 characters')
+  finish: z.union([
+    z.string().max(500, 'Finish description must be less than 500 characters'),
+    z.array(z.string())
+  ])
     .nullable()
     .optional(),
   notes: z.string()

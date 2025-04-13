@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -8,39 +8,141 @@ import SpiritCard from '@/components/collection/SpiritCard';
 import AddSpiritForm from '@/components/collection/AddSpiritForm';
 import { Spirit } from '@/types';
 import { toast } from 'react-hot-toast';
-import { ChevronDown, ChevronUp, Plus } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, RefreshCw } from 'lucide-react';
+import useSWR from 'swr';
+
+// Create a custom error class with the additional properties
+class FetchError extends Error {
+  info?: any;
+  status?: number;
+  
+  constructor(message: string) {
+    super(message);
+    this.name = 'FetchError';
+  }
+}
+
+// Custom fetcher with error and retry handling
+const collectionFetcher = async (url: string) => {
+  const res = await fetch(url);
+  
+  // Handle HTTP errors
+  if (!res.ok) {
+    const error = new FetchError('An error occurred while fetching the data.');
+    // Add extra info to the error object
+    error.info = await res.json();
+    error.status = res.status;
+    throw error;
+  }
+  
+  return res.json();
+};
+
+// Function to sort spirits - favorites first, then by name
+const sortSpirits = (spiritsList: Spirit[]): Spirit[] => {
+  return [...spiritsList].sort((a, b) => {
+    // First sort by favorite status (favorites first)
+    if (a.isFavorite && !b.isFavorite) return -1;
+    if (!a.isFavorite && b.isFavorite) return 1;
+    
+    // Then sort alphabetically by name
+    return a.name.localeCompare(b.name);
+  });
+};
 
 export default function CollectionPage() {
   const router = useRouter();
   const { data: session, status } = useSupabaseSession();
-  const [spirits, setSpirits] = useState<Spirit[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isFormVisible, setIsFormVisible] = useState(false);
-
+  const [isManualLoading, setIsManualLoading] = useState(false);
+  const syncAttempted = useRef(false);
+  
+  // Define SWR key based on authentication state
+  const shouldFetch = status === 'authenticated' && session?.user;
+  const swrKey = shouldFetch ? '/api/collection' : null;
+  
+  // Use SWR for data fetching with configurable retry and error handling
+  const { 
+    data, 
+    error, 
+    isLoading: isSWRLoading, 
+    isValidating,
+    mutate 
+  } = useSWR(swrKey, collectionFetcher, {
+    revalidateIfStale: true,
+    revalidateOnFocus: false,  // Prevents unneeded fetches on tab focus
+    revalidateOnReconnect: true,
+    refreshInterval: 0,        // Disable polling
+    shouldRetryOnError: true,
+    retry: 3,                  // Limit retries
+    errorRetryInterval: 5000,  // 5 seconds between retries
+    onErrorRetry: (error, key, config, revalidate, { retryCount }) => {
+      // Don't retry on 404s or 401s
+      if (error.status === 404 || error.status === 401) return;
+      
+      // Only retry for specific errors and up to 3 times
+      if (retryCount >= 3) return;
+      
+      // Use exponential backoff for retries
+      const delay = Math.min(1000 * 2 ** retryCount, 30000);
+      setTimeout(() => revalidate({ retryCount }), delay);
+    }
+  });
+  
+  // Process the data
+  const spirits = data?.spirits || [];
+  
+  // Filter and sanitize spirits to prevent display issues
+  const sanitizedSpirits = useMemo(() => {
+    return spirits.map(spirit => {
+      // Check if imageUrl is valid (not null, undefined, empty string, or invalid URL format)
+      let validImageUrl = spirit.imageUrl;
+      
+      // More comprehensive URL validation to handle various edge cases
+      const isValidUrl = (url: string | null | undefined): boolean => {
+        if (!url || url.trim() === '') return false; 
+        
+        // First check with a simple regex for http/https
+        const hasValidProtocol = /^https?:\/\//.test(url);
+        if (!hasValidProtocol) return false;
+        
+        // Additional check for absolute URL format
+        try {
+          new URL(url);
+          return true;
+        } catch (e) {
+          return false;
+        }
+      };
+      
+      if (!isValidUrl(validImageUrl)) {
+        validImageUrl = null;
+      }
+      
+      return {
+        ...spirit,
+        imageUrl: validImageUrl
+      };
+    });
+  }, [spirits]);
+  
+  // Sort the sanitized spirits
+  const sortedSpirits = useMemo(() => sortSpirits(sanitizedSpirits), [sanitizedSpirits]);
+  
+  // Redirect to login if not authenticated
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login');
-      return;
     }
-    if (status === 'loading') {
-      setIsLoading(true);
-      return;
-    }
-    if (session) {
-      fetchCollection();
-    }
-  }, [session, status, router]);
-
-  const fetchCollection = async (retryCount = 0) => {
-    try {
-      setIsLoading(true);
-      const response = await fetch('/api/collection');
-      
-      if (response.status === 401 && retryCount < 2) {
-        console.log('Authentication failed, attempting to sync user...');
-        
-        // Try to sync the user first
+  }, [status, router]);
+  
+  // Handle 401 errors by attempting to sync the user
+  useEffect(() => {
+    const handle401Error = async () => {
+      if (error && error.status === 401 && !syncAttempted.current) {
+        syncAttempted.current = true;
         try {
+          console.log('Authentication failed, attempting to sync user...');
           await fetch('/api/auth/sync-user', {
             method: 'POST',
             headers: {
@@ -49,47 +151,27 @@ export default function CollectionPage() {
           });
           
           console.log('User sync completed, retrying collection fetch...');
-          // Wait a moment for the sync to complete
           await new Promise(resolve => setTimeout(resolve, 500));
           
-          // Try fetching again after sync
-          return fetchCollection(retryCount + 1);
+          // Revalidate the data
+          mutate();
         } catch (syncError) {
           console.error('Failed to sync user:', syncError);
           toast('Failed to sync user account', { icon: '❌' });
         }
       }
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `Failed to fetch collection: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      // Sort spirits to show favorites first
-      const sortedSpirits = sortSpirits(data.spirits || []);
-      setSpirits(sortedSpirits);
-    } catch (error) {
-      console.error('Failed to fetch collection:', error);
+    };
+    
+    handle401Error();
+  }, [error, mutate]);
+  
+  // Show error toast when fetch fails
+  useEffect(() => {
+    if (error && !isValidating) {
       toast('Failed to load collection', { icon: '❌' });
-      setSpirits([]);
-    } finally {
-      setIsLoading(false);
+      console.error('Collection fetch error:', error);
     }
-  };
-
-  // Function to sort spirits - favorites first, then by name
-  const sortSpirits = (spiritsList: Spirit[]): Spirit[] => {
-    return [...spiritsList].sort((a, b) => {
-      // First sort by favorite status (favorites first)
-      if (a.isFavorite && !b.isFavorite) return -1;
-      if (!a.isFavorite && b.isFavorite) return 1;
-      
-      // Then sort alphabetically by name
-      return a.name.localeCompare(b.name);
-    });
-  };
+  }, [error, isValidating]);
 
   const handleToggleFavorite = async (id: string, isFavorite: boolean) => {
     try {
@@ -108,14 +190,16 @@ export default function CollectionPage() {
         throw new Error(data.error || 'Failed to update favorite status');
       }
 
-      // Update the local spirits state
-      setSpirits(prevSpirits => {
-        const updatedSpirits = prevSpirits.map(spirit => 
+      // Update the local data with SWR
+      mutate(current => {
+        if (!current) return { spirits: [] };
+        
+        const updatedSpirits = current.spirits.map(spirit => 
           spirit.id === id ? { ...spirit, isFavorite } : spirit
         );
-        // Resort to maintain order with favorites first
-        return sortSpirits(updatedSpirits);
-      });
+        
+        return { ...current, spirits: updatedSpirits };
+      }, false); // false means don't revalidate
 
       // Show success message
       toast(
@@ -131,41 +215,64 @@ export default function CollectionPage() {
   };
 
   const handleAddSpirit = async (formData: FormData) => {
-    setIsLoading(true);
+    setIsManualLoading(true);
     try {
       if (!session || !session.user) {
         console.error('No active session found');
         throw new Error('You must be logged in to add spirits');
       }
 
-      formData.append('userId', session.user.id);
+      // Convert FormData to a JavaScript object
+      const jsonData: Record<string, any> = {};
+      formData.forEach((value, key) => {
+        // Try to parse JSON values from the FormData
+        if (key === 'nose' || key === 'palate' || key === 'finish') {
+          try {
+            jsonData[key] = JSON.parse(value as string);
+          } catch {
+            jsonData[key] = value;
+          }
+        } else if (key === 'isFavorite') {
+          jsonData[key] = value === 'true';
+        } else if (key === 'proof' || key === 'price' || key === 'rating' || key === 'bottleLevel' || key === 'releaseYear') {
+          const numValue = parseFloat(value as string);
+          jsonData[key] = isNaN(numValue) ? null : numValue;
+        } else {
+          jsonData[key] = value;
+        }
+      });
       
-      console.log('Submitting with session user:', session.user);
+      // Add user ID
+      jsonData.userId = session.user.id;
       
-      const convertedData = Object.fromEntries(formData.entries());
-      console.log('Form data to be submitted:', convertedData);
+      console.log('Sending JSON data:', jsonData);
       
       const response = await fetch('/api/collection', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(jsonData),
       });
 
       const responseData = await response.json();
-      console.log('API response:', responseData);
       
       if (!response.ok) {
         console.error('Server response:', responseData);
         throw new Error(responseData.error || 'Failed to add spirit');
       }
 
-      await fetchCollection();
+      // Revalidate data with SWR
+      await mutate();
       setIsFormVisible(false); // Hide form after successful submission
+      toast('Spirit added successfully', { icon: '✅' });
       return responseData;
     } catch (error) {
       console.error('Failed to add spirit:', error);
+      toast('Failed to add spirit', { icon: '❌' });
       throw error;
     } finally {
-      setIsLoading(false);
+      setIsManualLoading(false);
     }
   };
 
@@ -178,21 +285,30 @@ export default function CollectionPage() {
       });
 
       const responseData = await response.json();
-      console.log('Delete response:', responseData);
       
       if (!response.ok) {
         console.error('Server response:', responseData);
         throw new Error(responseData.error || 'Failed to delete spirit');
       }
 
-      console.log(`Successfully deleted spirit with ID: ${id}`);
-      setSpirits(spirits.filter(spirit => spirit.id !== id));
+      // Update the cache using SWR's mutate
+      mutate(current => {
+        if (!current) return { spirits: [] };
+        return {
+          ...current,
+          spirits: current.spirits.filter(spirit => spirit.id !== id)
+        };
+      }, false); // false means don't revalidate
+
       toast('Spirit removed successfully', { icon: '✅' });
     } catch (error) {
       console.error('Failed to delete spirit:', error);
       toast('Failed to remove spirit', { icon: '❌' });
     }
   };
+
+  // Combine loading states
+  const isLoading = isSWRLoading || status === 'loading' || isManualLoading;
 
   if (status === 'loading') {
     return <div>Loading...</div>;
@@ -306,7 +422,7 @@ export default function CollectionPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {spirits.map((spirit) => (
+                {sortedSpirits.map((spirit) => (
                   <SpiritCard
                     key={spirit.id}
                     spirit={spirit}

@@ -8,16 +8,21 @@ import { useSupabase } from '@/components/providers/SupabaseProvider';
 import { useSupabaseSession } from '@/hooks/use-supabase-session';
 
 export default function LoginPage() {
+  // 1. All hooks should be called at the top of the component and in the same order
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
-  const registered = searchParams.get('registered') === 'true';
+  const { supabase } = useSupabase();
   const { status, data: session } = useSupabaseSession();
+  
+  // 2. State hooks
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const supabase = useSupabase();
+  
+  // 3. Derived values
+  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+  const registered = searchParams.get('registered') === 'true';
 
   // Redirect if already logged in
   useEffect(() => {
@@ -33,6 +38,13 @@ export default function LoginPage() {
     setError('');
 
     try {
+      // Check if Supabase auth is available
+      if (!supabase?.auth) {
+        setError('Authentication service unavailable. Please try again later.');
+        setIsLoading(false);
+        return;
+      }
+
       // Sign in with Supabase
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
@@ -61,6 +73,13 @@ export default function LoginPage() {
     setError('');
 
     try {
+      // Check if Supabase auth is available
+      if (!supabase?.auth) {
+        setError('Authentication service unavailable. Please try again later.');
+        setIsLoading(false);
+        return;
+      }
+      
       const redirectUrl = `${window.location.origin}/auth/callback?callbackUrl=${encodeURIComponent(callbackUrl)}`;
       const options: any = {
         redirectTo: redirectUrl,
