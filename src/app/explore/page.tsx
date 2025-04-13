@@ -901,7 +901,7 @@ export default function ExplorePage() {
               Popular Collectors
             </h2>
             <Link 
-              href="/collectors"
+              href="/explore"
               className="text-amber-500 hover:text-amber-400 text-sm font-medium px-4 py-1.5 bg-amber-500/10 rounded-lg transition-colors flex items-center"
             >
               View All

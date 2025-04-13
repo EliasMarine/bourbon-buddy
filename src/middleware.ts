@@ -195,9 +195,9 @@ export async function middleware(request: NextRequest) {
         `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live; ` +
         `script-src-elem 'self' 'nonce-${nonce}' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live; ` +
         "style-src 'self' 'unsafe-inline'; " +
-        "img-src 'self' data: blob: https:; " +
+        "img-src 'self' data: blob: https: http:; " +
         "font-src 'self' data:; " +
-        "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://vercel.live " + 
+        "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://vercel.live https: http: " + 
         allowedDomains.map(domain => `https://${domain}`).join(' ') + "; " +
         "worker-src 'self' blob:; " +
         "frame-src 'self' https://appleid.apple.com; " +
@@ -237,8 +237,8 @@ export async function middleware(request: NextRequest) {
         `default-src 'self' ${devDomains} data: blob:; ` +
         `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' ${devDomains} data: blob:; ` +
         `script-src-elem 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' ${devDomains}; ` +
-        `connect-src 'self' ${devDomains} http://localhost:* ws://localhost:* https://*.supabase.co https://*.supabase.in wss://*.supabase.co 'unsafe-inline'; ` +
-        `img-src 'self' ${devDomains} data: blob:; ` +
+        `connect-src 'self' ${devDomains} http://localhost:* ws://localhost:* https://*.supabase.co https://*.supabase.in wss://*.supabase.co https: http: 'unsafe-inline'; ` +
+        `img-src 'self' ${devDomains} data: blob: https: http:; ` +
         `frame-src 'self' ${devDomains}; ` +
         `style-src 'self' 'unsafe-inline';`
       );

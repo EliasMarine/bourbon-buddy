@@ -38,7 +38,7 @@ export default function StreamsPage() {
     fetchStreams();
     
     // Set user name from session if available
-    if (user?.name) {
+    if (session?.user?.name) {
       setUserName(session.user.name);
     }
 

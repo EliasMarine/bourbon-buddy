@@ -61,3 +61,6 @@ next-env.d.ts
 # Caches
 .cache/
 .env-backups/
+.env.local.bak
+scripts/reset-prisma-connection.js
+src/app/test-tunnel/README.md

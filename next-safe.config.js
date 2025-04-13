@@ -7,10 +7,36 @@ module.exports = {
     'default-src': ["self"],
     'script-src': [
       "self", 
-      "strict-dynamic", 
+      "strict-dynamic",
+      "unsafe-inline", 
+      "unsafe-eval", 
       // Only keep essential domains for script-src when using strict-dynamic
       "https://appleid.cdn-apple.com", 
-      "https://signin.apple.com"
+      "https://signin.apple.com",
+      "https://js.stripe.com",
+      "https://cdn.jsdelivr.net",
+      "https://cdn.paddle.com",
+      "https://apis.google.com",
+      "https://plausible.io"
+    ],
+    // Add script-src-elem directive to handle inline scripts and elements
+    'script-src-elem': [
+      "self",
+      "unsafe-inline",
+      "unsafe-eval",
+      "wasm-unsafe-eval",
+      "https://www.apple.com",
+      "https://appleid.cdn-apple.com",
+      "https://idmsa.apple.com",
+      "https://gsa.apple.com",
+      "https://idmsa.apple.com.cn",
+      "https://signin.apple.com",
+      "https://vercel.live",
+      "https://js.stripe.com",
+      "https://cdn.jsdelivr.net",
+      "https://cdn.paddle.com",
+      "https://apis.google.com",
+      "https://plausible.io"
     ],
     'style-src': ["self", "unsafe-inline"],
     'img-src': ["self", "data:", "blob:", 
@@ -20,7 +46,22 @@ module.exports = {
       "*.googleusercontent.com", 
       "*.ggpht.com",
       "*.google.com",
-      "*.gstatic.com"
+      "*.gstatic.com",
+      // Spirit image sources - add all potential domains
+      "*.amazonaws.com",
+      "*.cloudinary.com",
+      "*.buffalotracedistillery.com",
+      "*.blantonsbourbon.com",
+      "barbank.com",
+      "*.redd.it",
+      "preview.redd.it",
+      "i.redd.it",
+      "woodencork.com",
+      "whiskeycaviar.com",
+      "bdliquorwine.com",
+      "hjodvataujilredguzig.supabase.co",
+      "bourbonbuddy.s3.ca-west-1.s4.mega.io",
+      "bourbon-buddy.s3.us-east-1.amazonaws.com"
     ],
     'connect-src': [
       "self", 
@@ -31,6 +72,8 @@ module.exports = {
       "https://vercel.live", 
       "https://bourbonbuddy.live", 
       "https://bourbon-buddy.vercel.app",
+      "https://api.stripe.com",
+      "https://checkout.paddle.com",
       // Sentry URLs - comprehensive list to ensure all connections work
       "https://*.ingest.sentry.io",
       "https://o4509142564667392.ingest.us.sentry.io",
@@ -42,8 +85,13 @@ module.exports = {
         ? ["http://localhost:*", "ws://localhost:*"] 
         : []
     ),
-    'font-src': ["self", "data:"],
-    'frame-src': ["self", "https://appleid.apple.com"],
+    'font-src': ["self", "data:", "https://fonts.gstatic.com"],
+    'frame-src': [
+      "self", 
+      "https://appleid.apple.com",
+      "https://js.stripe.com",
+      "https://checkout.paddle.com"
+    ],
     'worker-src': ["self", "blob:"],
     'object-src': ["none"],
     'base-uri': ["self"],

@@ -79,11 +79,17 @@ export default function EditSpiritPage() {
     
     // Fetch spirit details when session is available
     fetchSpiritDetails();
-  }, [session, status, router, spiritId]);
+  }, [status, spiritId]);
 
   const fetchSpiritDetails = async () => {
     setLoading(true);
     setError(null);
+    
+    // Prevent duplicate requests
+    if (spirit && spirit.id === spiritId) {
+      setLoading(false);
+      return;
+    }
     
     try {
       const response = await fetch(`/api/collection/${spiritId}`);
@@ -120,16 +126,49 @@ export default function EditSpiritPage() {
       setIsFavorite(data.isFavorite || false);
       
       // Parse tasting notes if they exist
-      const parseNotes = (notesStr: string | null) => {
-        if (!notesStr) return [];
+      const parseNotes = (notesStr: string | null | undefined | string[] | any): string[] => {
+        // Handle null, undefined, empty string or 'null' string
+        if (notesStr === null || notesStr === undefined || notesStr === 'null' || notesStr === '') return [];
+        
+        // If it's already an array, filter out invalid values
+        if (Array.isArray(notesStr)) {
+          return notesStr.filter(note => 
+            note !== null && note !== undefined && note !== 'null' && note !== ''
+          );
+        }
+        
         try {
-          // First try to parse as JSON (for notes stored as arrays)
-          return JSON.parse(notesStr);
+          // Try to parse as JSON (for notes stored as arrays)
+          if (typeof notesStr === 'string') {
+            const parsed = JSON.parse(notesStr);
+            if (Array.isArray(parsed)) {
+              return parsed.filter(note => 
+                note !== null && note !== undefined && note !== 'null' && note !== ''
+              );
+            }
+            // If parsed but not an array, return as single-item array if valid
+            if (parsed !== null && parsed !== undefined && parsed !== 'null' && parsed !== '') {
+              return [parsed];
+            }
+            return [];
+          }
         } catch (e) {
           console.warn(`Failed to parse notes as JSON: "${notesStr}"`, e);
-          // If that fails, split by comma (for notes stored as comma-separated strings)
-          return notesStr.split(',').map(n => n.trim()).filter(Boolean);
+          // If JSON parsing fails, try comma-separated string
+          if (typeof notesStr === 'string' && notesStr.includes(',')) {
+            return notesStr.split(',')
+              .map(n => n && typeof n.trim === 'function' ? n.trim() : n)
+              .filter(n => n !== null && n !== undefined && n !== 'null' && n !== '');
+          }
+          
+          // Single string value, if valid
+          if (notesStr !== '' && typeof notesStr === 'string') {
+            return [notesStr];
+          }
         }
+        
+        // Default fallback
+        return [];
       };
       
       setSelectedNotes({
@@ -163,15 +202,21 @@ export default function EditSpiritPage() {
   };
 
   const handleNotesChange = (category: TastingNoteCategory, notes: string[]) => {
+    // Ensure notes is always a valid array
+    const validNotes = Array.isArray(notes) 
+      ? notes.filter(note => note !== null && note !== undefined && note !== 'null' && note !== '')
+      : [];
+      
+    // Update state with filtered array
     setSelectedNotes(prev => ({
       ...prev,
-      [category]: notes
+      [category]: validNotes
     }));
     
-    // Update the formData as well with JSON stringified notes
+    // Update the formData with properly formatted JSON string
     setFormData(prev => ({
       ...prev,
-      [category]: JSON.stringify(notes)
+      [category]: JSON.stringify(validNotes)
     }));
   };
 
@@ -205,10 +250,13 @@ export default function EditSpiritPage() {
       
       console.log('Submitting update data:', updateData);
       
-      const response = await fetch(`/api/collection/${spiritId}`, {
+      const cacheBreaker = `_t=${Date.now()}`;
+      const response = await fetch(`/api/collection/${spiritId}?${cacheBreaker}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
         },
         body: JSON.stringify(updateData),
       });
@@ -232,7 +280,9 @@ export default function EditSpiritPage() {
       }
       
       toast.success('Spirit updated successfully');
-      router.push(`/collection/spirit/${spiritId}`);
+      
+      // Use router.replace to avoid keeping edit page in history
+      router.replace(`/collection/spirit/${spiritId}`);
     } catch (error) {
       console.error('Error updating spirit:', error);
       setError(error instanceof Error ? error.message : 'An error occurred');
@@ -293,15 +343,18 @@ export default function EditSpiritPage() {
       
       if (searchResponse.images && searchResponse.images.length > 0) {
         // Filter out any invalid URLs before setting state
-        const validImages = searchResponse.images.filter(img => {
-          try {
-            new URL(img.url);
-            return true;
-          } catch {
-            console.warn(`Invalid image URL: ${img.url}`);
-            return false;
-          }
-        });
+        const validImages = searchResponse.images
+          .filter(img => {
+            try {
+              new URL(img.url);
+              return true;
+            } catch {
+              console.warn(`Invalid image URL: ${img.url}`);
+              return false;
+            }
+          })
+          // Limit to 10 images max
+          .slice(0, 10);
         
         if (validImages.length > 0) {
           setImageSearchResults(validImages);
@@ -354,11 +407,13 @@ export default function EditSpiritPage() {
       <div className="fixed inset-0 z-0">
         <div className="absolute inset-0 bg-black/50 z-10"></div>
         <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-transparent to-transparent z-10"></div>
-        <img 
-          src="/images/whiskey-background.jpg" 
-          alt="Whiskey background" 
-          className="w-full h-full object-cover"
-        />
+        <div className="fixed inset-0 overflow-hidden">
+          <img 
+            src="/images/backgrounds/Collection background/collection_background.jpg?v=1" 
+            alt="Collection background" 
+            className="w-full h-full object-cover"
+          />
+        </div>
       </div>
       
       {/* Noise texture overlay */}
@@ -554,7 +609,7 @@ export default function EditSpiritPage() {
                     Select the image that best represents this bottle in your collection.
                   </p>
                   
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 mb-6">
                     {imageSearchResults.map((image, index) => (
                       <div 
                         key={index}
@@ -601,11 +656,6 @@ export default function EditSpiritPage() {
                           />
                         </div>
                         
-                        {/* Info overlay */}
-                        <div className="p-2 bg-gray-900/90 absolute bottom-0 left-0 right-0">
-                          <p className="text-xs text-gray-300 truncate">Source: {image.source}</p>
-                        </div>
-                        
                         {/* Selected indicator */}
                         {selectedImageUrl === image.url && (
                           <div className="absolute top-2 right-2 bg-amber-500 rounded-full p-1.5 shadow-md z-20">
@@ -616,42 +666,29 @@ export default function EditSpiritPage() {
                     ))}
                   </div>
                   
-                  <div className="flex justify-between mt-6">
-                    <button
-                      onClick={searchBottleImages}
-                      disabled={isImageSearchLoading}
-                      className="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600 flex items-center"
-                    >
-                      {isImageSearchLoading ? (
-                        <>
-                          <div className="w-4 h-4 border-t-2 border-b-2 border-white rounded-full animate-spin mr-2"></div>
-                          Searching...
-                        </>
-                      ) : (
-                        <>
-                          <Search className="w-4 h-4 mr-2" />
-                          Find More Images
-                        </>
-                      )}
-                    </button>
-                    
-                    <div className="space-x-3">
+                  <div className="flex justify-end border-t border-gray-700 pt-4">
+                    <div className="flex gap-3">
                       <button
                         onClick={() => setShowImageOptions(false)}
-                        className="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600"
+                        className="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600 transition-colors"
                       >
                         Cancel
                       </button>
                       <button
                         onClick={() => selectedImageUrl && updateBottleImage(selectedImageUrl)}
                         disabled={!selectedImageUrl}
-                        className={`px-4 py-2 rounded-md flex items-center ${
+                        className={`px-6 py-2 rounded-md flex items-center justify-center min-w-[120px] transition-colors ${
                           selectedImageUrl 
                             ? 'bg-amber-500 hover:bg-amber-600 text-white' 
                             : 'bg-gray-600 text-gray-400 cursor-not-allowed'
                         }`}
                       >
-                        {selectedImageUrl ? 'Select Image' : 'Select an Image'}
+                        {selectedImageUrl ? (
+                          <>
+                            <Check className="w-4 h-4 mr-2" />
+                            Select
+                          </>
+                        ) : 'Select an Image'}
                       </button>
                     </div>
                   </div>

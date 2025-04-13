@@ -32,7 +32,10 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
   // In browser, use singleton pattern
   if (!browserInstance) {
     console.log('🔑 Creating new Supabase browser client instance');
-    browserInstance = createBrowserClient(supabaseUrl, supabaseKey);
+    browserInstance = createBrowserClient(
+      supabaseUrl,
+      supabaseKey
+    );
   }
 
   return browserInstance;

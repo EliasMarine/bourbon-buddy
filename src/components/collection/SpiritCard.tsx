@@ -7,6 +7,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import BottleLevelIndicator from './BottleLevelIndicator';
 import ConfirmationDialog from '../ui/ConfirmationDialog';
+import { getSafeImageUrl } from '@/lib/spiritUtils';
+import SafeImage from '@/components/ui/SafeImage';
 
 interface SpiritCardProps {
   spirit: Spirit;
@@ -17,10 +19,54 @@ interface SpiritCardProps {
 export default function SpiritCard({ spirit, onDelete, onToggleFavorite }: SpiritCardProps) {
   // State for delete confirmation dialog
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const [imageError, setImageError] = useState(false);
   
-  // Placeholder image path for fallback
-  const placeholderImagePath = '/images/bottle-placeholder.png';
+  // Get safe image URL that works with Content Security Policy
+  const safeImageUrl = getSafeImageUrl(spirit.imageUrl);
+  
+  // Parse tasting notes if they exist
+  const parseNotes = (notesStr: string | undefined | null | string[]): string => {
+    if (!notesStr) return '';
+    
+    try {
+      // Handle "null" string case
+      if (notesStr === 'null') return '';
+      
+      // If already an array, join with commas
+      if (Array.isArray(notesStr)) {
+        // Filter out any null, undefined or "null" string values
+        const filteredNotes = notesStr.filter(note => note !== null && note !== undefined && note !== 'null');
+        if (filteredNotes.length === 0) return '';
+        return filteredNotes.join(', ');
+      }
+      
+      // Check if it's a JSON array string
+      if (typeof notesStr === 'string' && notesStr.startsWith('[') && notesStr.endsWith(']')) {
+        try {
+          const parsedNotes = JSON.parse(notesStr);
+          if (Array.isArray(parsedNotes)) {
+            // Filter out any null, undefined or "null" string values
+            const filteredNotes = parsedNotes.filter(note => note !== null && note !== undefined && note !== 'null');
+            if (filteredNotes.length === 0) return '';
+            return filteredNotes.join(', ');
+          }
+        } catch {
+          // If JSON parsing fails, return the original string
+        }
+      }
+      
+      // If not an array or JSON array string, return as is (unless it's "null")
+      return String(notesStr);
+    } catch (e) {
+      // If any parsing fails, return empty string
+      console.error('Error parsing tasting notes:', e);
+      return '';
+    }
+  };
+
+  // Parse tasting notes
+  const displayNose = parseNotes(spirit.nose);
+  const displayPalate = parseNotes(spirit.palate);
+  const displayFinish = parseNotes(spirit.finish);
 
   // Determine the rating using a 10-point scale
   const rating = spirit.rating ? Number(spirit.rating) : 0;
@@ -50,38 +96,28 @@ export default function SpiritCard({ spirit, onDelete, onToggleFavorite }: Spiri
     }
   };
 
-  const handleImageError = () => {
-    console.log(`Image failed to load for ${spirit.name}`);
-    setImageError(true);
-  };
-
   return (
     <>
       <Link href={`/collection/spirit/${spirit.id}`} className="block">
         <div className="bg-white/5 backdrop-blur-sm rounded-xl overflow-hidden border border-white/10 hover:border-amber-500/30 transition-all hover:shadow-lg hover:shadow-amber-500/10 group cursor-pointer">
           <div className="relative h-60 w-full bg-gray-900 flex items-center justify-center">
-            {spirit.imageUrl && !imageError ? (
-              <img
-                src={spirit.imageUrl}
+            <div className="w-full h-full flex items-center justify-center relative">
+              <SafeImage
+                src={safeImageUrl}
                 alt={spirit.name}
+                width={200}
+                height={300}
+                style={{ height: 'auto' }}
                 className="object-contain max-h-56 max-w-[80%] transition-transform group-hover:scale-105"
-                onError={(e) => {
-                  console.log(`Image failed to load for ${spirit.name}: ${spirit.imageUrl}`);
-                  // Prevent infinite error loops by removing error handler
-                  const target = e.target as HTMLImageElement;
-                  target.onerror = null;
-                  
-                  // Set state to trigger fallback UI
-                  setImageError(true);
-                }}
                 loading="lazy"
+                fallback={
+                  <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 bg-gray-800/50">
+                    <ImageIcon className="w-12 h-12 mb-2 opacity-30" />
+                    <span>{spirit.name}</span>
+                  </div>
+                }
               />
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 bg-gray-800/50">
-                <ImageIcon className="w-12 h-12 mb-2 opacity-30" />
-                <span>{spirit.name}</span>
-              </div>
-            )}
+            </div>
             {/* Type badge */}
             <div className="absolute top-3 left-3 bg-black/60 text-white px-3 py-1 rounded-full text-xs font-medium backdrop-blur-sm flex items-center gap-1">
               <Tag className="w-3 h-3" />
@@ -143,24 +179,24 @@ export default function SpiritCard({ spirit, onDelete, onToggleFavorite }: Spiri
             )}
             
             {/* Tasting notes */}
-            {(spirit.nose || spirit.palate || spirit.finish) && (
+            {(displayNose || displayPalate || displayFinish) && (
               <div className="mt-4 space-y-1">
-                {spirit.nose && (
+                {displayNose && (
                   <div className="text-sm">
                     <span className="text-amber-500 font-medium">Nose:</span> 
-                    <span className="text-gray-300"> {spirit.nose}</span>
+                    <span className="text-gray-300"> {displayNose}</span>
                   </div>
                 )}
-                {spirit.palate && (
+                {displayPalate && (
                   <div className="text-sm">
                     <span className="text-amber-500 font-medium">Palate:</span> 
-                    <span className="text-gray-300"> {spirit.palate}</span>
+                    <span className="text-gray-300"> {displayPalate}</span>
                   </div>
                 )}
-                {spirit.finish && (
+                {displayFinish && (
                   <div className="text-sm">
                     <span className="text-amber-500 font-medium">Finish:</span> 
-                    <span className="text-gray-300"> {spirit.finish}</span>
+                    <span className="text-gray-300"> {displayFinish}</span>
                   </div>
                 )}
               </div>

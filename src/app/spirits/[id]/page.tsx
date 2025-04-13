@@ -358,15 +358,15 @@ export default function SpiritPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-gray-700 rounded-lg p-4">
                   <h3 className="text-amber-500 mb-2 font-medium">Nose</h3>
-                  <p className="text-gray-300">{spirit.nose || 'No notes added'}</p>
+                  <p className="text-gray-300">{!spirit.nose || spirit.nose === 'null' ? 'No notes added' : spirit.nose}</p>
                 </div>
                 <div className="bg-gray-700 rounded-lg p-4">
                   <h3 className="text-amber-500 mb-2 font-medium">Palate</h3>
-                  <p className="text-gray-300">{spirit.palate || 'No notes added'}</p>
+                  <p className="text-gray-300">{!spirit.palate || spirit.palate === 'null' ? 'No notes added' : spirit.palate}</p>
                 </div>
                 <div className="bg-gray-700 rounded-lg p-4">
                   <h3 className="text-amber-500 mb-2 font-medium">Finish</h3>
-                  <p className="text-gray-300">{spirit.finish || 'No notes added'}</p>
+                  <p className="text-gray-300">{!spirit.finish || spirit.finish === 'null' ? 'No notes added' : spirit.finish}</p>
                 </div>
               </div>
             </div>

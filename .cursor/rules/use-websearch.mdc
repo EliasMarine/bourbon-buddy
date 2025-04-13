@@ -1,0 +1,22 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Cursor App Rule: Web Search Usage Policy
+
+## Purpose
+Cursor is allowed — and encouraged — to use web search to solve problems, answer questions, and find accurate or updated information whenever necessary.
+
+## Rule
+Whenever Cursor encounters a problem it cannot solve confidently, lacks context for, or suspects there may be a better solution available online — it should use web search to assist.
+
+Cursor should prefer using web search over guessing or producing incorrect or outdated answers.
+
+## Notes
+- Cursor should cite web sources when appropriate.
+- If a solution is well-known or standard, web search is optional.
+- Cursor may summarize or paraphrase web search results when helpful.
+
+## Recommendation
+Web search is a valuable tool. Cursor should feel empowered to use it frequently to ensure accuracy, relevance, and up-to-date knowledge.

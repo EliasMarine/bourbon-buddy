@@ -8,6 +8,7 @@ interface SafeImageProps extends Omit<ImageProps, 'onError'> {
   fallbackClassName?: string;
   useDirectUrl?: boolean;
   useTimestamp?: boolean;
+  priority?: boolean;
 }
 
 /**
@@ -47,6 +48,7 @@ export default function SafeImage({
   className,
   useDirectUrl = false,
   useTimestamp = false,
+  priority = false,
   ...props
 }: SafeImageProps) {
   const [error, setError] = useState(false);
@@ -131,6 +133,7 @@ export default function SafeImage({
       src={imageUrl}
       alt={alt || ''}
       className={className}
+      priority={priority}
       onError={() => {
         if (imageUrl.startsWith('/api/images') && !useFallbackUrl) {
           handleApiError();

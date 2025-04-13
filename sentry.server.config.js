@@ -4,8 +4,8 @@
 
 import * as Sentry from "@sentry/nextjs";
 
-// Force enable for testing
-const isEnabled = true;
+// Only enable in production by default, or when explicitly enabled for dev
+const isEnabled = process.env.NODE_ENV === 'production' || process.env.SENTRY_ENABLED_DEV === 'true';
 
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -16,8 +16,8 @@ Sentry.init({
   // Disable debug mode completely
   debug: false,
 
-  // Force enable for testing
-  enabled: true,
+  // Only enable in production by default
+  enabled: isEnabled,
   
   // Enable performance monitoring
   enableTracing: true,

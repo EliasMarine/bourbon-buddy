@@ -12,7 +12,7 @@ export default function SignUp() {
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
-  const supabase = useSupabase();
+  const { supabase } = useSupabase();
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -27,8 +27,12 @@ export default function SignUp() {
     const username = formData.get('username') as string;
 
     try {
+      if (!email || !password || !username) {
+        throw new Error('Please fill in all required fields');
+      }
+
       // Sign up with Supabase
-      const { error: signUpError } = await supabase.auth.signUp({
+      const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -52,6 +56,7 @@ export default function SignUp() {
         router.push('/login?registered=true');
       }, 5000);
     } catch (error: any) {
+      console.error('Signup error:', error);
       setError(error.message);
     } finally {
       setIsLoading(false);
@@ -199,7 +204,6 @@ export default function SignUp() {
                   id="name"
                   name="name"
                   type="text"
-                  required
                   className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-700 placeholder-gray-400 text-white bg-gray-800 rounded-t-md focus:outline-none focus:ring-amber-500 focus:border-amber-500 focus:z-10 sm:text-sm"
                   placeholder="Full name"
                 />
@@ -213,6 +217,7 @@ export default function SignUp() {
                   name="username"
                   type="text"
                   required
+                  autoComplete="username"
                   className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-700 placeholder-gray-400 text-white bg-gray-800 focus:outline-none focus:ring-amber-500 focus:border-amber-500 focus:z-10 sm:text-sm"
                   placeholder="Username"
                 />

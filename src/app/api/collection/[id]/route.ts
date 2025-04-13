@@ -32,7 +32,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json(spirit);
+    // Format tasting notes to ensure consistent representation
+    const formattedSpirit = {
+      ...spirit,
+      nose: formatTastingNotes(spirit.nose),
+      palate: formatTastingNotes(spirit.palate),
+      finish: formatTastingNotes(spirit.finish)
+    };
+
+    // Add cache control headers to prevent frequent re-fetching
+    const headers = new Headers();
+    headers.set('Cache-Control', 'private, max-age=10');
+    headers.set('Vary', 'Cookie, Authorization');
+
+    return NextResponse.json(formattedSpirit, { headers });
   } catch (error: unknown) {
     if (error && typeof error === 'object' && 'status' in error && error.status === 429) {
       return NextResponse.json(
@@ -45,6 +58,63 @@ export async function GET(request: NextRequest) {
       { error: 'Internal server error' },
       { status: 500 }
     );
+  }
+}
+
+// Helper function to format tasting notes consistently
+function formatTastingNotes(notes: string | null | undefined | string[] | any): string {
+  // Handle null or undefined
+  if (notes === null || notes === undefined || notes === 'null' || notes === '') return '[]';
+  
+  try {
+    // Handle case when notes is already an array
+    if (Array.isArray(notes)) {
+      // Filter out null/undefined/empty values and stringify
+      const filteredArray = notes.filter(note => 
+        note !== null && note !== undefined && note !== 'null' && note !== ''
+      );
+      return JSON.stringify(filteredArray);
+    }
+    
+    // If it's already a valid JSON array string, validate and return it
+    if (typeof notes === 'string' && notes.startsWith('[') && notes.endsWith(']')) {
+      try {
+        // Parse and re-stringify to ensure valid format
+        const parsed = JSON.parse(notes);
+        if (Array.isArray(parsed)) {
+          const filteredArray = parsed.filter(note => 
+            note !== null && note !== undefined && note !== 'null' && note !== ''
+          );
+          return JSON.stringify(filteredArray);
+        }
+        // If parsed but not an array, wrap in array
+        return JSON.stringify([notes]);
+      } catch (e) {
+        // Invalid JSON but looks like an array, return empty array
+        console.warn('Invalid JSON array string:', notes);
+        return '[]';
+      }
+    }
+    
+    // If it's a comma-separated string, convert to JSON array
+    if (typeof notes === 'string' && notes.includes(',')) {
+      const notesArray = notes.split(',')
+        .map(n => n && typeof n.trim === 'function' ? n.trim() : n)
+        .filter(n => n !== null && n !== undefined && n !== 'null' && n !== '');
+      return JSON.stringify(notesArray);
+    }
+    
+    // Single note (and not an empty string), convert to JSON array
+    if (notes !== '') {
+      return JSON.stringify([notes]);
+    }
+    
+    // Default to empty array
+    return '[]';
+  } catch (e) {
+    console.error('Error formatting tasting notes:', e, notes);
+    // If any error occurs, return a valid empty JSON array
+    return '[]';
   }
 }
 
@@ -118,9 +188,31 @@ export async function PUT(request: NextRequest) {
       const spirit = await prisma.spirit.update({
         where: { id },
         data: {
-          ...validatedData,
-          // Ensure ownerId remains unchanged
-          ownerId: existingSpirit.ownerId
+          // Only include fields that are defined in the Prisma schema
+          name: validatedData.name,
+          brand: validatedData.brand,
+          category: validatedData.category,
+          type: validatedData.type,
+          description: validatedData.description,
+          proof: validatedData.proof,
+          price: validatedData.price,
+          imageUrl: validatedData.imageUrl,
+          bottleLevel: validatedData.bottleLevel,
+          rating: validatedData.rating,
+          // Ensure tasting notes are always stored as strings
+          nose: typeof validatedData.nose === 'string' ? validatedData.nose : JSON.stringify(validatedData.nose),
+          palate: typeof validatedData.palate === 'string' ? validatedData.palate : JSON.stringify(validatedData.palate),
+          finish: typeof validatedData.finish === 'string' ? validatedData.finish : JSON.stringify(validatedData.finish),
+          distillery: validatedData.distillery,
+          bottleSize: validatedData.bottleSize,
+          dateAcquired: validatedData.dateAcquired,
+          isFavorite: validatedData.isFavorite,
+          // Use connect to link to the existing owner
+          owner: {
+            connect: {
+              id: existingSpirit.ownerId
+            }
+          }
         },
       });
 

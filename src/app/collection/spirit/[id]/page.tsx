@@ -4,11 +4,13 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { Spirit } from '@/types';
-import { Wine, ArrowLeft, Building2, Award, Droplets, Star, Tag, ExternalLink, Share2, Copy, Check, Search, Edit, X, Image as ImageIcon } from 'lucide-react';
+import { Wine, ArrowLeft, Building2, Award, Droplets, Star, Tag, ExternalLink, Share2, Copy, Check, Search, Edit, X, Image as ImageIcon, Trash2, Heart, Camera, RefreshCw, Info, Plus } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import ModernBottleLevelIndicator from '@/components/ui/ModernBottleLevelIndicator';
 import Image from 'next/image';
+import SafeImage from '@/components/ui/SafeImage';
+import { getSafeImageUrl } from '@/lib/spiritUtils';
 
 interface WebData {
   query: string;
@@ -138,24 +140,40 @@ export default function SpiritDetailPage() {
   useEffect(() => {
     // Parse tasting notes when spirit data is available
     if (data?.spirit) {
-      const parseNotes = (notesStr: string | undefined | null) => {
-        if (!notesStr) return [];
+      const parseNotes = (notesStr: string | undefined | null | string[]) => {
+        // Empty string, undefined, or literal "null" string should return empty array
+        if (notesStr === undefined || notesStr === null || notesStr === 'null' || notesStr === '') return [];
         
         try {
           // First check if it's already an array
           if (Array.isArray(notesStr)) {
-            return notesStr;
+            // Filter out any null, undefined or "null" string values, but preserve empty arrays
+            return notesStr.filter(note => note !== null && note !== undefined && note !== 'null' && note !== '');
           }
           
           // Try to parse as JSON (for notes stored as arrays)
-          try {
-            const parsed = JSON.parse(notesStr);
-            // Ensure the result is an array
-            return Array.isArray(parsed) ? parsed : [parsed];
-          } catch (e) {
-            // If JSON parsing fails, split by comma (for notes stored as comma-separated strings)
-            return notesStr.split(',').map(n => n.trim()).filter(Boolean);
+          if (typeof notesStr === 'string') {
+            try {
+              const parsed = JSON.parse(notesStr);
+              // Ensure the result is an array and filter out null/undefined/null strings
+              if (Array.isArray(parsed)) {
+                return parsed.filter(note => note !== null && note !== undefined && note !== 'null' && note !== '');
+              } else if (parsed !== null && parsed !== undefined && parsed !== 'null' && parsed !== '') {
+                return [parsed];
+              } else {
+                return [];
+              }
+            } catch (e) {
+              // If JSON parsing fails, split by comma (for notes stored as comma-separated strings)
+              return notesStr.split(',')
+                .map(n => n && typeof n.trim === 'function' ? n.trim() : n)
+                .filter(n => n !== null && n !== undefined && n !== 'null' && n !== '');
+            }
           }
+          
+          // Fallback - convert to string and return single item array
+          const strValue = String(notesStr);
+          return strValue !== 'null' ? [strValue] : [];
         } catch (e) {
           console.error('Error parsing tasting notes:', e);
           return [];
@@ -504,24 +522,40 @@ export default function SpiritDetailPage() {
       
       // Revert the local state change on error
       if (data?.spirit) {
-        const parseNotes = (notesStr: string | undefined | null) => {
-          if (!notesStr) return [];
+        const parseNotes = (notesStr: string | undefined | null | string[]) => {
+          // Empty string, undefined, or literal "null" string should return empty array
+          if (notesStr === undefined || notesStr === null || notesStr === 'null' || notesStr === '') return [];
           
           try {
             // First check if it's already an array
             if (Array.isArray(notesStr)) {
-              return notesStr;
+              // Filter out any null, undefined or "null" string values, but preserve empty arrays
+              return notesStr.filter(note => note !== null && note !== undefined && note !== 'null' && note !== '');
             }
             
             // Try to parse as JSON (for notes stored as arrays)
-            try {
-              const parsed = JSON.parse(notesStr);
-              // Ensure the result is an array
-              return Array.isArray(parsed) ? parsed : [parsed];
-            } catch (e) {
-              // If JSON parsing fails, split by comma (for notes stored as comma-separated strings)
-              return notesStr.split(',').map(n => n.trim()).filter(Boolean);
+            if (typeof notesStr === 'string') {
+              try {
+                const parsed = JSON.parse(notesStr);
+                // Ensure the result is an array and filter out null/undefined/null strings
+                if (Array.isArray(parsed)) {
+                  return parsed.filter(note => note !== null && note !== undefined && note !== 'null' && note !== '');
+                } else if (parsed !== null && parsed !== undefined && parsed !== 'null' && parsed !== '') {
+                  return [parsed];
+                } else {
+                  return [];
+                }
+              } catch (e) {
+                // If JSON parsing fails, split by comma (for notes stored as comma-separated strings)
+                return notesStr.split(',')
+                  .map(n => n && typeof n.trim === 'function' ? n.trim() : n)
+                  .filter(n => n !== null && n !== undefined && n !== 'null' && n !== '');
+              }
             }
+            
+            // Fallback - convert to string and return single item array
+            const strValue = String(notesStr);
+            return strValue !== 'null' ? [strValue] : [];
           } catch (e) {
             console.error('Error parsing tasting notes:', e);
             return [];
@@ -546,6 +580,7 @@ export default function SpiritDetailPage() {
     setIsImageSearchLoading(true);
     setImageSearchResults([]);
     setShowImageOptions(false);
+    setSelectedImageUrl(null);
     
     try {
       const spiritInfo = data.spirit;
@@ -603,15 +638,18 @@ export default function SpiritDetailPage() {
       
       if (searchResponse.images && searchResponse.images.length > 0) {
         // Filter out any invalid URLs before setting state
-        const validImages = searchResponse.images.filter(img => {
-          try {
-            new URL(img.url);
-            return true;
-          } catch {
-            console.warn(`Invalid image URL: ${img.url}`);
-            return false;
-          }
-        });
+        const validImages = searchResponse.images
+          .filter(img => {
+            try {
+              new URL(img.url);
+              return true;
+            } catch {
+              console.warn(`Invalid image URL: ${img.url}`);
+              return false;
+            }
+          })
+          // Limit to 10 images max
+          .slice(0, 10);
         
         if (validImages.length > 0) {
           setImageSearchResults(validImages);
@@ -655,17 +693,6 @@ export default function SpiritDetailPage() {
         new URL(imageUrl);
       } catch (e) {
         throw new Error('Invalid image URL selected');
-      }
-      
-      // Check if the image is accessible
-      try {
-        const imageCheck = await fetch(imageUrl, { method: 'HEAD' });
-        if (!imageCheck.ok) {
-          throw new Error(`Image not accessible (status: ${imageCheck.status})`);
-        }
-      } catch (error) {
-        console.warn('Image accessibility check failed:', error);
-        // Continue anyway - some servers block HEAD requests but allow GET
       }
       
       // Clean up the spirit data for updating
@@ -720,28 +747,16 @@ export default function SpiritDetailPage() {
       setShowImageOptions(false);
       toast.success('Bottle image updated');
       
-      // Update the image instead of reloading the page
-      try {
-        const bottleImage = document.querySelector('.spirit-bottle-image') as HTMLImageElement;
-        if (bottleImage) {
-          // Create a new image element to test loading the new URL
-          const testImage = document.createElement('img');
-          testImage.onload = () => {
-            // Only update src if the image loaded successfully
-            bottleImage.src = finalImageUrl;
-          };
-          testImage.onerror = () => {
-            console.error('Failed to load updated image:', finalImageUrl);
-            // Don't modify the current image source
-            toast.error('New image failed to load', { icon: '⚠️' });
-          };
-          // Start loading the image
-          testImage.src = finalImageUrl;
-        }
-      } catch (error) {
-        console.error('Error updating image element:', error);
-        // Don't reload the page, just show a toast
-        toast('Image will appear after next page load', { icon: 'ℹ️' });
+      // Force reload of the image to show updated version
+      const timestamp = Date.now();
+      const imageElement = document.querySelector('.spirit-bottle-image') as HTMLImageElement;
+      if (imageElement) {
+        const currentSrc = imageElement.src;
+        const newSrc = currentSrc.includes('?') 
+          ? currentSrc.replace(/(_cb=|_t=)[^&]+/, `$1${timestamp}`) 
+          : `${currentSrc}?_cb=${timestamp}`;
+          
+        imageElement.src = newSrc;
       }
     } catch (error) {
       console.error('Error updating bottle image:', error);
@@ -800,8 +815,8 @@ export default function SpiritDetailPage() {
       <div className="fixed inset-0 z-0">
         <div className="absolute inset-0 bg-black/50 z-10"></div>
         <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-transparent to-transparent z-10"></div>
-        <div className="absolute inset-0 overflow-hidden">
-          <Image 
+        <div className="fixed inset-0 overflow-hidden">
+          <SafeImage 
             src="/images/backgrounds/Collection background/collection_background.jpg?v=1"
             alt="Collection background"
             fill
@@ -853,41 +868,14 @@ export default function SpiritDetailPage() {
               {spirit.imageUrl ? (
                 <div className="flex items-center justify-center py-6 px-4 h-full min-h-[300px] md:min-h-[400px]">
                   <div className="relative flex items-center justify-center">
-                    <img
-                      src={`${spirit.imageUrl}${spirit.imageUrl.includes('?') ? '&' : '?'}_t=${Date.now()}`}
+                    <SafeImage
+                      src={getSafeImageUrl(spirit.imageUrl)}
                       alt={spirit.name}
                       className="max-w-[95%] max-h-[90%] object-contain spirit-bottle-image transition-transform hover:scale-[1.02]"
+                      width={300}
+                      height={500}
                       style={{ maxHeight: "min(70vh, 600px)" }} 
                       loading="eager"
-                      onError={(e) => {
-                        // Fallback if image fails to load
-                        const target = e.target as HTMLImageElement;
-                        target.onerror = null; // Prevent infinite error loop
-                        console.error(`Failed to load image for ${spirit.name}: ${spirit.imageUrl}`);
-                        
-                        // Check if the URL needs to be proxied
-                        const imgUrl = spirit.imageUrl || '';
-                        if (imgUrl.startsWith('http') && !imgUrl.startsWith('/api/proxy')) {
-                          // Try loading via proxy
-                          console.log('Trying to load image via proxy...');
-                          target.src = `/api/proxy/image?url=${encodeURIComponent(imgUrl)}&_t=${Date.now()}`;
-                        } else {
-                          // If proxy also failed or URL is already proxied, use placeholder
-                          fetch('/images/bottle-placeholder.png', { method: 'HEAD' })
-                            .then(response => {
-                              if (response.ok) {
-                                target.src = '/images/bottle-placeholder.png';
-                              } else {
-                                // If placeholder doesn't exist, use a data URI for a simple placeholder
-                                target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzMzMyIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LXNpemU9IjE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBhbGlnbm1lbnQtYmFzZWxpbmU9Im1pZGRsZSIgZmlsbD0id2hpdGUiPkltYWdlIG5vdCBhdmFpbGFibGU8L3RleHQ+PC9zdmc+';
-                              }
-                            })
-                            .catch(() => {
-                              // If fetch fails, also use data URI
-                              target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzMzMyIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LXNpemU9IjE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBhbGlnbm1lbnQtYmFzZWxpbmU9Im1pZGRsZSIgZmlsbD0id2hpdGUiPkltYWdlIG5vdCBhdmFpbGFibGU8L3RleHQ+PC9zdmc+';
-                            });
-                        }
-                      }}
                     />
                   </div>
                   <button
@@ -923,190 +911,93 @@ export default function SpiritDetailPage() {
               
               {/* Image Search Results Modal */}
               {showImageOptions && imageSearchResults.length > 0 && (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-                  <div className="bg-gray-800 rounded-lg p-6 max-w-5xl w-full max-h-[90vh] overflow-auto">
-                    <div className="flex justify-between items-center mb-4">
+                <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
+                  <div className="bg-gray-900 rounded-lg w-full max-w-4xl overflow-hidden flex flex-col">
+                    {/* Header */}
+                    <div className="flex justify-between items-center p-5 border-b border-gray-800">
                       <h2 className="text-xl font-bold text-white">Select Bottle Image</h2>
                       <button 
                         onClick={() => setShowImageOptions(false)}
-                        className="p-1 hover:bg-gray-700 rounded-full"
+                        className="text-gray-400 hover:text-white"
                       >
-                        <X className="w-6 h-6 text-gray-400 hover:text-white" />
+                        <X className="w-6 h-6" />
                       </button>
                     </div>
-                    
-                    <p className="text-gray-300 mb-2">
-                      Found {imageSearchResults.length} potential images for {spirit.brand} {spirit.name}.
-                    </p>
-                    <p className="text-gray-400 text-sm mb-4">
-                      Select the image that best represents this bottle in your collection.
-                    </p>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                      {imageSearchResults.map((image, index) => (
-                        <div 
-                          key={index}
-                          className={`relative rounded-lg overflow-hidden border-2 hover:border-amber-500 cursor-pointer transition-all ${
-                            selectedImageUrl === image.url ? 'border-amber-500 shadow-lg shadow-amber-500/30 scale-[1.02]' : 'border-transparent'
-                          }`}
-                          onClick={() => {
-                            setSelectedImageUrl(image.url);
-                            setSelectedImageIndex(index);
-                            setPreviewUrl(image.url);
-                          }}
-                        >
-                          <div className="aspect-[3/4] bg-white relative">
-                            {/* Loading spinner */}
-                            <div className="absolute inset-0 flex items-center justify-center text-gray-400 bg-white/60 z-0">
-                              <div className="w-8 h-8 border-t-2 border-b-2 border-gray-400 rounded-full animate-spin"></div>
-                            </div>
-                            
-                            {/* Image container */}
-                            <div className="absolute inset-0 flex items-center justify-center z-10">
+
+                    {/* Description */}
+                    <div className="px-5 py-3">
+                      <p className="text-gray-400">
+                        Found {imageSearchResults.length} potential images for {spirit.brand} {spirit.name}.
+                      </p>
+                      <p className="text-gray-500 text-sm">
+                        Select the image that best represents this bottle in your collection.
+                      </p>
+                    </div>
+
+                    {/* Image Grid */}
+                    <div className="px-5 py-2 flex-grow overflow-y-auto">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                        {imageSearchResults.map((image, index) => (
+                          <div 
+                            key={index}
+                            className={`aspect-[1/1.2] bg-white rounded-md overflow-hidden cursor-pointer ${
+                              selectedImageUrl === image.url ? 'ring-2 ring-amber-500 ring-offset-2 ring-offset-gray-900' : ''
+                            }`}
+                            onClick={() => {
+                              setSelectedImageUrl(image.url);
+                              setSelectedImageIndex(index);
+                            }}
+                          >
+                            <div className="w-full h-full relative bg-white">
+                              {/* Loading spinner */}
+                              <div className="absolute inset-0 flex items-center justify-center bg-white z-0">
+                                <div className="w-8 h-8 border-t-2 border-b-2 border-gray-400 rounded-full animate-spin"></div>
+                              </div>
+                              
+                              {/* Image */}
                               <img 
                                 src={image.url} 
-                                alt={image.alt}
-                                className="max-w-[90%] max-h-[90%] object-contain"
+                                alt={image.alt || 'Bottle image'}
+                                className="w-full h-full object-contain z-10 relative"
                                 loading="lazy"
                                 onLoad={(e) => {
-                                  // Hide spinner when image loads
-                                  const target = e.target as HTMLImageElement;
-                                  const parent = target.closest('.aspect-\\[3\\/4\\]');
-                                  if (parent) {
-                                    const spinner = parent.querySelector('.bg-white\\/60');
-                                    if (spinner) {
-                                      spinner.classList.add('hidden');
-                                    }
-                                  }
+                                  const target = e.target as HTMLElement;
+                                  const spinner = target.parentElement?.querySelector('div.absolute');
+                                  if (spinner) spinner.classList.add('hidden');
                                 }}
                                 onError={(e) => {
-                                  // Handle broken images with a fallback message
                                   const target = e.target as HTMLImageElement;
-                                  target.style.display = 'none';
-                                  const parent = target.closest('.aspect-\\[3\\/4\\]');
-                                  if (parent) {
-                                    const spinner = parent.querySelector('.bg-white\\/60');
-                                    if (spinner) {
-                                      spinner.innerHTML = `
-                                        <div class="flex flex-col items-center">
-                                          <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                          </svg>
-                                          <span class="text-gray-400 text-sm text-center">Image unavailable</span>
-                                          <button class="mt-2 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded" onclick="
-                                            const imgEl = this.closest('.aspect-\\[3\\/4\\]').querySelector('img');
-                                            if (imgEl) {
-                                              imgEl.style.display = 'block';
-                                              imgEl.src = '${image.url}?retry=' + Date.now();
-                                              this.closest('.bg-white\\/60').classList.add('hidden');
-                                            }
-                                          ">
-                                            Retry loading
-                                          </button>
-                                        </div>
-                                      `;
-                                    }
-                                  }
+                                  target.src = '/images/bottle-placeholder.png';
+                                  const spinner = target.parentElement?.querySelector('div.absolute');
+                                  if (spinner) spinner.classList.add('hidden');
                                 }}
                               />
                             </div>
                           </div>
-                          
-                          {/* Info overlay */}
-                          <div className="p-2 bg-gray-900/90 absolute bottom-0 left-0 right-0">
-                            <p className="text-xs text-gray-300 truncate">Source: {image.source}</p>
-                          </div>
-                          
-                          {/* Selected indicator */}
-                          {selectedImageUrl === image.url && (
-                            <div className="absolute top-2 right-2 bg-amber-500 rounded-full p-1.5 shadow-md z-20">
-                              <Check className="w-4 h-4 text-white" />
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    
-                    {/* Show a "no images found" message if no valid images were loaded */}
-                    {imageSearchResults.length === 0 && (
-                      <div className="bg-gray-900/50 rounded-lg p-8 text-center">
-                        <p className="text-gray-300 mb-4">No images found for this spirit.</p>
-                        <button
-                          onClick={searchBottleImages}
-                          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-md transition-colors"
-                        >
-                          Try Again
-                        </button>
-                      </div>
-                    )}
-                    
-                    <div className="flex justify-between mt-6">
-                      <button
-                        onClick={searchBottleImages}
-                        disabled={isImageSearchLoading}
-                        className="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600 flex items-center"
-                      >
-                        {isImageSearchLoading ? (
-                          <>
-                            <div className="w-4 h-4 border-t-2 border-b-2 border-white rounded-full animate-spin mr-2"></div>
-                            Searching...
-                          </>
-                        ) : (
-                          <>
-                            <Search className="w-4 h-4 mr-2" />
-                            Find More Images
-                          </>
-                        )}
-                      </button>
-                      
-                      <div className="space-x-3">
-                        <button
-                          onClick={() => setShowImageOptions(false)}
-                          className="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={() => selectedImageUrl && updateBottleImage(selectedImageUrl)}
-                          disabled={!selectedImageUrl}
-                          className={`px-4 py-2 rounded-md flex items-center ${
-                            selectedImageUrl 
-                              ? 'bg-amber-500 hover:bg-amber-600 text-white' 
-                              : 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                          }`}
-                        >
-                          {selectedImageUrl ? (
-                            <>
-                              <ImageIcon className="w-4 h-4 mr-2" />
-                              Update Image
-                            </>
-                          ) : 'Select an Image'}
-                        </button>
+                        ))}
                       </div>
                     </div>
 
-                    {selectedImageIndex !== null && previewUrl && (
-                      <div className="mt-4 p-4 bg-black/30 rounded-lg border border-white/10">
-                        <div className="flex flex-col md:flex-row gap-4 items-center">
-                          <div className="flex items-center justify-center bg-gray-900/50 rounded-lg p-4 w-full md:w-1/3 h-[250px]">
-                            <img
-                              src={previewUrl}
-                              alt="Selected spirit"
-                              className="max-h-[220px] max-w-[90%] object-contain rounded-lg shadow-lg"
-                            />
-                          </div>
-                          <div className="space-y-2 w-full md:w-2/3">
-                            <h5 className="font-medium text-white">Selected Image</h5>
-                            <p className="text-sm text-gray-300 break-words">
-                              Source: {selectedImageIndex !== null && imageSearchResults[selectedImageIndex]?.source || 'Unknown'}
-                            </p>
-                            <p className="text-sm text-gray-300 break-words">
-                              {spirit.brand} {spirit.name}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                    {/* Footer with buttons */}
+                    <div className="p-4 border-t border-gray-800 flex justify-end gap-3">
+                      <button
+                        onClick={() => setShowImageOptions(false)}
+                        className="px-6 py-2 bg-gray-800 text-white rounded hover:bg-gray-700 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => selectedImageUrl && updateBottleImage(selectedImageUrl)}
+                        disabled={!selectedImageUrl}
+                        className={`px-6 py-2 rounded transition-colors ${
+                          selectedImageUrl 
+                            ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                            : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                        }`}
+                      >
+                        Select an Image
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1190,88 +1081,77 @@ export default function SpiritDetailPage() {
               </div>
               
               {/* Tasting Notes Section */}
-              {(spirit.nose || spirit.palate || spirit.finish || 
-                selectedNotes.nose.length > 0 || selectedNotes.palate.length > 0 || selectedNotes.finish.length > 0) && (
+              {(selectedNotes.nose.length > 0 || 
+                selectedNotes.palate.length > 0 || 
+                selectedNotes.finish.length > 0) && (
                 <div className="mb-6">
                   <h3 className="text-lg font-semibold text-white mb-3">Your Tasting Notes</h3>
                   <div className="space-y-3">
-                    {(spirit.nose || selectedNotes.nose.length > 0) && (
+                    {selectedNotes.nose.length > 0 && (
                       <div>
                         <h4 className="text-amber-500 font-medium mb-1">Nose</h4>
                         <div className="flex flex-wrap gap-2">
-                          {selectedNotes.nose.length > 0 ? (
-                            selectedNotes.nose.map((note, index) => (
-                              <span 
-                                key={`nose-${index}`}
-                                className="bg-gray-800 text-gray-200 px-3 py-1 rounded-full text-sm flex items-center gap-1"
+                          {selectedNotes.nose.map((note, index) => (
+                            <span 
+                              key={`nose-${index}`}
+                              className="bg-gray-800 text-gray-200 px-3 py-1 rounded-full text-sm flex items-center gap-1"
+                            >
+                              {note && note.trim ? note.trim() : note}
+                              <button
+                                onClick={(e) => handleRemoveNote('nose', note, e)}
+                                className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
+                                aria-label={`Remove ${note} note`}
                               >
-                                {note.trim()}
-                                <button
-                                  onClick={(e) => handleRemoveNote('nose', note, e)}
-                                  className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
-                                  aria-label={`Remove ${note} note`}
-                                >
-                                  <X size={14} />
-                                </button>
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-gray-300">{spirit.nose}</span>
-                          )}
+                                <X size={14} />
+                              </button>
+                            </span>
+                          ))}
                         </div>
                       </div>
                     )}
                     
-                    {(spirit.palate || selectedNotes.palate.length > 0) && (
+                    {selectedNotes.palate.length > 0 && (
                       <div>
                         <h4 className="text-amber-500 font-medium mb-1">Palate</h4>
                         <div className="flex flex-wrap gap-2">
-                          {selectedNotes.palate.length > 0 ? (
-                            selectedNotes.palate.map((note, index) => (
-                              <span 
-                                key={`palate-${index}`}
-                                className="bg-gray-800 text-gray-200 px-3 py-1 rounded-full text-sm flex items-center gap-1"
+                          {selectedNotes.palate.map((note, index) => (
+                            <span 
+                              key={`palate-${index}`}
+                              className="bg-gray-800 text-gray-200 px-3 py-1 rounded-full text-sm flex items-center gap-1"
+                            >
+                              {note && note.trim ? note.trim() : note}
+                              <button
+                                onClick={(e) => handleRemoveNote('palate', note, e)}
+                                className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
+                                aria-label={`Remove ${note} note`}
                               >
-                                {note.trim()}
-                                <button
-                                  onClick={(e) => handleRemoveNote('palate', note, e)}
-                                  className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
-                                  aria-label={`Remove ${note} note`}
-                                >
-                                  <X size={14} />
-                                </button>
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-gray-300">{spirit.palate}</span>
-                          )}
+                                <X size={14} />
+                              </button>
+                            </span>
+                          ))}
                         </div>
                       </div>
                     )}
                     
-                    {(spirit.finish || selectedNotes.finish.length > 0) && (
+                    {selectedNotes.finish.length > 0 && (
                       <div>
                         <h4 className="text-amber-500 font-medium mb-1">Finish</h4>
                         <div className="flex flex-wrap gap-2">
-                          {selectedNotes.finish.length > 0 ? (
-                            selectedNotes.finish.map((note, index) => (
-                              <span 
-                                key={`finish-${index}`}
-                                className="bg-gray-800 text-gray-200 px-3 py-1 rounded-full text-sm flex items-center gap-1"
+                          {selectedNotes.finish.map((note, index) => (
+                            <span 
+                              key={`finish-${index}`}
+                              className="bg-gray-800 text-gray-200 px-3 py-1 rounded-full text-sm flex items-center gap-1"
+                            >
+                              {note && note.trim ? note.trim() : note}
+                              <button
+                                onClick={(e) => handleRemoveNote('finish', note, e)}
+                                className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
+                                aria-label={`Remove ${note} note`}
                               >
-                                {note.trim()}
-                                <button
-                                  onClick={(e) => handleRemoveNote('finish', note, e)}
-                                  className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
-                                  aria-label={`Remove ${note} note`}
-                                >
-                                  <X size={14} />
-                                </button>
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-gray-300">{spirit.finish}</span>
-                          )}
+                                <X size={14} />
+                              </button>
+                            </span>
+                          ))}
                         </div>
                       </div>
                     )}

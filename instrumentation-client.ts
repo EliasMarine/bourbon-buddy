@@ -18,8 +18,8 @@ Sentry.init({
   // Disable debug mode - it causes issues with non-debug bundles
   debug: false,
   
-  // Force enable to ensure errors are captured
-  enabled: true,
+  // Only enable in production by default, or when explicitly enabled for dev
+  enabled: isEnabled,
   
   // Adjust these values - set to 1.0 to capture everything during testing
   tracesSampleRate: 1.0,

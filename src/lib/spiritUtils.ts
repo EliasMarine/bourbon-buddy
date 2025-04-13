@@ -2,6 +2,43 @@ import { PrismaClient } from '@prisma/client';
 import { prisma } from './prisma';
 
 /**
+ * Get a safe image URL that works with Content Security Policy
+ * This either returns a proxied URL for external images or the original URL for local images
+ * 
+ * @param url The original image URL
+ * @param useProxy Whether to force using the proxy even for local URLs
+ * @returns A safe URL that works with CSP
+ */
+export function getSafeImageUrl(url: string | null | undefined, useProxy = true): string {
+  // Return a placeholder if URL is missing
+  if (!url) return '/images/bottle-placeholder.png';
+  
+  // For local images, return as is
+  if (url.startsWith('/')) return url;
+  
+  // For external URLs, use our proxy API
+  if (url.startsWith('http') && useProxy) {
+    // Add cache-busting parameter for browser caching
+    const cacheBuster = `&_cb=${Date.now()}`;
+    return `/api/proxy/image?url=${encodeURIComponent(url)}${cacheBuster}`;
+  }
+  
+  // Handle relative URLs that don't start with slash
+  if (!url.startsWith('http') && !url.startsWith('/') && !url.startsWith('data:')) {
+    return `/${url}`; // Convert to absolute path
+  }
+  
+  // Data URLs can be used directly
+  if (url.startsWith('data:')) {
+    return url;
+  }
+  
+  // If we reach here, the URL format is unexpected - return a placeholder
+  console.warn('Unexpected image URL format:', url);
+  return '/images/bottle-placeholder.png';
+}
+
+/**
  * Utility to attempt recovery of a deleted spirit if it exists in console logs
  * This is a simple implementation - in a production environment, you would:
  * 1. Store backups in a database table or file storage

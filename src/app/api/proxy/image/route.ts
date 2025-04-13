@@ -62,8 +62,15 @@ export async function GET(request: NextRequest) {
         // Set a user agent to avoid being blocked by some servers
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         'Accept': 'image/jpeg,image/png,image/webp,image/gif,image/*',
-        'Referer': new URL(imageUrl).origin
-      }
+        'Referer': new URL(imageUrl).origin,
+        // Add origin header to help with CORS
+        'Origin': process.env.NEXT_PUBLIC_URL || new URL(request.url).origin
+      },
+      cache: 'no-store',
+      // Ensure cookies aren't sent with the fetch
+      credentials: 'omit',
+      // Increase timeout for slow image servers
+      signal: AbortSignal.timeout(15000) // 15 second timeout
     }).catch(error => {
       console.error('Fetch error:', error);
       return null;
@@ -74,7 +81,7 @@ export async function GET(request: NextRequest) {
       const statusText = imageResponse?.statusText || 'Bad Gateway';
       console.error(`Image fetch failed: ${status} ${statusText} for URL: ${imageUrl}`);
       
-      // Special handling for Reddit and BusinessWire images
+      // Special handling for common problems
       if (imageUrl.includes('reddit.com') || imageUrl.includes('redd.it')) {
         return new NextResponse('Reddit images require authentication and cannot be proxied', { status: 403 });
       }
@@ -83,10 +90,26 @@ export async function GET(request: NextRequest) {
         return new NextResponse('BusinessWire images have special protection and cannot be proxied', { status: 403 });
       }
       
-      return new NextResponse(
-        `Failed to fetch image: ${status} ${statusText}`, 
-        { status }
-      );
+      // Try to salvage the situation by returning the placeholder instead of an error
+      try {
+        const placeholderPath = './public/images/bottle-placeholder.png';
+        const fsPromises = require('fs').promises;
+        const placeholderData = await fsPromises.readFile(placeholderPath);
+        
+        return new NextResponse(placeholderData, {
+          headers: {
+            'Content-Type': 'image/png',
+            'Cache-Control': 'public, max-age=3600',
+            'X-Content-Type-Options': 'nosniff',
+          }
+        });
+      } catch (placeholderError) {
+        console.error('Failed to serve placeholder image:', placeholderError);
+        return new NextResponse(
+          `Failed to fetch image: ${status} ${statusText}`, 
+          { status }
+        );
+      }
     }
 
     // Get the image data
@@ -107,6 +130,10 @@ export async function GET(request: NextRequest) {
         // Add security headers
         'X-Content-Type-Options': 'nosniff',
         'X-Frame-Options': 'DENY',
+        // Add CORS headers
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD',
+        'Access-Control-Max-Age': '86400',
       },
     })
 
@@ -125,4 +152,15 @@ export async function GET(request: NextRequest) {
     console.error('Image proxy error:', error)
     return new NextResponse('Internal Server Error', { status: 500 })
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+      'Access-Control-Max-Age': '86400',
+    },
+  });
 } 

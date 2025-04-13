@@ -31,7 +31,7 @@ const defaultContextValue: SupabaseContextType = {
 };
 
 // Create the context
-const SupabaseContext = createContext<SupabaseContextType | undefined>(undefined);
+const SupabaseContext = createContext<SupabaseContextType>(defaultContextValue);
 
 // Global tracking to prevent redundant syncs across hot reloads
 let globalUserSynced = false;
@@ -79,21 +79,39 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       // If refresh fails, try getSession
       if (refreshError) {
         console.warn('Session refresh failed, falling back to getSession:', refreshError);
-        const { data, error } = await supabase.auth.getSession();
         
-        if (error) {
-          console.error('Error refreshing session:', error);
-          setError(error);
-          setIsLoading(false);
-          return;
+        try {
+          const { data, error } = await supabase.auth.getSession();
+          
+          if (error) {
+            console.error('GetSession also failed:', error);
+            
+            // Check if we have a session in localStorage as last resort
+            if (typeof window !== 'undefined') {
+              const storedSession = localStorage.getItem('supabase.auth.token');
+              if (storedSession) {
+                console.log('Found stored session, attempting to recover');
+                // We have a stored session, let's try to recover by calling refreshSession again in 1s
+                setTimeout(() => refreshSession(), 1000);
+              }
+            }
+            
+            setError(error);
+          } else {
+            // Successfully got session
+            setSession(data.session);
+            setUser(data.session?.user || null);
+            setError(null); // Clear any previous errors
+          }
+        } catch (innerError) {
+          console.error('Critical error in getSession fallback:', innerError);
+          setError({ message: 'Failed to retrieve session', status: 500 } as AuthError);
         }
-        
-        setSession(data.session);
-        setUser(data.session?.user || null);
       } else {
         // Use the refreshed session data
         setSession(refreshData.session);
         setUser(refreshData.session?.user || null);
+        setError(null); // Clear any previous errors
       }
       
       // Check for registration status in both app_metadata and user_metadata
@@ -115,6 +133,12 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error('Error in refreshSession:', err);
       setError(err as AuthError);
+      
+      // Implement retry mechanism
+      if (typeof window !== 'undefined') {
+        console.log('Setting up retry for session refresh');
+        setTimeout(() => refreshSession(), 3000); // Retry after 3 seconds
+      }
     } finally {
       setIsLoading(false);
     }

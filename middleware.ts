@@ -275,41 +275,6 @@ export async function middleware(request: NextRequest) {
     // Add Permissions-Policy header (replacing deprecated Feature-Policy)
     responseHeaders.set('Permissions-Policy', 'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()');
     
-    // Content Security Policy based on environment
-    if (process.env.NODE_ENV === 'production') {
-      // Strict CSP for production
-      responseHeaders.set(
-        'Content-Security-Policy',
-        "default-src 'self'; " +
-        "script-src 'self' 'unsafe-inline' https://js.stripe.com https://cdn.jsdelivr.net https://cdn.paddle.com https://apis.google.com https://plausible.io; " +
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-        "img-src 'self' data: blob: https://*.supabase.co https://res.cloudinary.com https://source.unsplash.com https://images.unsplash.com; " +
-        "font-src 'self' https://fonts.gstatic.com; " +
-        "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://checkout.paddle.com; " +
-        "frame-src 'self' https://js.stripe.com https://checkout.paddle.com; " +
-        "object-src 'none'; " +
-        "base-uri 'self'; " +
-        "form-action 'self'; " +
-        "frame-ancestors 'self'; " +
-        "block-all-mixed-content; " +
-        "upgrade-insecure-requests"
-      );
-    } else {
-      // More permissive CSP for development
-      responseHeaders.set(
-        'Content-Security-Policy',
-        "default-src 'self'; " +
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://cdn.jsdelivr.net; " +
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-        "img-src 'self' data: blob: https://*.supabase.co https://res.cloudinary.com https://source.unsplash.com https://images.unsplash.com; " +
-        "font-src 'self' https://fonts.gstatic.com; " +
-        "connect-src 'self' localhost:* 127.0.0.1:* ws://localhost:* wss://localhost:* https://*.supabase.co wss://*.supabase.co; " +
-        "frame-src 'self' https://js.stripe.com; " +
-        "object-src 'none'; " +
-        "base-uri 'self'"
-      );
-    }
-    
     // Apply the updated headers to the response
     Object.entries(responseHeaders).forEach(([key, value]) => {
       response.headers.set(key, value);
