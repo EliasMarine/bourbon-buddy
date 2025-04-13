@@ -1,4 +1,12 @@
 /** @type {import('next').NextConfig} */
+const nextSafeConfig = require('./next-safe.config');
+const nextSafe = require('next-safe');
+const { withSentryConfig } = require("@sentry/nextjs");
+
+// Generate security headers from next-safe
+const securityHeaders = nextSafe(nextSafeConfig);
+
+// Define Next.js config
 const nextConfig = {
   reactStrictMode: true,
   // Disable TypeScript type checking for development
@@ -122,39 +130,25 @@ const nextConfig = {
     
     return config;
   },
+  // Apply security headers for all paths
   async headers() {
     return [
       {
         source: '/:path*',
-        headers: [
-          {
-            key: 'X-Frame-Options',
-            value: 'DENY',
-          },
-          {
-            key: 'X-Content-Type-Options',
-            value: 'nosniff',
-          },
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=31536000; includeSubDomains',
-          },
-          {
-            key: 'X-XSS-Protection',
-            value: '1; mode=block',
-          },
-          {
-            key: 'Referrer-Policy',
-            value: 'strict-origin-when-cross-origin',
-          },
-          {
-            key: 'Content-Security-Policy',
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://bourbonbuddy.live; frame-ancestors 'none'; base-uri 'self'; form-action 'self';"
-          },
-        ],
+        headers: securityHeaders,
       },
     ];
   },
 }
 
-module.exports = nextConfig
+// Make sure adding Sentry options is the last code to run before exporting
+module.exports = withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG || "your-org",
+  project: process.env.SENTRY_PROJECT || "your-project",
+  
+  // Only print logs for uploading source maps in CI
+  silent: !process.env.CI,
+  
+  // Automatically tree-shake Sentry logger statements to reduce bundle size
+  disableLogger: true,
+});
