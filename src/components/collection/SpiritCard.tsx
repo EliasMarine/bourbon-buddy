@@ -18,6 +18,9 @@ export default function SpiritCard({ spirit, onDelete, onToggleFavorite }: Spiri
   // State for delete confirmation dialog
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [imageError, setImageError] = useState(false);
+  
+  // Placeholder image path for fallback
+  const placeholderImagePath = '/images/bottle-placeholder.png';
 
   // Determine the rating using a 10-point scale
   const rating = spirit.rating ? Number(spirit.rating) : 0;
@@ -62,7 +65,15 @@ export default function SpiritCard({ spirit, onDelete, onToggleFavorite }: Spiri
                 src={spirit.imageUrl}
                 alt={spirit.name}
                 className="object-contain max-h-56 max-w-[80%] transition-transform group-hover:scale-105"
-                onError={handleImageError}
+                onError={(e) => {
+                  console.log(`Image failed to load for ${spirit.name}: ${spirit.imageUrl}`);
+                  // Prevent infinite error loops by removing error handler
+                  const target = e.target as HTMLImageElement;
+                  target.onerror = null;
+                  
+                  // Set state to trigger fallback UI
+                  setImageError(true);
+                }}
                 loading="lazy"
               />
             ) : (

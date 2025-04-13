@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { Spirit } from '@/types';
@@ -91,6 +91,7 @@ export default function SpiritDetailPage() {
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const webSearchAttempted = useRef<boolean>(false);
   
   const spiritId = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : '';
 
@@ -101,8 +102,19 @@ export default function SpiritDetailPage() {
     }
     if (status === 'loading') return;
     
-    // Fetch spirit details when session is available
-    fetchSpiritDetails();
+    // Create an AbortController to cancel pending requests when component unmounts
+    const abortController = new AbortController();
+    
+    // Only fetch if we don't already have data or if we have an error
+    if (!data || error) {
+      // Fetch spirit details when session is available
+      fetchSpiritDetails(abortController.signal);
+    }
+    
+    // Cleanup function to abort fetch if component unmounts or deps change
+    return () => {
+      abortController.abort();
+    };
   }, [session, status, router, spiritId]);
 
   useEffect(() => {
@@ -115,9 +127,13 @@ export default function SpiritDetailPage() {
   useEffect(() => {
     // Automatically fetch web data when spirit details are loaded
     if (data?.spirit && !data.webData && !isWebSearchLoading) {
-      fetchSpiritInfo();
+      // Add additional check to avoid repeated fetches if there was a previous web search error
+      if (!webData && !webSearchAttempted.current) {
+        webSearchAttempted.current = true;
+        fetchSpiritInfo();
+      }
     }
-  }, [data]);
+  }, [data, isWebSearchLoading, webData]);
 
   useEffect(() => {
     // Parse tasting notes when spirit data is available
@@ -126,57 +142,89 @@ export default function SpiritDetailPage() {
         if (!notesStr) return [];
         
         try {
-          // First try to parse as JSON (for notes stored as arrays)
-          const parsed = JSON.parse(notesStr);
-          // Ensure the result is an array
-          return Array.isArray(parsed) ? parsed : [parsed];
+          // First check if it's already an array
+          if (Array.isArray(notesStr)) {
+            return notesStr;
+          }
+          
+          // Try to parse as JSON (for notes stored as arrays)
+          try {
+            const parsed = JSON.parse(notesStr);
+            // Ensure the result is an array
+            return Array.isArray(parsed) ? parsed : [parsed];
+          } catch (e) {
+            // If JSON parsing fails, split by comma (for notes stored as comma-separated strings)
+            return notesStr.split(',').map(n => n.trim()).filter(Boolean);
+          }
         } catch (e) {
-          console.log(`Parsing notes as comma-separated values: "${notesStr}"`);
-          // If JSON parsing fails, split by comma (for notes stored as comma-separated strings)
-          return notesStr.split(',').map(n => n.trim()).filter(Boolean);
+          console.error('Error parsing tasting notes:', e);
+          return [];
         }
       };
       
-      console.log('Original nose data:', data.spirit.nose);
-      console.log('Original palate data:', data.spirit.palate);
-      console.log('Original finish data:', data.spirit.finish);
-      
+      // Parse each tasting note category
       const parsedNotes = {
         nose: parseNotes(data.spirit.nose),
         palate: parseNotes(data.spirit.palate),
         finish: parseNotes(data.spirit.finish)
       };
       
-      console.log('Parsed notes:', parsedNotes);
-      setSelectedNotes(parsedNotes);
+      console.log('Parsed tasting notes:', parsedNotes);
+      
+      // Only update state if the parsed notes are different from the current state
+      const hasChanged = 
+        JSON.stringify(parsedNotes.nose) !== JSON.stringify(selectedNotes.nose) ||
+        JSON.stringify(parsedNotes.palate) !== JSON.stringify(selectedNotes.palate) ||
+        JSON.stringify(parsedNotes.finish) !== JSON.stringify(selectedNotes.finish);
+        
+      if (hasChanged) {
+        setSelectedNotes(parsedNotes);
+      }
     }
-  }, [data?.spirit]);
+  }, [data?.spirit?.id]);
 
-  const fetchSpiritDetails = async () => {
-    setIsLoading(true);
+  const fetchSpiritDetails = async (signal?: AbortSignal) => {
+    // Don't set loading state again if we're already loading - prevents UI flicker
+    if (!isLoading) {
+      setIsLoading(true);
+    }
     setError(null);
     
     try {
-      const response = await fetch(`/api/spirit/${spiritId}`);
+      // Add cache-busting parameter to avoid browser cache issues
+      const cacheBuster = `_t=${Date.now()}`;
+      const response = await fetch(`/api/spirit/${spiritId}?${cacheBuster}`, { 
+        signal,
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        }
+      });
       
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to fetch spirit details');
       }
       
-      const data = await response.json();
-      setData(data);
+      const responseData = await response.json();
+      setData(responseData);
       
       // If webData is already included from the API, set it directly
-      if (data.webData) {
-        setWebData(data.webData);
+      if (responseData.webData) {
+        setWebData(responseData.webData);
       }
     } catch (error) {
-      console.error('Error fetching spirit details:', error);
-      setError(error instanceof Error ? error.message : 'An error occurred');
-      toast('Failed to load spirit details', { icon: '❌' });
+      // Only set error if the request wasn't aborted
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        console.error('Error fetching spirit details:', error);
+        setError(error instanceof Error ? error.message : 'An error occurred');
+        toast('Failed to load spirit details', { icon: '❌' });
+      }
     } finally {
-      setIsLoading(false);
+      // Only update loading state if the request wasn't aborted
+      if (signal?.aborted !== true) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -366,42 +414,49 @@ export default function SpiritDetailPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(updateData),
+        body: JSON.stringify(updateData)
       });
-
+      
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to update rating');
       }
       
       const updatedSpirit = await response.json();
-      setData(data ? {
-        spirit: updatedSpirit,
-        webData: data.webData,
-        webError: data.webError
-      } : null);
+      
+      // Update the local state with the updated spirit
+      if (data) {
+        setData({
+          ...data,
+          spirit: updatedSpirit
+        });
+      }
+      
       toast.success('Rating updated');
     } catch (error) {
       console.error('Error updating rating:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to update rating');
+      toast.error('Failed to update rating');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleRemoveNote = async (category: 'nose' | 'palate' | 'finish', noteToRemove: string, e?: React.MouseEvent) => {
-    // Prevent default event behavior
+    // Prevent default button behavior
     e?.preventDefault();
     
-    // Remove the note from selectedNotes
-    const updatedNotes = {
-      ...selectedNotes,
-      [category]: selectedNotes[category].filter(note => note !== noteToRemove)
-    };
-    
-    setSelectedNotes(updatedNotes);
-    
     try {
+      setIsLoading(true);
+      
+      // Filter out the note we want to remove
+      const updatedNotes = {
+        ...selectedNotes,
+        [category]: selectedNotes[category].filter(note => note !== noteToRemove)
+      };
+      
+      // Update the local state first for immediate UI feedback
+      setSelectedNotes(updatedNotes);
+      
       // Clean up the spirit data for updating
       const { 
         id, 
@@ -417,28 +472,70 @@ export default function SpiritDetailPage() {
         [category]: JSON.stringify(updatedNotes[category])
       };
       
-      const response = await fetch(`/api/collection/${spiritId}`, {
+      console.log(`Removing "${noteToRemove}" from ${category}:`, updateData);
+      
+      const response = await fetch(`/api/collection/${params.id}`, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify(updateData)
       });
       
       if (!response.ok) {
-        // Restore previous state if update fails
-        setSelectedNotes(selectedNotes);
-        toast.error('Failed to update tasting notes');
-        return;
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Failed to remove ${category} note`);
       }
       
-      toast.success('Tasting note removed');
+      const updatedSpirit = await response.json();
       
+      // Update the local state with the updated spirit
+      if (data) {
+        setData({
+          ...data,
+          spirit: updatedSpirit
+        });
+      }
+      
+      toast.success(`Removed note from ${category}`);
     } catch (error) {
-      console.error('Error updating tasting notes:', error);
-      // Restore previous state if update fails
-      setSelectedNotes(selectedNotes);
-      toast.error('Failed to update tasting notes');
+      console.error(`Error removing ${category} note:`, error);
+      toast.error(`Failed to remove note from ${category}`);
+      
+      // Revert the local state change on error
+      if (data?.spirit) {
+        const parseNotes = (notesStr: string | undefined | null) => {
+          if (!notesStr) return [];
+          
+          try {
+            // First check if it's already an array
+            if (Array.isArray(notesStr)) {
+              return notesStr;
+            }
+            
+            // Try to parse as JSON (for notes stored as arrays)
+            try {
+              const parsed = JSON.parse(notesStr);
+              // Ensure the result is an array
+              return Array.isArray(parsed) ? parsed : [parsed];
+            } catch (e) {
+              // If JSON parsing fails, split by comma (for notes stored as comma-separated strings)
+              return notesStr.split(',').map(n => n.trim()).filter(Boolean);
+            }
+          } catch (e) {
+            console.error('Error parsing tasting notes:', e);
+            return [];
+          }
+        };
+        
+        setSelectedNotes({
+          nose: parseNotes(data.spirit.nose),
+          palate: parseNotes(data.spirit.palate),
+          finish: parseNotes(data.spirit.finish)
+        });
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -623,16 +720,29 @@ export default function SpiritDetailPage() {
       setShowImageOptions(false);
       toast.success('Bottle image updated');
       
-      // Force reload the image element to prevent caching issues
-      setTimeout(() => {
+      // Update the image instead of reloading the page
+      try {
         const bottleImage = document.querySelector('.spirit-bottle-image') as HTMLImageElement;
         if (bottleImage) {
-          bottleImage.src = finalImageUrl;
-        } else {
-          // If the element can't be found, reload the page
-          window.location.reload();
+          // Create a new image element to test loading the new URL
+          const testImage = document.createElement('img');
+          testImage.onload = () => {
+            // Only update src if the image loaded successfully
+            bottleImage.src = finalImageUrl;
+          };
+          testImage.onerror = () => {
+            console.error('Failed to load updated image:', finalImageUrl);
+            // Don't modify the current image source
+            toast.error('New image failed to load', { icon: '⚠️' });
+          };
+          // Start loading the image
+          testImage.src = finalImageUrl;
         }
-      }, 500);
+      } catch (error) {
+        console.error('Error updating image element:', error);
+        // Don't reload the page, just show a toast
+        toast('Image will appear after next page load', { icon: 'ℹ️' });
+      }
     } catch (error) {
       console.error('Error updating bottle image:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to update bottle image');
@@ -641,7 +751,7 @@ export default function SpiritDetailPage() {
     }
   };
 
-  // Add a function to force-reload the page to get fresh data
+  // Modify forceRefresh function to be safer
   const forceRefresh = () => {
     // Clear any cache in memory
     if (typeof caches !== 'undefined') {
@@ -654,11 +764,14 @@ export default function SpiritDetailPage() {
       ).catch(e => console.error('Error clearing caches:', e));
     }
     
-    // Reload page with cache-busting parameter
+    // Don't use router.push with a dynamic timestamp as it causes infinite refreshes
+    // Instead, force a data refresh by calling fetchSpiritDetails
     if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.set('_refresh', Date.now().toString());
-      window.location.href = url.toString();
+      // Create a new AbortController for this refresh
+      const refreshController = new AbortController();
+      // Clear existing data and trigger fresh fetch
+      setData(null);
+      fetchSpiritDetails(refreshController.signal);
     }
   };
 
@@ -741,7 +854,7 @@ export default function SpiritDetailPage() {
                 <div className="flex items-center justify-center py-6 px-4 h-full min-h-[300px] md:min-h-[400px]">
                   <div className="relative flex items-center justify-center">
                     <img
-                      src={spirit.imageUrl}
+                      src={`${spirit.imageUrl}${spirit.imageUrl.includes('?') ? '&' : '?'}_t=${Date.now()}`}
                       alt={spirit.name}
                       className="max-w-[95%] max-h-[90%] object-contain spirit-bottle-image transition-transform hover:scale-[1.02]"
                       style={{ maxHeight: "min(70vh, 600px)" }} 
@@ -750,7 +863,30 @@ export default function SpiritDetailPage() {
                         // Fallback if image fails to load
                         const target = e.target as HTMLImageElement;
                         target.onerror = null; // Prevent infinite error loop
-                        target.src = '/images/bottle-placeholder.png'; // Fallback image
+                        console.error(`Failed to load image for ${spirit.name}: ${spirit.imageUrl}`);
+                        
+                        // Check if the URL needs to be proxied
+                        const imgUrl = spirit.imageUrl || '';
+                        if (imgUrl.startsWith('http') && !imgUrl.startsWith('/api/proxy')) {
+                          // Try loading via proxy
+                          console.log('Trying to load image via proxy...');
+                          target.src = `/api/proxy/image?url=${encodeURIComponent(imgUrl)}&_t=${Date.now()}`;
+                        } else {
+                          // If proxy also failed or URL is already proxied, use placeholder
+                          fetch('/images/bottle-placeholder.png', { method: 'HEAD' })
+                            .then(response => {
+                              if (response.ok) {
+                                target.src = '/images/bottle-placeholder.png';
+                              } else {
+                                // If placeholder doesn't exist, use a data URI for a simple placeholder
+                                target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzMzMyIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LXNpemU9IjE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBhbGlnbm1lbnQtYmFzZWxpbmU9Im1pZGRsZSIgZmlsbD0id2hpdGUiPkltYWdlIG5vdCBhdmFpbGFibGU8L3RleHQ+PC9zdmc+';
+                              }
+                            })
+                            .catch(() => {
+                              // If fetch fails, also use data URI
+                              target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iIzMzMyIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LXNpemU9IjE0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBhbGlnbm1lbnQtYmFzZWxpbmU9Im1pZGRsZSIgZmlsbD0id2hpdGUiPkltYWdlIG5vdCBhdmFpbGFibGU8L3RleHQ+PC9zdmc+';
+                            });
+                        }
                       }}
                     />
                   </div>
@@ -1054,75 +1190,88 @@ export default function SpiritDetailPage() {
               </div>
               
               {/* Tasting Notes Section */}
-              {(selectedNotes.nose.length > 0 || selectedNotes.palate.length > 0 || selectedNotes.finish.length > 0) && (
+              {(spirit.nose || spirit.palate || spirit.finish || 
+                selectedNotes.nose.length > 0 || selectedNotes.palate.length > 0 || selectedNotes.finish.length > 0) && (
                 <div className="mb-6">
                   <h3 className="text-lg font-semibold text-white mb-3">Your Tasting Notes</h3>
                   <div className="space-y-3">
-                    {selectedNotes.nose.length > 0 && (
+                    {(spirit.nose || selectedNotes.nose.length > 0) && (
                       <div>
                         <h4 className="text-amber-500 font-medium mb-1">Nose</h4>
                         <div className="flex flex-wrap gap-2">
-                          {selectedNotes.nose.map((note, index) => (
-                            <span 
-                              key={`nose-${index}`}
-                              className="bg-gray-800 text-gray-200 px-3 py-1 rounded-full text-sm flex items-center gap-1"
-                            >
-                              {note.trim()}
-                              <button
-                                onClick={(e) => handleRemoveNote('nose', note, e)}
-                                className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
-                                aria-label={`Remove ${note} note`}
+                          {selectedNotes.nose.length > 0 ? (
+                            selectedNotes.nose.map((note, index) => (
+                              <span 
+                                key={`nose-${index}`}
+                                className="bg-gray-800 text-gray-200 px-3 py-1 rounded-full text-sm flex items-center gap-1"
                               >
-                                <X size={14} />
-                              </button>
-                            </span>
-                          ))}
+                                {note.trim()}
+                                <button
+                                  onClick={(e) => handleRemoveNote('nose', note, e)}
+                                  className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
+                                  aria-label={`Remove ${note} note`}
+                                >
+                                  <X size={14} />
+                                </button>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-gray-300">{spirit.nose}</span>
+                          )}
                         </div>
                       </div>
                     )}
                     
-                    {selectedNotes.palate.length > 0 && (
+                    {(spirit.palate || selectedNotes.palate.length > 0) && (
                       <div>
                         <h4 className="text-amber-500 font-medium mb-1">Palate</h4>
                         <div className="flex flex-wrap gap-2">
-                          {selectedNotes.palate.map((note, index) => (
-                            <span 
-                              key={`palate-${index}`}
-                              className="bg-gray-800 text-gray-200 px-3 py-1 rounded-full text-sm flex items-center gap-1"
-                            >
-                              {note.trim()}
-                              <button
-                                onClick={(e) => handleRemoveNote('palate', note, e)}
-                                className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
-                                aria-label={`Remove ${note} note`}
+                          {selectedNotes.palate.length > 0 ? (
+                            selectedNotes.palate.map((note, index) => (
+                              <span 
+                                key={`palate-${index}`}
+                                className="bg-gray-800 text-gray-200 px-3 py-1 rounded-full text-sm flex items-center gap-1"
                               >
-                                <X size={14} />
-                              </button>
-                            </span>
-                          ))}
+                                {note.trim()}
+                                <button
+                                  onClick={(e) => handleRemoveNote('palate', note, e)}
+                                  className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
+                                  aria-label={`Remove ${note} note`}
+                                >
+                                  <X size={14} />
+                                </button>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-gray-300">{spirit.palate}</span>
+                          )}
                         </div>
                       </div>
                     )}
                     
-                    {selectedNotes.finish.length > 0 && (
+                    {(spirit.finish || selectedNotes.finish.length > 0) && (
                       <div>
                         <h4 className="text-amber-500 font-medium mb-1">Finish</h4>
                         <div className="flex flex-wrap gap-2">
-                          {selectedNotes.finish.map((note, index) => (
-                            <span 
-                              key={`finish-${index}`}
-                              className="bg-gray-800 text-gray-200 px-3 py-1 rounded-full text-sm flex items-center gap-1"
-                            >
-                              {note.trim()}
-                              <button
-                                onClick={(e) => handleRemoveNote('finish', note, e)}
-                                className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
-                                aria-label={`Remove ${note} note`}
+                          {selectedNotes.finish.length > 0 ? (
+                            selectedNotes.finish.map((note, index) => (
+                              <span 
+                                key={`finish-${index}`}
+                                className="bg-gray-800 text-gray-200 px-3 py-1 rounded-full text-sm flex items-center gap-1"
                               >
-                                <X size={14} />
-                              </button>
-                            </span>
-                          ))}
+                                {note.trim()}
+                                <button
+                                  onClick={(e) => handleRemoveNote('finish', note, e)}
+                                  className="ml-1 hover:text-red-500 transition-colors focus:outline-none"
+                                  aria-label={`Remove ${note} note`}
+                                >
+                                  <X size={14} />
+                                </button>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-gray-300">{spirit.finish}</span>
+                          )}
                         </div>
                       </div>
                     )}
