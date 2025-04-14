@@ -35,6 +35,10 @@ const SupabaseContext = createContext<SupabaseContextType>(defaultContextValue);
 
 // Global tracking to prevent redundant syncs across hot reloads
 let globalUserSynced = false;
+// Global tracking to prevent redundant session refreshes across hot reloads
+let globalRefreshingSession = false;
+// Global debounce map for auth events
+const globalAuthEvents: Record<string, number> = {};
 
 /**
  * Provider component that wraps your app and makes Supabase client available
@@ -54,15 +58,27 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
   // Track last sync time to prevent redundant syncs
   const lastSyncRef = useRef<Record<string, number>>({});
   // Track the last auth event timestamp to prevent rapid successive updates
-  const lastAuthEventRef = useRef<Record<string, number>>({});
+  const lastAuthEventRef = useRef<Record<string, number>>(globalAuthEvents);
   // Minimum time between syncs for the same user (5 seconds)
   const MIN_SYNC_INTERVAL = 5000;
-  // Minimum time between processing similar auth events (1 second)
-  const MIN_AUTH_EVENT_INTERVAL = 1000;
+  // Minimum time between processing similar auth events (10 seconds - increased from 1 second to prevent loops)
+  const MIN_AUTH_EVENT_INTERVAL = 10000;
+  // Track if we're currently refreshing the session
+  const isRefreshingSessionRef = useRef<boolean>(globalRefreshingSession);
+  // Track component mount state
+  const isMountedRef = useRef<boolean>(false);
   
   // Refresh session data
   async function refreshSession() {
+    // Prevent concurrent refreshes
+    if (isRefreshingSessionRef.current) {
+      console.log('Session refresh already in progress, skipping');
+      return;
+    }
+    
     try {
+      isRefreshingSessionRef.current = true;
+      globalRefreshingSession = true;
       setIsLoading(true);
       
       // Defensive check to ensure auth is initialized
@@ -72,6 +88,8 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
         return;
       }
+      
+      console.log('Refreshing session...');
       
       // First try to refresh the session to get the latest metadata
       const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
@@ -86,37 +104,45 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
           if (error) {
             console.error('GetSession also failed:', error);
             
-            // Check if we have a session in localStorage as last resort
-            if (typeof window !== 'undefined') {
+            // Only try to recover if we're actually mounted
+            if (isMountedRef.current && typeof window !== 'undefined') {
               const storedSession = localStorage.getItem('supabase.auth.token');
               if (storedSession) {
                 console.log('Found stored session, attempting to recover');
                 // We have a stored session, let's try to recover by calling refreshSession again in 1s
-                setTimeout(() => refreshSession(), 1000);
+                setTimeout(() => {
+                  if (isMountedRef.current) refreshSession();
+                }, 1000);
               }
             }
             
             setError(error);
           } else {
             // Successfully got session
-            setSession(data.session);
-            setUser(data.session?.user || null);
-            setError(null); // Clear any previous errors
+            if (isMountedRef.current) {
+              setSession(data.session);
+              setUser(data.session?.user || null);
+              setError(null); // Clear any previous errors
+            }
           }
         } catch (innerError) {
           console.error('Critical error in getSession fallback:', innerError);
-          setError({ message: 'Failed to retrieve session', status: 500 } as AuthError);
+          if (isMountedRef.current) {
+            setError({ message: 'Failed to retrieve session', status: 500 } as AuthError);
+          }
         }
       } else {
         // Use the refreshed session data
-        setSession(refreshData.session);
-        setUser(refreshData.session?.user || null);
-        setError(null); // Clear any previous errors
+        if (isMountedRef.current) {
+          setSession(refreshData.session);
+          setUser(refreshData.session?.user || null);
+          setError(null); // Clear any previous errors
+        }
       }
       
       // Check for registration status in both app_metadata and user_metadata
       const currentUser = refreshData?.session?.user || user;
-      if (currentUser) {
+      if (currentUser && isMountedRef.current) {
         const isRegistered = currentUser.app_metadata?.is_registered === true || 
                             currentUser.user_metadata?.is_registered === true;
                             
@@ -132,15 +158,23 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       console.error('Error in refreshSession:', err);
-      setError(err as AuthError);
+      if (isMountedRef.current) {
+        setError(err as AuthError);
+      }
       
-      // Implement retry mechanism
-      if (typeof window !== 'undefined') {
+      // Implement retry mechanism only if mounted
+      if (isMountedRef.current && typeof window !== 'undefined') {
         console.log('Setting up retry for session refresh');
-        setTimeout(() => refreshSession(), 3000); // Retry after 3 seconds
+        setTimeout(() => {
+          if (isMountedRef.current) refreshSession();
+        }, 3000); // Retry after 3 seconds
       }
     } finally {
-      setIsLoading(false);
+      isRefreshingSessionRef.current = false;
+      globalRefreshingSession = false;
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }
   
@@ -234,10 +268,13 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
         setUserSynced(true);
         globalUserSynced = true;
         
-        // Refresh session to get updated metadata - wait a second for changes to propagate
+        // Do not trigger immediate session refresh to avoid infinite loop
+        // Wait longer to let changes propagate
         setTimeout(async () => {
-          await refreshSession();
-        }, 1000);
+          if (isMountedRef.current && !isRefreshingSessionRef.current) {
+            await refreshSession();
+          }
+        }, 5000);
       } else {
         console.warn(`User sync failed: ${response.status} ${response.statusText}`);
       }
@@ -250,21 +287,28 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
   }
   
   useEffect(() => {
-    // Initialize session
-    refreshSession();
+    // Mark as mounted
+    isMountedRef.current = true;
+    
+    // Initialize session only if not already loading
+    if (!isRefreshingSessionRef.current) {
+      refreshSession();
+    }
     
     // Defensive check to ensure auth is initialized
     if (!supabase?.auth) {
       console.error('Supabase auth not initialized during setup');
       setError({ message: 'Authentication service unavailable', status: 500 } as AuthError);
       setIsLoading(false);
-      return () => {};
+      return () => {
+        isMountedRef.current = false;
+      };
     }
     
     // Set up auth state change listener
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        // Implement debouncing for auth events to prevent rapid state changes
+        // Implement aggressive debouncing for auth events to prevent rapid state changes
         const now = Date.now();
         const lastEventTime = lastAuthEventRef.current[event] || 0;
         
@@ -274,27 +318,41 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         
-        // Update the last event timestamp
+        // Update the last event timestamp (globally)
         lastAuthEventRef.current[event] = now;
+        globalAuthEvents[event] = now;
         
         console.log(`Auth state changed: ${event}`);
         
-        // For TOKEN_REFRESHED events, only update if we don't already have a session
-        if (event === 'TOKEN_REFRESHED' && !!session) {
-          if (!session) {
+        // Special handling for TOKEN_REFRESHED to prevent infinite loops
+        if (event === 'TOKEN_REFRESHED') {
+          // Only process token refreshed events once every 30 seconds max
+          const lastTokenRefreshTime = lastAuthEventRef.current['TOKEN_REFRESHED'] || 0;
+          
+          if (now - lastTokenRefreshTime < 30000) {
+            console.log('Ignoring TOKEN_REFRESHED event - throttling to max once per 30s');
+            return;
+          }
+          
+          if (isMountedRef.current) {
+            console.log('Processing allowed TOKEN_REFRESHED event with session update');
             setSession(session);
             setUser(session?.user || null);
           }
         } else {
           // For other events, update normally
-          setSession(session);
-          setUser(session?.user || null);
+          if (isMountedRef.current) {
+            setSession(session);
+            setUser(session?.user || null);
+          }
         }
         
-        setIsLoading(false);
+        if (isMountedRef.current) {
+          setIsLoading(false);
+        }
         
         // Only sync on SIGNED_IN event when we don't have a synced user already
-        if (session?.user && event === 'SIGNED_IN' && !userSynced) {
+        if (session?.user && event === 'SIGNED_IN' && !userSynced && isMountedRef.current) {
           // Check if user is registered via metadata first
           if (session.user.app_metadata?.is_registered === true) {
             setUserSynced(true);
@@ -302,8 +360,10 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
           } else {
             // For SIGNED_IN, use a slight delay to avoid race conditions
             setTimeout(() => {
-              syncUserToDatabase(session.user);
-            }, 500);
+              if (isMountedRef.current && session?.user) {
+                syncUserToDatabase(session.user);
+              }
+            }, 1000);
           }
         }
       }
@@ -311,6 +371,7 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     
     // Clean up subscription on unmount
     return () => {
+      isMountedRef.current = false;
       authListener.subscription.unsubscribe();
     };
   }, [supabase, userSynced]);

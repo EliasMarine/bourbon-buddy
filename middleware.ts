@@ -263,26 +263,18 @@ export async function middleware(request: NextRequest) {
       console.log(`[${debugId}] ✅ User authenticated for protected route`);
     }
     
-    // security headers
-    const responseHeaders = new Headers(response.headers);
-    responseHeaders.set('X-DNS-Prefetch-Control', 'on');
-    responseHeaders.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
-    responseHeaders.set('X-XSS-Protection', '1; mode=block');
-    responseHeaders.set('X-Content-Type-Options', 'nosniff');
-    responseHeaders.set('X-Frame-Options', 'SAMEORIGIN');
-    responseHeaders.set('Referrer-Policy', 'origin-when-cross-origin');
-    
-    // Add Permissions-Policy header (replacing deprecated Feature-Policy)
-    responseHeaders.set('Permissions-Policy', 'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()');
-    
-    // Apply the updated headers to the response
-    Object.entries(responseHeaders).forEach(([key, value]) => {
-      response.headers.set(key, value);
-    });
+    // Security headers - directly set on the response
+    response.headers.set('X-DNS-Prefetch-Control', 'on');
+    response.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+    response.headers.set('X-XSS-Protection', '1; mode=block');
+    response.headers.set('X-Content-Type-Options', 'nosniff');
+    response.headers.set('X-Frame-Options', 'SAMEORIGIN');
+    response.headers.set('Referrer-Policy', 'origin-when-cross-origin');
+    response.headers.set('Permissions-Policy', 'accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), payment=(), usb=()');
     
     console.log(`[${debugId}] ✅ Middleware processing complete`);
     return response;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`[${debugId}] 🔥 Critical error in middleware:`, error);
     
     // Handle critical errors in production - don't block the request
@@ -293,7 +285,11 @@ export async function middleware(request: NextRequest) {
     
     // In development, we should see the error
     return new NextResponse(
-      JSON.stringify({ error: 'Middleware error', message: error.message, debugId }),
+      JSON.stringify({ 
+        error: 'Middleware error', 
+        message: error instanceof Error ? error.message : 'Unknown error', 
+        debugId 
+      }),
       { 
         status: 500,
         headers: {

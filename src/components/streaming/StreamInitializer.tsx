@@ -182,6 +182,9 @@ interface StreamInitializerProps {
   onViewerCount: (count: number) => void;
 }
 
+// Create global flags to prevent repeated initialization
+const globalInitialized = new Set<string>();
+
 export default function StreamInitializer({
   streamId,
   isHost,
@@ -205,9 +208,22 @@ export default function StreamInitializer({
   }>({});
   const router = useRouter();
   const connectionTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const didInitializeRef = useRef<boolean>(false);
+  const isCleaningUpRef = useRef<boolean>(false);
 
   // Main initialization effect
   useEffect(() => {
+    // Skip re-initialization if already done for this streamId
+    if (globalInitialized.has(streamId)) {
+      console.log(`StreamInitializer already initialized for stream ${streamId}, skipping`);
+      return;
+    }
+
+    // Mark as initialized immediately to prevent double initialization
+    didInitializeRef.current = true;
+    // Remember this stream ID has been initialized
+    globalInitialized.add(streamId);
+    
     // Log browser environment data in non-production environments only
     if (process.env.NODE_ENV !== 'production') {
       console.log('Browser environment:', {
@@ -218,16 +234,6 @@ export default function StreamInitializer({
       });
       
       // Add environment-specific logging
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Browser environment:', {
-          userAgent: navigator?.userAgent,
-          mediaSupported: MediaAdapter?.isSupported || false,
-          isSecureContext: window?.isSecureContext || false,
-          isMobile: /Mobi|Android/i.test(navigator?.userAgent || '')
-        });
-      }
-      
-      // Add explicit warning about the dev:realtime requirement in development only
       if (process.env.NODE_ENV === 'development') {
         console.warn(
           '%c🔴 IMPORTANT: Streaming features require the realtime server 🔴',
@@ -248,7 +254,7 @@ export default function StreamInitializer({
       return;
     }
     
-    // Initial setup function
+    // Initialize only once
     const initialize = async () => {
       try {
         console.log('StreamInitializer: Initializing stream with ID:', streamId, 'isHost:', isHost);
@@ -331,10 +337,19 @@ export default function StreamInitializer({
 
     // Cleanup function
     return () => {
+      // Prevent multiple cleanups
+      if (isCleaningUpRef.current) return;
+      isCleaningUpRef.current = true;
+      
       console.log('Cleanup: Releasing stream resources...');
       cleanup();
+      
+      // Remove streamId from initialized set on unmount
+      globalInitialized.delete(streamId);
     };
-  }, [streamId, isHost]);
+  // Empty dependency array prevents this from re-running
+  // This is intentional as streamId and isHost should not change during component lifecycle
+  }, [streamId]);
   
   // Add this helper function near the top of the file
   const checkPermissions = async () => {
@@ -1168,57 +1183,82 @@ export default function StreamInitializer({
 
   // Clean up function
   const cleanup = () => {
-    console.log('Cleaning up StreamInitializer resources', {
-      isHost,
-      hasLocalStream: !!localStreamRef.current,
-      socketConnected: !!socketRef.current?.connected
-    });
+    console.log('StreamInitializer: Running cleanup');
     
-    // NEVER clean up host streams, only cleanup for non-hosts or on page unmount
-    if (!isHost) {
-      console.log('Non-host cleanup, releasing all streams');
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => {
-          console.log(`Stopping ${track.kind} track:`, track.label);
-          track.stop();
+    // Clean up local media tracks
+    if (localStreamRef.current) {
+      console.log('Stopping local stream tracks');
+      try {
+        const tracks = localStreamRef.current.getTracks();
+        tracks.forEach(track => {
+          try {
+            track.stop();
+            console.log(`Stopped ${track.kind} track`);
+          } catch (err) {
+            console.error(`Error stopping ${track.kind} track:`, err);
+          }
         });
         localStreamRef.current = null;
+      } catch (err) {
+        console.error('Error stopping local stream:', err);
       }
-    } else {
-      console.log('Host cleanup, preserving all media streams');
     }
     
-    // Clean up WebSocket monkey patch
-    if (typeof window !== 'undefined' && (window as any)._originalWebSocket) {
-      console.log('Restoring original WebSocket constructor');
-      window.WebSocket = (window as any)._originalWebSocket;
-      delete (window as any)._originalWebSocket;
+    // Clean up peer connections without iterating if unnecessary
+    try {
+      if (Object.keys(peerConnectionsRef.current).length > 0) {
+        Object.keys(peerConnectionsRef.current).forEach(socketId => {
+          try {
+            const pc = peerConnectionsRef.current[socketId];
+            if (pc) {
+              // Close connection
+              pc.close();
+              // Remove from map
+              delete peerConnectionsRef.current[socketId];
+            }
+          } catch (err) {
+            console.error(`Error closing peer connection for ${socketId}:`, err);
+          }
+        });
+        // Reset after cleanup
+        peerConnectionsRef.current = {};
+      }
+    } catch (err) {
+      console.error('Error cleaning up peer connections:', err);
     }
     
-    // Properly disconnect socket if we have one
+    // Clean up socket connection
     if (socketRef.current) {
       try {
-        console.log('Disconnecting socket');
-        socketRef.current.disconnect();
-      } catch (e) {
-        console.error('Error disconnecting socket:', e);
+        console.log('Leaving stream room');
+        socketRef.current.emit('leave-stream', { streamId });
+        
+        // Don't destroy the socket, just clean up listeners to prevent memory leaks
+        // This prevents listener accumulation that can cause memory leaks
+        const eventsToClear = [
+          'offer', 'answer', 'ice-candidate', 'participant-count', 
+          'stream-poll', 'poll-update', 'poll-end', 'error'
+        ];
+        
+        eventsToClear.forEach(event => {
+          if (socketRef.current?.hasListeners(event)) {
+            socketRef.current.off(event);
+          }
+        });
+        
+        socketRef.current = null;
+      } catch (err) {
+        console.error('Error cleaning up socket:', err);
       }
-      socketRef.current = null;
     }
     
-    // Clean up peer connections
-    Object.values(peerConnectionsRef.current).forEach(pc => {
-      try {
-        if (pc) {
-          pc.close();
-        }
-      } catch (e) {
-        console.error('Error closing peer connection:', e);
-      }
-    });
-    peerConnectionsRef.current = {};
+    // Clear timeout
+    if (connectionTimeoutRef.current) {
+      clearTimeout(connectionTimeoutRef.current);
+      connectionTimeoutRef.current = undefined;
+    }
     
-    console.log('StreamInitializer cleanup complete');
+    console.log('StreamInitializer: Cleanup complete');
   };
 
   // Set up socket event listeners

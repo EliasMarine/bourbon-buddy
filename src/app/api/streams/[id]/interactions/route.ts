@@ -1,18 +1,35 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { getCurrentUser } from '@/lib/supabase-auth';
-import { PrismaClient } from '@prisma/client';
 // Removed authOptions import - not needed with Supabase Auth;
 import { prisma } from '@/lib/prisma';
 
-export async function GET(request: NextRequest) {
+// Proper way to extract ID in Next.js App Router
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
+    const { id: streamId } = params;
+    console.log('Interactions API called for stream:', streamId);
+    
+    // Validate the streamId
+    if (!streamId) {
+      console.error('No stream ID provided');
+      return NextResponse.json(
+        { error: 'Missing stream ID' },
+        { status: 400 }
+      );
+    }
+    
     const user = await getCurrentUser();
-    const streamId = request.nextUrl.pathname.split('/')[4]; // Extract ID from pathname
+    console.log('Current user:', user?.email || 'Not logged in');
 
     // Get total likes count
     const likesCount = await prisma.streamLike.count({
       where: { streamId },
     });
+    
+    console.log('Likes count for stream:', likesCount);
 
     // If user is not logged in, return only public data
     if (!user?.email) {
@@ -29,6 +46,7 @@ export async function GET(request: NextRequest) {
     });
 
     if (!dbUser) {
+      console.error('User not found in database:', user.email);
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
@@ -42,6 +60,7 @@ export async function GET(request: NextRequest) {
     });
 
     if (!stream) {
+      console.error('Stream not found:', streamId);
       return NextResponse.json(
         { error: 'Stream not found' },
         { status: 404 }
@@ -67,12 +86,16 @@ export async function GET(request: NextRequest) {
         },
       },
     });
-
-    return NextResponse.json({
+    
+    const result = {
       likes: likesCount,
       isLiked: !!like,
       isSubscribed: !!subscription,
-    });
+    };
+    
+    console.log('Interaction result:', result);
+
+    return NextResponse.json(result);
   } catch (error) {
     console.error('Stream interactions GET error:', error);
     return NextResponse.json(
