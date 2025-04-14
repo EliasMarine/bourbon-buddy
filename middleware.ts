@@ -213,7 +213,14 @@ export async function middleware(request: NextRequest) {
       const supabaseUser = data?.user;
       
       if (error) {
-        console.error(`[${debugId}] ❌ Supabase error ${error.status || ''} on ${request.nextUrl.pathname}:`, error.message);
+        // Downgrade message for common auth session missing errors
+        if (error.message?.includes('session missing') || error.message?.toLowerCase().includes('not authenticated')) {
+          // Log as info instead of error for anonymous users
+          console.log(`[${debugId}] ℹ️ Supabase info: ${error.message}`);
+        } else {
+          // Only log as error for other types of errors
+          console.error(`[${debugId}] ❌ Supabase error ${error.status || ''} on ${request.nextUrl.pathname}:`, error.message);
+        }
       }
       
       // Only log auth check for non-static routes and when debugging is enabled

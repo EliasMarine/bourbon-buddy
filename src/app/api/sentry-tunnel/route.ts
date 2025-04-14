@@ -39,26 +39,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[Sentry Tunnel] Received request body (${body.length} bytes)`);
-
+    // Construct the Sentry envelope URL
+    const sentryUrl = `https://${SENTRY_HOST}/api/${SENTRY_PROJECT_ID}/envelope/`;
+    
     try {
-      // Fix for "missing newline after header or payload" error
-      // Ensure envelope parts are properly separated by newlines
-      let processedBody = body;
+      // Always process the body to ensure proper format
+      const processedBody = fixEnvelopeFormat(body);
       
-      // More robust envelope format detection and repair
-      const hasCorrectFormat = isValidSentryEnvelope(body);
-      
-      if (!hasCorrectFormat) {
-        console.log('[Sentry Tunnel] Detected invalid envelope format, attempting to fix');
-        processedBody = fixEnvelopeFormat(body);
-      }
-
-      // Construct the Sentry envelope URL
-      const sentryUrl = `https://${SENTRY_HOST}/api/${SENTRY_PROJECT_ID}/envelope/`;
-      console.log(`[Sentry Tunnel] Forwarding to: ${sentryUrl}`);
-      
-      // Forward to Sentry with additional option to ignore DNS caching issues
+      // Forward to Sentry with robust error handling
       const sentryResponse = await fetch(sentryUrl, {
         method: 'POST',
         headers: {
@@ -81,7 +69,7 @@ export async function POST(request: NextRequest) {
         if (sentryResponse.status === 400 && responseText.includes('missing newline')) {
           console.log('[Sentry Tunnel] Attempting alternative envelope format fix');
           
-          // Try a different approach to fix the envelope
+          // Create completely new envelope as a last resort
           const alternativeEnvelope = createCompletelyNewEnvelope(body);
           
           // Second attempt with completely reformatted envelope
@@ -106,12 +94,18 @@ export async function POST(request: NextRequest) {
             });
           } else {
             console.error('[Sentry Tunnel] Retry also failed:', await retryResponse.text().catch(() => 'No response text'));
+            // Instead of returning an error, return a 200 so client doesn't try to retry
+            return NextResponse.json(
+              { status: 'accepted', message: 'Event accepted but forwarding to Sentry failed' },
+              { status: 200 }
+            );
           }
         }
         
+        // For other errors, return 200 to avoid client retries that might cause more issues
         return NextResponse.json(
-          { error: `Error from Sentry: ${sentryResponse.status}`, details: responseText },
-          { status: 502 } // Bad Gateway
+          { status: 'accepted', message: 'Event accepted but forwarding to Sentry failed' },
+          { status: 200 }
         );
       }
 
@@ -129,47 +123,25 @@ export async function POST(request: NextRequest) {
       // More detailed logging for network errors
       console.error('[Sentry Tunnel] Network error while forwarding to Sentry:', fetchError);
       
-      // Check for specific error types
-      const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
-      const errorCause = fetchError instanceof Error && fetchError.cause ? 
-        (fetchError.cause instanceof Error ? fetchError.cause.message : String(fetchError.cause)) : 
-        'unknown cause';
-      
-      // For DNS resolution issues (ENOTFOUND, ECONNREFUSED)
-      if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('ENOTFOUND')) {
-        console.error('[Sentry Tunnel] DNS resolution error. This might be caused by network issues or proxy settings.');
-        
-        // Try fallback approach - store the event locally and return success
-        // This prevents client-side errors while still acknowledging the request
-        console.log('[Sentry Tunnel] Using fallback approach for this request');
-        
-        return NextResponse.json(
-          { 
-            status: 'deferred', 
-            message: 'Event accepted but forwarding to Sentry failed. It will be retried later.'
-          },
-          { status: 202 } // Accepted but processing not complete
-        );
-      }
-      
+      // Return success status to client, to avoid retries
       return NextResponse.json(
         { 
-          error: 'Failed to forward to Sentry', 
-          message: errorMessage,
-          cause: errorCause
+          status: 'accepted', 
+          message: 'Event accepted but forwarding to Sentry failed'
         },
-        { status: 502 } // Bad Gateway
+        { status: 200 }
       );
     }
   } catch (error) {
     // Handle any other errors
     console.error('[Sentry Tunnel] Unhandled error:', error);
+    // Return success status to client, to avoid retries
     return NextResponse.json(
       { 
-        error: 'Internal server error', 
-        message: error instanceof Error ? error.message : String(error)
+        status: 'accepted',
+        message: 'Event captured but processing failed'
       },
-      { status: 500 }
+      { status: 200 }
     );
   }
 }
@@ -210,111 +182,33 @@ function fixEnvelopeFormat(body: string): string {
     
     if (firstNewlineIndex === -1) {
       // No newlines at all, likely a malformed JSON
-      try {
-        // Try to parse as a single JSON object (event data)
-        const eventData = JSON.parse(body);
-        // Reconstruct as a proper envelope
-        const header = JSON.stringify({
-          event_id: eventData.event_id || generateUUID(),
-          sent_at: new Date().toISOString()
-        });
-        const item = JSON.stringify({
-          type: 'event',
-          length: JSON.stringify(eventData).length
-        });
-        return `${header}\n${item}\n${JSON.stringify(eventData)}`;
-      } catch (e) {
-        // If parsing fails, use a different approach
-        // Split by JSON object boundaries (this is a heuristic)
-        const jsonParts = body.split(/(?<=[}\]])\s*(?=[{\[])/g);
-        if (jsonParts.length >= 2) {
-          // Treat first part as header, second as item header, rest as payload
-          try {
-            const header = JSON.parse(jsonParts[0]);
-            const headerJson = JSON.stringify({
-              event_id: header.event_id || generateUUID(),
-              sent_at: new Date().toISOString()
-            });
-            
-            const payload = jsonParts.slice(1).join('');
-            const itemHeader = JSON.stringify({
-              type: 'event',
-              length: payload.length
-            });
-            
-            return `${headerJson}\n${itemHeader}\n${payload}`;
-          } catch (e) {
-            // If that fails, create a completely new envelope
-            return createCompletelyNewEnvelope(body);
-          }
-        } else {
-          // Can't reasonably parse, create a new envelope
-          return createCompletelyNewEnvelope(body);
-        }
-      }
+      // Create a completely new envelope instead of trying to parse
+      return createCompletelyNewEnvelope(body);
     } else {
       // Has at least one newline, but might not have two
       const secondNewlineIndex = body.indexOf('\n', firstNewlineIndex + 1);
       
       if (secondNewlineIndex === -1) {
-        // Only one newline, try to extract parts
-        const header = body.substring(0, firstNewlineIndex);
-        const rest = body.substring(firstNewlineIndex + 1);
-        
-        // Try to detect a valid JSON at the beginning of the rest
+        // Only one newline, create a new envelope
+        return createCompletelyNewEnvelope(body);
+      } else {
+        // Has at least two newlines, check if parts look valid
         try {
-          // Look for the end of the first JSON object in the rest
-          let itemHeaderEnd = -1;
-          let braceCount = 0;
-          let inQuotes = false;
-          let escapeNext = false;
+          const header = body.substring(0, firstNewlineIndex);
+          const itemHeader = body.substring(firstNewlineIndex + 1, secondNewlineIndex);
+          const payload = body.substring(secondNewlineIndex + 1);
           
-          for (let i = 0; i < rest.length; i++) {
-            const char = rest.charAt(i);
-            
-            if (escapeNext) {
-              escapeNext = false;
-              continue;
-            }
-            
-            if (char === '\\') {
-              escapeNext = true;
-              continue;
-            }
-            
-            if (char === '"' && !escapeNext) {
-              inQuotes = !inQuotes;
-              continue;
-            }
-            
-            if (!inQuotes) {
-              if (char === '{') braceCount++;
-              else if (char === '}') {
-                braceCount--;
-                if (braceCount === 0) {
-                  itemHeaderEnd = i + 1;
-                  break;
-                }
-              }
-            }
-          }
+          // Try parsing header and item header to verify they're valid JSON
+          JSON.parse(header);
+          JSON.parse(itemHeader);
           
-          if (itemHeaderEnd > 0) {
-            const itemHeader = rest.substring(0, itemHeaderEnd);
-            const payload = rest.substring(itemHeaderEnd);
-            return `${header}\n${itemHeader}\n${payload}`;
-          } else {
-            // Can't find a valid JSON object boundary, use alternative
-            return createCompletelyNewEnvelope(body);
-          }
+          // If we get here, the envelope format seems valid
+          // Return with explicit newlines to ensure proper formatting
+          return `${header}\n${itemHeader}\n${payload}`;
         } catch (e) {
-          // Failed to parse, use alternative
+          // If parsing fails, create a new envelope
           return createCompletelyNewEnvelope(body);
         }
-      } else {
-        // Has at least two newlines, might still need fixing
-        // Replace any adjacent JSON objects without newlines
-        return body.replace(/}\s*{/g, '}\n{').replace(/]\s*{/g, ']\n{');
       }
     }
   } catch (e) {
@@ -357,17 +251,18 @@ function createCompletelyNewEnvelope(data: string): string {
       timestamp: Math.floor(Date.now() / 1000),
       level: "error",
       message: "Error processing Sentry event in tunnel",
-      original_payload: data.substring(0, 8192) // Limit size to avoid very large messages
+      original_payload: data.substring(0, 4096) // Limit size to avoid very large messages
     });
   }
   
   // Create item header
   const itemHeader = JSON.stringify({
     type: "event",
-    length: payload.length
+    length: Buffer.from(payload).length // Use buffer length for binary safety
   });
   
-  // Return properly formatted envelope
+  // Ensure there are EXPLICIT newlines between each part
+  // This is critical for Sentry's envelope format
   return `${header}\n${itemHeader}\n${payload}`;
 }
 
