@@ -23,7 +23,7 @@ module.exports = {
     'script-src-elem': [
       "self",
       "unsafe-inline",
-      "unsafe-eval",
+      "unsafe-eval", // Add unsafe-eval back for dev tools and extensions
       "wasm-unsafe-eval",
       "https://www.apple.com",
       "https://appleid.cdn-apple.com",
@@ -36,7 +36,11 @@ module.exports = {
       "https://cdn.jsdelivr.net",
       "https://cdn.paddle.com",
       "https://apis.google.com",
-      "https://plausible.io"
+      "https://plausible.io",
+      "https://unpkg.com",
+      "https://cdn.coinbase.com",
+      "https://metamask.io",
+      "https://metamask.app"
     ],
     'style-src': ["self", "unsafe-inline"],
     'img-src': ["self", "data:", "blob:", 
@@ -68,10 +72,16 @@ module.exports = {
       // More specific Supabase URLs
       "https://hjodvataujilredguzig.supabase.co",
       "wss://hjodvataujilredguzig.supabase.co", 
+      "https://*.supabase.co",
+      "wss://*.supabase.co",
       "https://api.openai.com", 
-      "https://vercel.live", 
+      "https://vercel.live",
+      "https://*.vercel.live",
+      "wss://*.vercel.live",
       "https://bourbonbuddy.live", 
+      "wss://bourbonbuddy.live",
       "https://bourbon-buddy.vercel.app",
+      "wss://bourbon-buddy.vercel.app",
       "https://api.stripe.com",
       "https://checkout.paddle.com",
       // Sentry URLs - comprehensive list to ensure all connections work
@@ -79,10 +89,15 @@ module.exports = {
       "https://o4509142564667392.ingest.us.sentry.io",
       "https://sentry.io",
       "https://*.sentry.io",
-      "https://sentry-cdn.com"
+      "https://sentry-cdn.com",
+      // Allow MetaMask and wallet providers
+      "https://*.infura.io",
+      "https://metamask.io",
+      "https://*.coinbase.com",
+      "wss://*.bridge.walletconnect.org"
     ].concat(
       process.env.NODE_ENV !== "production" 
-        ? ["http://localhost:*", "ws://localhost:*"] 
+        ? ["http://localhost:*", "ws://localhost:*", "wss://localhost:*"] 
         : []
     ),
     'font-src': ["self", "data:", "https://fonts.gstatic.com"],
@@ -90,15 +105,17 @@ module.exports = {
       "self", 
       "https://appleid.apple.com",
       "https://js.stripe.com",
-      "https://checkout.paddle.com"
+      "https://checkout.paddle.com",
+      "https://metamask.app",
+      "https://*.coinbase.com"
     ],
-    'worker-src': ["self", "blob:"],
+    'worker-src': ["self", "blob:", "data:"],
     'object-src': ["none"],
     'base-uri': ["self"],
     'form-action': ["self"],
     'frame-ancestors': ["self"],
     'manifest-src': ["self"],
-    'media-src': ["self"],
+    'media-src': ["self", "blob:", "data:"],
     'child-src': ["self", "blob:"],
     'upgrade-insecure-requests': [],
     'report-uri': ["/api/reporting"]
@@ -106,7 +123,13 @@ module.exports = {
   frameOptions: 'SAMEORIGIN',
   // Disable Feature-Policy completely and only use modern Permissions-Policy
   // This eliminates all Feature-Policy header warnings
-  permissionsPolicy: false,
+  permissionsPolicy: {
+    'geolocation': ["none"],
+    'microphone': ["self"],
+    'camera': ["self"],
+    'fullscreen': ["self"],
+    'payment': ["none"]
+  },
   referrerPolicy: 'origin-when-cross-origin',
   xssProtection: '1; mode=block',
   contentTypeOptions: 'nosniff',
