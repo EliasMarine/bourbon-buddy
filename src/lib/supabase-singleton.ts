@@ -39,7 +39,10 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
         // Improved realtime config
         realtime: {
           params: {
-            eventsPerSecond: 5
+            eventsPerSecond: 5,
+            // Add retry parameters to WebSocket connection
+            heartbeatIntervalMs: 15000, // Heartbeat every 15s (default is 30s)
+            timeout: 60000 // Longer timeout before closing connection
           }
         },
         auth: {
@@ -53,13 +56,31 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
           fetch: (url, options = {}) => {
             const headers = new Headers(options.headers || {});
             headers.set('X-Client-Info', 'supabase-js/browser/singleton');
-            return fetch(url, {
-              ...options,
-              headers,
-              // This is critical for auth cookies to pass
-              credentials: 'include',
-              // Increase timeout to avoid Connection closed errors
-              signal: options.signal || AbortSignal.timeout(30000) // 30 second timeout
+            
+            // Add retry logic for fetch
+            return new Promise((resolve, reject) => {
+              const attemptFetch = (retries = 0) => {
+                fetch(url, {
+                  ...options,
+                  headers,
+                  // This is critical for auth cookies to pass
+                  credentials: 'include',
+                  // Increase timeout to avoid Connection closed errors
+                  signal: options.signal || AbortSignal.timeout(60000) // 60 second timeout
+                })
+                .then(resolve)
+                .catch(error => {
+                  // Only retry for network errors, not HTTP errors
+                  if (error.name === 'TypeError' && retries < 3) {
+                    console.warn(`Supabase fetch error, retrying (${retries + 1}/3)...`, error);
+                    setTimeout(() => attemptFetch(retries + 1), 1000 * (retries + 1));
+                  } else {
+                    reject(error);
+                  }
+                });
+              };
+              
+              attemptFetch();
             });
           }
         }

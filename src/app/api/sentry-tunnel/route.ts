@@ -25,113 +25,102 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get the envelope data
-    const body = await request.text().catch(err => {
-      console.error('[Sentry Tunnel] Error reading request body:', err);
-      return null;
-    });
-
-    // Validate request body
-    if (!body) {
-      return NextResponse.json(
-        { error: 'Empty request body' },
-        { status: 400 }
-      );
+    // Handle POST request to forward to Sentry
+    const sentryUrl = process.env.NEXT_PUBLIC_SENTRY_TUNNEL_URL
+    if (!sentryUrl) {
+      console.error('[Sentry Tunnel] Missing Sentry tunnel URL')
+      return NextResponse.json({ message: '[Sentry Tunnel] Configuration error' }, { status: 503 })
     }
 
-    // Construct the Sentry envelope URL
-    const sentryUrl = `https://${SENTRY_HOST}/api/${SENTRY_PROJECT_ID}/envelope/`;
-    
-    try {
-      // Always process the body to ensure proper format
-      const processedBody = fixEnvelopeFormat(body);
-      
-      // Forward to Sentry with robust error handling
-      const sentryResponse = await fetch(sentryUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-sentry-envelope',
-          'X-Sentry-Auth': `Sentry sentry_version=7, sentry_key=${SENTRY_KEY}, sentry_client=sentry.tunnel.nextjs/1.0.0`,
-        },
-        body: processedBody,
-        // Add these for Node.js environment to help with DNS resolution
-        // @ts-ignore - Next.js fetch implementation ignores these properties but they help in some environments
-        agent: null,
-        timeout: 10000, // 10 seconds timeout
-      });
+    // Extract DSN from environment
+    const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN
+    if (!sentryDsn) {
+      console.error('[Sentry Tunnel] Missing Sentry DSN')
+      return NextResponse.json({ message: '[Sentry Tunnel] Configuration error' }, { status: 503 })
+    }
 
-      // Handle Sentry response
-      if (!sentryResponse.ok) {
-        const responseText = await sentryResponse.text().catch(() => 'No response text');
-        console.error('[Sentry Tunnel] Error from Sentry:', sentryResponse.status, responseText);
+    // Ensure the body is formatted as a valid Sentry envelope with newlines
+    let requestBody: string | null = null
+    if (request.body) {
+      const text = await request.text()
+      const lines = text.split('\n')
+      const formattedText = lines.join('\n') + '\n'
+      requestBody = formattedText
+    }
+
+    // Forward to Sentry with robust error handling
+    const sentryResponse = await fetch(sentryUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-sentry-envelope',
+        'Authorization': `DSN ${sentryDsn}`,
+      },
+      body: requestBody,
+      // Add these for Node.js environment to help with DNS resolution
+      // @ts-ignore - Next.js fetch implementation ignores these properties but they help in some environments
+      agent: null,
+      timeout: 10000, // 10 seconds timeout
+    });
+
+    // Handle Sentry response
+    if (!sentryResponse.ok) {
+      const responseText = await sentryResponse.text().catch(() => 'No response text');
+      console.error('[Sentry Tunnel] Error from Sentry:', sentryResponse.status, responseText);
+      
+      // If we get a 400 with "missing newline" error, try an alternative approach
+      if (sentryResponse.status === 400 && responseText.includes('missing newline')) {
+        console.log('[Sentry Tunnel] Attempting alternative envelope format fix');
         
-        // If we get a 400 with "missing newline" error, try an alternative approach
-        if (sentryResponse.status === 400 && responseText.includes('missing newline')) {
-          console.log('[Sentry Tunnel] Attempting alternative envelope format fix');
-          
-          // Create completely new envelope as a last resort
-          const alternativeEnvelope = createCompletelyNewEnvelope(body);
-          
-          // Second attempt with completely reformatted envelope
-          const retryResponse = await fetch(sentryUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-sentry-envelope',
-              'X-Sentry-Auth': `Sentry sentry_version=7, sentry_key=${SENTRY_KEY}, sentry_client=sentry.tunnel.nextjs/1.0.0`,
-            },
-            body: alternativeEnvelope,
-            // @ts-ignore
-            agent: null,
-            timeout: 10000,
+        // Create completely new envelope as a last resort
+        const alternativeEnvelope = createCompletelyNewEnvelope(await request.text());
+        
+        // Second attempt with completely reformatted envelope
+        const retryResponse = await fetch(sentryUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-sentry-envelope',
+            'Authorization': `DSN ${sentryDsn}`,
+          },
+          body: alternativeEnvelope,
+          // @ts-ignore
+          agent: null,
+          timeout: 10000,
+        });
+        
+        if (retryResponse.ok) {
+          console.log('[Sentry Tunnel] Successfully forwarded to Sentry after retry');
+          const retryData = await retryResponse.text().catch(() => '{"status":"success"}');
+          return new Response(retryData, {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
           });
-          
-          if (retryResponse.ok) {
-            console.log('[Sentry Tunnel] Successfully forwarded to Sentry after retry');
-            const retryData = await retryResponse.text().catch(() => '{"status":"success"}');
-            return new Response(retryData, {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            });
-          } else {
-            console.error('[Sentry Tunnel] Retry also failed:', await retryResponse.text().catch(() => 'No response text'));
-            // Instead of returning an error, return a 200 so client doesn't try to retry
-            return NextResponse.json(
-              { status: 'accepted', message: 'Event accepted but forwarding to Sentry failed' },
-              { status: 200 }
-            );
-          }
+        } else {
+          console.error('[Sentry Tunnel] Retry also failed:', await retryResponse.text().catch(() => 'No response text'));
+          // Instead of returning an error, return a 200 so client doesn't try to retry
+          return NextResponse.json(
+            { status: 'accepted', message: 'Event accepted but forwarding to Sentry failed' },
+            { status: 200 }
+          );
         }
-        
-        // For other errors, return 200 to avoid client retries that might cause more issues
-        return NextResponse.json(
-          { status: 'accepted', message: 'Event accepted but forwarding to Sentry failed' },
-          { status: 200 }
-        );
       }
-
-      // Success - return the Sentry response
-      const responseData = await sentryResponse.text().catch(() => '{"status":"success"}');
-      console.log('[Sentry Tunnel] Successfully forwarded to Sentry');
       
-      return new Response(responseData, {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-    } catch (fetchError) {
-      // More detailed logging for network errors
-      console.error('[Sentry Tunnel] Network error while forwarding to Sentry:', fetchError);
-      
-      // Return success status to client, to avoid retries
+      // For other errors, return 200 to avoid client retries that might cause more issues
       return NextResponse.json(
-        { 
-          status: 'accepted', 
-          message: 'Event accepted but forwarding to Sentry failed'
-        },
+        { status: 'accepted', message: 'Event accepted but forwarding to Sentry failed' },
         { status: 200 }
       );
     }
+
+    // Success - return the Sentry response
+    const responseData = await sentryResponse.text().catch(() => '{"status":"success"}');
+    console.log('[Sentry Tunnel] Successfully forwarded to Sentry');
+    
+    return new Response(responseData, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
   } catch (error) {
     // Handle any other errors
     console.error('[Sentry Tunnel] Unhandled error:', error);
