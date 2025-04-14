@@ -73,12 +73,17 @@ export async function GET(request: NextRequest) {
 async function fetchWebData(searchQuery: string) {
   try {
     // Use the web search API to get relevant information
-    // Get host from request for local development
+    // Get host from environment variables or use a relative URL
     const baseUrl = process.env.VERCEL_URL 
       ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      : process.env.NEXTAUTH_URL || '';
       
-    const response = await fetch(`${baseUrl}/api/web-search?query=${encodeURIComponent(searchQuery)}`);
+    // Use relative URL if no base URL is available
+    const apiUrl = baseUrl 
+      ? `${baseUrl}/api/web-search?query=${encodeURIComponent(searchQuery)}`
+      : `/api/web-search?query=${encodeURIComponent(searchQuery)}`;
+    
+    const response = await fetch(apiUrl);
     
     if (!response.ok) {
       throw new Error('Web search failed');

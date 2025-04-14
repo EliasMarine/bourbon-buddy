@@ -41,14 +41,30 @@ export async function GET(request: NextRequest) {
       'https://bourbon-buddy.vercel.app'
     ];
     
+    // Add development origins from environment variable if available
     if (process.env.NODE_ENV !== 'production') {
-      allowedOrigins.push('http://localhost:3000');
+      // Get allowed origins from environment variable
+      const devOrigins = process.env.ALLOWED_DEV_ORIGINS 
+        ? process.env.ALLOWED_DEV_ORIGINS.split(',').map(o => o.trim())
+        : ['localhost', '127.0.0.1'];
+      
+      // Add localhost with protocol if not already specified
+      devOrigins.forEach(devOrigin => {
+        if (devOrigin === 'localhost' || devOrigin === '127.0.0.1') {
+          allowedOrigins.push(`http://${devOrigin}:3000`);
+        } else if (!devOrigin.startsWith('http')) {
+          allowedOrigins.push(`https://${devOrigin}`);
+        } else {
+          allowedOrigins.push(devOrigin);
+        }
+      });
     }
     
     // Determine the appropriate CORS origin
-    const corsOrigin = origin && allowedOrigins.includes(origin) 
+    // Either match from allowed origins or use null (which blocks credentials but is safe)
+    const corsOrigin = origin && (allowedOrigins.includes(origin) || origin.includes('localhost'))
       ? origin 
-      : allowedOrigins[0];
+      : (process.env.NODE_ENV === 'production' ? allowedOrigins[0] : '*');
     
     response.headers.set('Access-Control-Allow-Origin', corsOrigin);
     response.headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');

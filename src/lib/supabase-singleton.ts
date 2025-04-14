@@ -34,7 +34,36 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
     console.log('🔑 Creating new Supabase browser client instance');
     browserInstance = createBrowserClient(
       supabaseUrl,
-      supabaseKey
+      supabaseKey,
+      {
+        // Improved realtime config
+        realtime: {
+          params: {
+            eventsPerSecond: 5
+          }
+        },
+        auth: {
+          // Ensure cookies are used for auth
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: false
+        },
+        global: {
+          // Increase timeouts for better reliability
+          fetch: (url, options = {}) => {
+            const headers = new Headers(options.headers || {});
+            headers.set('X-Client-Info', 'supabase-js/browser/singleton');
+            return fetch(url, {
+              ...options,
+              headers,
+              // This is critical for auth cookies to pass
+              credentials: 'include',
+              // Increase timeout to avoid Connection closed errors
+              signal: options.signal || AbortSignal.timeout(30000) // 30 second timeout
+            });
+          }
+        }
+      }
     );
   }
 
