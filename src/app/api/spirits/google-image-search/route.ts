@@ -30,27 +30,76 @@ export async function GET(request: Request) {
       );
     }
 
-    // Build the search query
+    // Build a more specific search query for better results
     let searchParts = [];
     
-    if (brand) searchParts.push(brand);
-    if (name) searchParts.push(name);
-    if (type && type !== 'Other') searchParts.push(type);
+    // Always prioritize the exact brand and name combination for more accurate results
+    if (brand && name) {
+      // Put brand first, then name for better image search results
+      searchParts.push(`${brand} ${name}`);
+    } else if (brand) {
+      searchParts.push(brand);
+    } else if (name) {
+      searchParts.push(name);
+    }
+    
+    // Add type if available, but make it more specific
+    if (type) {
+      // Be specific about whiskey types for better results
+      if (type === 'Bourbon') {
+        searchParts.push('bourbon whiskey');
+      } else if (type === 'Rye') {
+        searchParts.push('rye whiskey');
+      } else if (type === 'Scotch') {
+        searchParts.push('scotch whisky');
+      } else if (type === 'Irish') {
+        searchParts.push('irish whiskey');
+      } else if (type === 'Japanese') {
+        searchParts.push('japanese whisky');
+      } else if (type !== 'Other') {
+        searchParts.push(type);
+      }
+    }
+    
     if (year) searchParts.push(year);
     
-    // Always add specific terms to get better bottle results
-    searchParts.push('bottle');
+    // Add these specific terms to get better bottle results
+    searchParts.push('bottle official');
     
     // Join all parts with spaces
     const query = searchParts.join(' ');
-    console.log(`[DEBUG] Performing Google image search for: "${query}"`);
+    console.log(`[DEBUG] Performing image search for: "${query}"`);
 
-    // First try Bing search as they often have better high-quality images
-    let images = await fetchBingImages(query);
+    // Try to use reliable sources first
+    let images: ImageResult[] = [];
     
-    // Fall back to Google if Bing didn't yield enough results
+    // 1. First try The Whisky Exchange, a reliable source for high-quality spirit images
+    const whiskyExchangeImages = await fetchWhiskyExchangeImages(query);
+    if (whiskyExchangeImages.length > 0) {
+      images = [...images, ...whiskyExchangeImages];
+      console.log(`[DEBUG] Found ${whiskyExchangeImages.length} images from The Whisky Exchange`);
+    }
+    
+    // 2. Then try Bing search with improved query
+    if (images.length < 5) {
+      // Add "official" to the query to get more official product images
+      const enhancedQuery = query + ' official product';
+      const bingImages = await fetchBingImages(enhancedQuery);
+      
+      // Combine results, avoiding duplicates
+      const existingUrls = new Set(images.map(img => img.url));
+      for (const img of bingImages) {
+        if (!existingUrls.has(img.url)) {
+          images.push(img);
+          existingUrls.add(img.url);
+        }
+      }
+    }
+    
+    // 3. Fall back to Google as a last resort
     if (images.length < 5) {
       const googleImages = await fetchGoogleImages(query);
+      
       // Combine results, avoiding duplicates
       const existingUrls = new Set(images.map(img => img.url));
       for (const img of googleImages) {
@@ -59,6 +108,11 @@ export async function GET(request: Request) {
           existingUrls.add(img.url);
         }
       }
+    }
+    
+    // If still no images found, use fallbacks based on spirit type
+    if (images.length === 0) {
+      images = getFallbackImages(query, type || '');
     }
     
     console.log(`[DEBUG] Total images found: ${images.length}`);
@@ -78,7 +132,69 @@ export async function GET(request: Request) {
   }
 }
 
-// Function to fetch images from Bing
+// New function to fetch images from The Whisky Exchange
+async function fetchWhiskyExchangeImages(query: string): Promise<ImageResult[]> {
+  try {
+    // Create a better formatted search query
+    const searchTerms = query.split(' ').filter(term => 
+      !['bottle', 'official', 'product'].includes(term.toLowerCase())
+    );
+    const searchTerm = searchTerms.join('+');
+    const searchUrl = `https://www.thewhiskyexchange.com/search?q=${encodeURIComponent(searchTerm)}`;
+    
+    console.log(`[DEBUG] Searching The Whisky Exchange with URL: ${searchUrl}`);
+    
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36';
+    
+    const response = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': userAgent,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`[ERROR] Whisky Exchange search failed: ${response.status}`);
+      return [];
+    }
+    
+    const html = await response.text();
+    const $ = load(html);
+    const images: ImageResult[] = [];
+    
+    // Look for product listings
+    $('.product-grid .product-card').each((_, element) => {
+      try {
+        const imgElement = $(element).find('.product-card__image img');
+        const imgUrl = imgElement.attr('src') || imgElement.attr('data-src');
+        const title = $(element).find('.product-card__name').text().trim();
+        
+        if (imgUrl && title) {
+          // Convert relative URLs to absolute
+          const finalUrl = imgUrl.startsWith('http') 
+            ? imgUrl 
+            : `https://www.thewhiskyexchange.com${imgUrl}`;
+          
+          images.push({
+            url: finalUrl,
+            alt: title,
+            source: 'The Whisky Exchange'
+          });
+        }
+      } catch (e) {
+        console.error('[ERROR] Error extracting Whisky Exchange image:', e);
+      }
+    });
+    
+    return images;
+  } catch (error) {
+    console.error('[ERROR] Error fetching from Whisky Exchange:', error);
+    return [];
+  }
+}
+
+// Improved Bing image search function
 async function fetchBingImages(query: string): Promise<ImageResult[]> {
   try {
     // Encode the search query
@@ -88,8 +204,8 @@ async function fetchBingImages(query: string): Promise<ImageResult[]> {
     // Define a custom User-Agent to avoid being blocked
     const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36';
     
-    // Use Bing image search
-    const searchUrl = `https://www.bing.com/images/search?q=${encodedQuery}&qft=+filterui:photo-photo&form=IRFLTR`;
+    // Use Bing image search with additional filters for photos
+    const searchUrl = `https://www.bing.com/images/search?q=${encodedQuery}&qft=+filterui:photo-photo+filterui:aspect-square&form=IRFLTR`;
     
     console.log(`[DEBUG] Searching Bing with URL: ${searchUrl}`);
     
@@ -163,6 +279,15 @@ async function fetchBingImages(query: string): Promise<ImageResult[]> {
             return false;
           }
           
+          // Prioritize URLs from reliable sources
+          if (lowerUrl.includes('thewhiskyexchange.com') || 
+              lowerUrl.includes('totalwine.com') || 
+              lowerUrl.includes('whiskyshop.com') ||
+              lowerUrl.includes('reservebar.com') ||
+              lowerUrl.includes('drizly.com')) {
+            return true;
+          }
+          
           // Prioritize URLs that look like they contain spirit bottle images
           return lowerUrl.endsWith('.jpg') || 
                  lowerUrl.endsWith('.jpeg') || 
@@ -187,8 +312,8 @@ async function fetchBingImages(query: string): Promise<ImageResult[]> {
 // Function to fetch images from Google
 async function fetchGoogleImages(query: string): Promise<ImageResult[]> {
   try {
-    // Encode the search query
-    const enhancedQuery = `${query} bottle high quality`;
+    // Enhance the query for better results
+    const enhancedQuery = `${query} bottle high quality product`;
     const encodedQuery = encodeURIComponent(enhancedQuery);
     
     // Define headers to simulate a real browser
@@ -203,7 +328,7 @@ async function fetchGoogleImages(query: string): Promise<ImageResult[]> {
     };
     
     // Direct access to Google image search
-    const searchUrl = `https://www.google.com/search?q=${encodedQuery}&tbm=isch&source=lnms`;
+    const searchUrl = `https://www.google.com/search?q=${encodedQuery}&tbm=isch&source=lnms&tbs=isz:m,iar:s`;
     console.log(`[DEBUG] Searching Google with URL: ${searchUrl}`);
     
     const response = await fetch(searchUrl, { headers });
@@ -290,77 +415,105 @@ function extractImageUrlsFromGoogleHtml(html: string): string[] {
   return imageUrls;
 }
 
-// Fallback images when search fails
-function getFallbackImages(query: string): ImageResult[] {
-  const lowerQuery = query.toLowerCase();
-  console.log(`[DEBUG] Using fallback images for query: ${query}`);
+// Improved fallback images when search fails
+function getFallbackImages(query: string, type: string): ImageResult[] {
+  console.log(`[DEBUG] Using fallback images for query: "${query}", type: "${type}"`);
   
-  // Define fallback images for common spirit types
-  if (lowerQuery.includes('bourbon')) {
+  // Determine type for more accurate fallbacks
+  const lowerQuery = query.toLowerCase();
+  const lowerType = type.toLowerCase();
+  
+  if (lowerType.includes('bourbon') || lowerQuery.includes('bourbon')) {
     return [
       {
         url: 'https://img.thewhiskyexchange.com/900/brbon_buf10.jpg',
-        alt: query,
-        source: 'Fallback Image'
+        alt: 'Buffalo Trace Bourbon',
+        source: 'Fallback Image - Bourbon'
       },
       {
-        url: 'https://www.totalwine.com/dynamic/490x/media/sys_master/twmmedia/h3c/h70/11635160236062.png',
-        alt: query,
-        source: 'Fallback Image'
+        url: 'https://img.thewhiskyexchange.com/900/brbon_mak4.jpg',
+        alt: "Maker's Mark Bourbon",
+        source: 'Fallback Image - Bourbon'
       },
       {
-        url: 'https://www.buffalotracedistillery.com/content/dam/buffalotrace/products/brands/buffalo-trace/Buffalo-Trace-Bourbon.png',
-        alt: query,
-        source: 'Fallback Image'
+        url: 'https://img.thewhiskyexchange.com/900/brbon_woo8.jpg',
+        alt: 'Woodford Reserve Bourbon',
+        source: 'Fallback Image - Bourbon'
       }
     ];
-  } else if (lowerQuery.includes('scotch') || lowerQuery.includes('whisky')) {
-    return [
-      {
-        url: 'https://img.thewhiskyexchange.com/900/macob_12yo_14.jpg',
-        alt: query,
-        source: 'Fallback Image'
-      },
-      {
-        url: 'https://www.themacallan.com/sites/default/files/2019-03/12yr-sherry-oak-bottle.png',
-        alt: query,
-        source: 'Fallback Image'
-      },
-      {
-        url: 'https://www.malts.com/uploads/images/BreakingNewGround/Images/DistilleryProductCarousels/Lagavulin/Lagavulin-16YO.png',
-        alt: query,
-        source: 'Fallback Image'
-      }
-    ];
-  } else if (lowerQuery.includes('rye')) {
+  } else if (lowerType.includes('rye') || lowerQuery.includes('rye')) {
     return [
       {
         url: 'https://img.thewhiskyexchange.com/900/rye_bul1.jpg',
-        alt: query,
-        source: 'Fallback Image'
+        alt: 'Bulleit Rye Whiskey',
+        source: 'Fallback Image - Rye'
       },
       {
-        url: 'https://www.bulleit.com/-/media/project/diageo/shared/en/bulleit/products/bulleit-rye/desktop/bulleit-rye-bottle-1-5.png',
-        alt: query,
-        source: 'Fallback Image'
+        url: 'https://img.thewhiskyexchange.com/900/rye_saz1.jpg',
+        alt: 'Sazerac Rye Whiskey',
+        source: 'Fallback Image - Rye'
       },
       {
-        url: 'https://www.whistlepigwhiskey.com/assets/img/bottles/10-straight-rye-whiskey.png',
-        alt: query,
-        source: 'Fallback Image'
+        url: 'https://img.thewhiskyexchange.com/900/rye_whi4.jpg',
+        alt: 'WhistlePig Rye Whiskey',
+        source: 'Fallback Image - Rye'
+      }
+    ];
+  } else if (lowerType.includes('scotch') || lowerQuery.includes('scotch') || lowerQuery.includes('whisky')) {
+    return [
+      {
+        url: 'https://img.thewhiskyexchange.com/900/macob_12yo_14.jpg',
+        alt: 'Macallan 12 Year Scotch Whisky',
+        source: 'Fallback Image - Scotch'
+      },
+      {
+        url: 'https://img.thewhiskyexchange.com/900/laga_16y1.jpg',
+        alt: 'Lagavulin 16 Year Scotch Whisky',
+        source: 'Fallback Image - Scotch'
+      },
+      {
+        url: 'https://img.thewhiskyexchange.com/900/glenf_12y1.jpg',
+        alt: 'Glenfiddich 12 Year Scotch Whisky',
+        source: 'Fallback Image - Scotch'
+      }
+    ];
+  } else if (lowerType.includes('irish') || lowerQuery.includes('irish')) {
+    return [
+      {
+        url: 'https://img.thewhiskyexchange.com/900/irish_jam1.jpg',
+        alt: 'Jameson Irish Whiskey',
+        source: 'Fallback Image - Irish Whiskey'
+      },
+      {
+        url: 'https://img.thewhiskyexchange.com/900/irish_red3.jpg',
+        alt: 'Redbreast 12 Year Irish Whiskey',
+        source: 'Fallback Image - Irish Whiskey'
+      }
+    ];
+  } else if (lowerType.includes('japanese') || lowerQuery.includes('japanese')) {
+    return [
+      {
+        url: 'https://img.thewhiskyexchange.com/900/japan_yam2.jpg',
+        alt: 'Yamazaki 12 Year Japanese Whisky',
+        source: 'Fallback Image - Japanese Whisky'
+      },
+      {
+        url: 'https://img.thewhiskyexchange.com/900/japan_nik20.jpg',
+        alt: 'Nikka Coffey Grain Japanese Whisky',
+        source: 'Fallback Image - Japanese Whisky'
       }
     ];
   } else {
-    // Generic spirit image
+    // Generic spirit image fallbacks
     return [
       {
         url: 'https://img.thewhiskyexchange.com/900/brbon_mak4.jpg',
-        alt: query,
+        alt: 'Maker\'s Mark Bourbon',
         source: 'Fallback Image'
       },
       {
-        url: 'https://www.knobcreek.com/-/media/images/knob-creek/platform-images/products/knc_bourbon_2022.png',
-        alt: query,
+        url: 'https://img.thewhiskyexchange.com/900/brbon_buf15.jpg',
+        alt: 'Buffalo Trace Bourbon',
         source: 'Fallback Image'
       }
     ];
