@@ -212,7 +212,7 @@ export async function middleware(request: NextRequest) {
       
       // Add the correct Permissions-Policy header instead of the deprecated Feature-Policy
       response.headers.set('Permissions-Policy', 
-        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        "accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), payment=(), usb=()"
       )
     } else {
       // In development mode, allow specific domains but still maintain security
@@ -245,7 +245,7 @@ export async function middleware(request: NextRequest) {
       
       // Add the correct Permissions-Policy header for development too
       response.headers.set('Permissions-Policy', 
-        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        "accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), payment=(), usb=()"
       )
     }
     

@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Use standard query now that the webImageUrl column issue is fixed
     const spirit = await prisma.spirit.findUnique({
       where: { id: spiritId },
       include: {

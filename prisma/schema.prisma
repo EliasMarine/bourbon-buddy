@@ -78,6 +78,7 @@ model Spirit {
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
   ownerId      String
+  webImageUrl  String?
   reviews      Review[]
   owner        User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   streams      Stream[]
@@ -232,7 +233,7 @@ model SecurityEvent {
   userId    String?
   ip        String?
   userAgent String?
-  metadata  String?  // JSON stringified metadata
+  metadata  String?
   createdAt DateTime @default(now())
 
   @@index([type])

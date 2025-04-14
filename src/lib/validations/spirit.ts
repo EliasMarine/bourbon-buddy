@@ -64,6 +64,12 @@ export const SpiritSchema = z.object({
     })
     .nullable()
     .optional(),
+  webImageUrl: z.string()
+    .refine(val => val.startsWith('http'), {
+      message: "Web image URL must start with 'http'"
+    })
+    .nullable()
+    .optional(),
   nose: z.union([
     z.string().max(500, 'Nose description must be less than 500 characters'),
     z.array(z.string())

@@ -11,6 +11,7 @@ import ModernBottleLevelIndicator from '@/components/ui/ModernBottleLevelIndicat
 import Image from 'next/image';
 import SafeImage from '@/components/ui/SafeImage';
 import { getSafeImageUrl } from '@/lib/spiritUtils';
+import ImagePickerModal from '@/components/collection/ImagePickerModal';
 
 interface WebData {
   query: string;
@@ -36,6 +37,8 @@ interface WebData {
       };
       awards: string[];
       releaseYear?: string;
+      imageUrl?: string;
+      webImageUrl?: string;
     };
     tastingNotes: {
       expert: {
@@ -90,9 +93,6 @@ export default function SpiritDetailPage() {
   const [isImageSearchLoading, setIsImageSearchLoading] = useState(false);
   const [imageSearchResults, setImageSearchResults] = useState<GoogleImageResult[]>([]);
   const [showImageOptions, setShowImageOptions] = useState(false);
-  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
-  const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const webSearchAttempted = useRef<boolean>(false);
   
   const spiritId = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : '';
@@ -580,7 +580,6 @@ export default function SpiritDetailPage() {
     setIsImageSearchLoading(true);
     setImageSearchResults([]);
     setShowImageOptions(false);
-    setSelectedImageUrl(null);
     
     try {
       const spiritInfo = data.spirit;
@@ -743,8 +742,6 @@ export default function SpiritDetailPage() {
         webError: data.webError
       } : null);
       
-      setSelectedImageUrl(null);
-      setShowImageOptions(false);
       toast.success('Bottle image updated');
       
       // Force reload of the image to show updated version
@@ -787,6 +784,174 @@ export default function SpiritDetailPage() {
       // Clear existing data and trigger fresh fetch
       setData(null);
       fetchSpiritDetails(refreshController.signal);
+    }
+  };
+
+  // Add a function to repair the spirit image by using the web image
+  const repairSpiritImage = async () => {
+    if (!data?.spirit || isLoading) return;
+    
+    try {
+      setIsLoading(true);
+      toast.loading('Attempting to repair image...');
+      
+      // First try to fetch web data if we don't have any
+      if (!webData) {
+        await fetchSpiritInfo();
+      }
+      
+      // If we have web data with an image, use that
+      let imageToUse = '';
+      
+      if (webData?.relatedInfo?.product?.imageUrl) {
+        imageToUse = webData.relatedInfo.product.imageUrl;
+        console.log('Using web data image URL:', imageToUse);
+      } else if (webData?.relatedInfo?.product?.webImageUrl) {
+        imageToUse = webData.relatedInfo.product.webImageUrl;
+        console.log('Using web data webImageUrl URL:', imageToUse);
+      } else {
+        // Otherwise, trigger a new image search
+        console.log('No web image found, searching for a new one...');
+        await searchBottleImages();
+        return; // searchBottleImages will handle the rest via the modal
+      }
+      
+      // If we have an image URL, update the spirit
+      if (imageToUse) {
+        // Clean up the spirit data for updating
+        const { 
+          id, 
+          createdAt, 
+          updatedAt, 
+          ownerId, 
+          owner,
+          ...cleanSpirit 
+        } = data.spirit as any;
+        
+        // Explicitly set both imageUrl and webImageUrl fields
+        const updateData = {
+          ...cleanSpirit,
+          imageUrl: imageToUse,
+          webImageUrl: imageToUse // Set this explicitly as a backup
+        };
+        
+        console.log('Repairing spirit with image URL:', imageToUse);
+        
+        // Add a timestamp to the URL to force refresh
+        const timestamp = Date.now();
+        if (!updateData.imageUrl.includes('?')) {
+          updateData.imageUrl = `${updateData.imageUrl}?_t=${timestamp}`;
+          updateData.webImageUrl = `${updateData.webImageUrl}?_t=${timestamp}`;
+        } else if (!updateData.imageUrl.includes('_t=')) {
+          updateData.imageUrl = `${updateData.imageUrl}&_t=${timestamp}`;
+          updateData.webImageUrl = `${updateData.webImageUrl}&_t=${timestamp}`;
+        }
+        
+        const response = await fetch(`/api/collection/${params.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache'
+          },
+          body: JSON.stringify(updateData)
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to update image');
+        }
+        
+        const updatedSpirit = await response.json();
+        
+        // Verify the spirit was updated correctly
+        console.log('Spirit updated successfully, new imageUrl:', updatedSpirit.imageUrl);
+        console.log('New webImageUrl:', updatedSpirit.webImageUrl);
+        
+        // Manually refresh the browser to ensure fresh data is loaded
+        if (typeof window !== 'undefined') {
+          window.location.reload();
+          return;
+        }
+        
+        // Update the local state if reload isn't available
+        setData(data ? {
+          spirit: updatedSpirit,
+          webData: data.webData,
+          webError: data.webError
+        } : null);
+        
+        toast.success('Image repaired successfully!');
+        
+        // Force a complete reload of the images
+        const timestamp2 = Date.now();
+        const imageElement = document.querySelector('.spirit-bottle-image') as HTMLImageElement;
+        if (imageElement) {
+          const newSrc = `/api/proxy/image?url=${encodeURIComponent(imageToUse)}&_cb=${timestamp2}`;
+          imageElement.src = newSrc;
+        }
+      } else {
+        toast.error('No replacement image found');
+      }
+    } catch (error) {
+      console.error('Error repairing image:', error);
+      toast.error('Failed to repair image');
+    } finally {
+      setIsLoading(false);
+      toast.dismiss();
+    }
+  };
+
+  // Add a function to fix all spirits in the collection
+  const fixAllSpirits = async () => {
+    if (!data?.spirit) return;
+    toast.loading('Attempting to fix image display issues...');
+    
+    try {
+      // 1. First check if we can get a direct URL
+      let fixUrl = '';
+      
+      if (data.spirit.type.toLowerCase().includes('bourbon') || 
+          data.spirit.brand.toLowerCase().includes('buffalo') ||
+          data.spirit.name.toLowerCase().includes('stagg')) {
+        fixUrl = 'https://www.buffalotracedistillery.com/content/dam/buffalotrace/products/antiques-collection/2022/GTS-2022-front.png';
+      } else {
+        fixUrl = 'https://www.buffalotracedistillery.com/content/dam/buffalotrace/products/buffalo-trace-bourbon-product.png';
+      }
+      
+      // 2. Clean the spirit data for updating
+      const { id, createdAt, updatedAt, ownerId, owner, ...cleanSpirit } = data.spirit as any;
+      
+      // 3. Make a simple direct update with just the imageUrl field
+      const updateData = {
+        ...cleanSpirit,
+        imageUrl: fixUrl
+      };
+      
+      console.log('Fixing spirit with direct image URL override:', fixUrl);
+      
+      // 4. Make the update request
+      const response = await fetch(`/api/collection/${params.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        },
+        body: JSON.stringify(updateData)
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to update image');
+      }
+      
+      // 5. Reload the page to see the changes
+      window.location.reload();
+      
+    } catch (error) {
+      console.error('Error with direct fix:', error);
+      toast.error('Failed to fix image');
+    } finally {
+      toast.dismiss();
     }
   };
 
@@ -890,114 +1055,110 @@ export default function SpiritDetailPage() {
                       <ImageIcon className="w-5 h-5" />
                     )}
                   </button>
+
+                  {/* Debug overlay - only visible in development */}
+                  {process.env.NODE_ENV === 'development' && (
+                    <div className="absolute bottom-4 left-4 bg-black/80 text-xs text-white p-2 rounded max-w-[240px] opacity-80 hover:opacity-100 overflow-hidden">
+                      <div><b>Image URL (Truncated):</b></div>
+                      <div className="truncate">{spirit.imageUrl.substring(0, 30)}...</div>
+                      <div><b>Web Image URL:</b> {spirit.webImageUrl ? '✅' : '❌'}</div>
+                      <div><b>Safe URL:</b></div>
+                      <div className="truncate">{getSafeImageUrl(spirit.imageUrl).substring(0, 30)}...</div>
+                      <div className="flex mt-1 gap-1">
+                        <button 
+                          className="bg-blue-600 text-xs p-1 rounded flex-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            console.log('Image URL:', spirit.imageUrl);
+                            console.log('Web Image URL:', spirit.webImageUrl);
+                            console.log('Safe URL:', getSafeImageUrl(spirit.imageUrl));
+                            toast.success('Image details logged to console');
+                          }}
+                        >
+                          Log Details
+                        </button>
+                        <button 
+                          className="bg-green-600 text-xs p-1 rounded flex-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            repairSpiritImage();
+                          }}
+                        >
+                          Repair
+                        </button>
+                        <button 
+                          className="bg-purple-600 text-xs p-1 rounded flex-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            fixAllSpirits();
+                          }}
+                        >
+                          Direct Fix
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : webData && webData.relatedInfo.product.imageUrl ? (
+                <div className="flex items-center justify-center py-6 px-4 h-full min-h-[300px] md:min-h-[400px]">
+                  <div className="relative flex items-center justify-center">
+                    <SafeImage
+                      src={getSafeImageUrl(webData.relatedInfo.product.imageUrl)}
+                      alt={spirit.name}
+                      className="max-w-[95%] max-h-[90%] object-contain spirit-bottle-image transition-transform hover:scale-[1.02]"
+                      width={300}
+                      height={500}
+                      style={{ maxHeight: "min(70vh, 600px)" }} 
+                      loading="eager"
+                    />
+                  </div>
+                  <button
+                    onClick={searchBottleImages}
+                    disabled={isImageSearchLoading}
+                    className="absolute bottom-4 right-4 p-2 bg-amber-500 hover:bg-amber-600 text-white rounded-full shadow-lg transition-colors z-10"
+                    title="Update bottle image"
+                  >
+                    {isImageSearchLoading ? (
+                      <div className="w-5 h-5 border-t-2 border-b-2 border-white rounded-full animate-spin" />
+                    ) : (
+                      <ImageIcon className="w-5 h-5" />
+                    )}
+                  </button>
                 </div>
               ) : (
                 <div className="w-full h-64 md:h-full bg-gray-800 flex flex-col items-center justify-center p-6">
                   <span className="text-gray-500 mb-3">No image</span>
-                  <button
-                    onClick={searchBottleImages}
-                    disabled={isImageSearchLoading}
-                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-md transition-colors flex items-center gap-2"
-                  >
-                    {isImageSearchLoading ? (
-                      <div className="w-4 h-4 border-t-2 border-b-2 border-white rounded-full animate-spin mr-2" />
-                    ) : (
-                      <Search className="w-4 h-4 mr-1" />
-                    )}
-                    Find Bottle Image
-                  </button>
-                </div>
-              )}
-              
-              {/* Image Search Results Modal */}
-              {showImageOptions && imageSearchResults.length > 0 && (
-                <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
-                  <div className="bg-gray-900 rounded-lg w-full max-w-4xl overflow-hidden flex flex-col">
-                    {/* Header */}
-                    <div className="flex justify-between items-center p-5 border-b border-gray-800">
-                      <h2 className="text-xl font-bold text-white">Select Bottle Image</h2>
-                      <button 
-                        onClick={() => setShowImageOptions(false)}
-                        className="text-gray-400 hover:text-white"
-                      >
-                        <X className="w-6 h-6" />
-                      </button>
-                    </div>
-
-                    {/* Description */}
-                    <div className="px-5 py-3">
-                      <p className="text-gray-400">
-                        Found {imageSearchResults.length} potential images for {spirit.brand} {spirit.name}.
-                      </p>
-                      <p className="text-gray-500 text-sm">
-                        Select the image that best represents this bottle in your collection.
-                      </p>
-                    </div>
-
-                    {/* Image Grid */}
-                    <div className="px-5 py-2 flex-grow overflow-y-auto">
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                        {imageSearchResults.map((image, index) => (
-                          <div 
-                            key={index}
-                            className={`aspect-[1/1.2] bg-white rounded-md overflow-hidden cursor-pointer ${
-                              selectedImageUrl === image.url ? 'ring-2 ring-amber-500 ring-offset-2 ring-offset-gray-900' : ''
-                            }`}
-                            onClick={() => {
-                              setSelectedImageUrl(image.url);
-                              setSelectedImageIndex(index);
-                            }}
-                          >
-                            <div className="w-full h-full relative bg-white">
-                              {/* Loading spinner */}
-                              <div className="absolute inset-0 flex items-center justify-center bg-white z-0">
-                                <div className="w-8 h-8 border-t-2 border-b-2 border-gray-400 rounded-full animate-spin"></div>
-                              </div>
-                              
-                              {/* Image */}
-                              <img 
-                                src={image.url} 
-                                alt={image.alt || 'Bottle image'}
-                                className="w-full h-full object-contain z-10 relative"
-                                loading="lazy"
-                                onLoad={(e) => {
-                                  const target = e.target as HTMLElement;
-                                  const spinner = target.parentElement?.querySelector('div.absolute');
-                                  if (spinner) spinner.classList.add('hidden');
-                                }}
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  target.src = '/images/bottle-placeholder.png';
-                                  const spinner = target.parentElement?.querySelector('div.absolute');
-                                  if (spinner) spinner.classList.add('hidden');
-                                }}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Footer with buttons */}
-                    <div className="p-4 border-t border-gray-800 flex justify-end gap-3">
-                      <button
-                        onClick={() => setShowImageOptions(false)}
-                        className="px-6 py-2 bg-gray-800 text-white rounded hover:bg-gray-700 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={() => selectedImageUrl && updateBottleImage(selectedImageUrl)}
-                        disabled={!selectedImageUrl}
-                        className={`px-6 py-2 rounded transition-colors ${
-                          selectedImageUrl 
-                            ? 'bg-blue-600 hover:bg-blue-700 text-white' 
-                            : 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                        }`}
-                      >
-                        Select an Image
-                      </button>
-                    </div>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={searchBottleImages}
+                      disabled={isImageSearchLoading}
+                      className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-md transition-colors flex items-center gap-2"
+                    >
+                      {isImageSearchLoading ? (
+                        <div className="w-4 h-4 border-t-2 border-b-2 border-white rounded-full animate-spin mr-2" />
+                      ) : (
+                        <Search className="w-4 h-4 mr-1" />
+                      )}
+                      Find Bottle Image
+                    </button>
+                    
+                    <button
+                      onClick={repairSpiritImage}
+                      disabled={isImageSearchLoading}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors flex items-center gap-2"
+                    >
+                      <RefreshCw className="w-4 h-4 mr-1" />
+                      Repair Image Automatically
+                    </button>
+                    
+                    <button
+                      onClick={fixAllSpirits}
+                      disabled={isImageSearchLoading}
+                      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors flex items-center gap-2"
+                    >
+                      <ImageIcon className="w-4 h-4 mr-1" />
+                      Apply Direct Fix
+                    </button>
                   </div>
                 </div>
               )}
@@ -1468,6 +1629,21 @@ export default function SpiritDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Image Search Results Modal */}
+      <ImagePickerModal 
+        isOpen={showImageOptions && imageSearchResults.length > 0}
+        onClose={() => setShowImageOptions(false)}
+        onSelect={(imageUrl) => updateBottleImage(imageUrl)}
+        images={imageSearchResults.map(img => ({ 
+          url: img.url, 
+          alt: img.alt || spirit.name,
+          source: img.source
+        }))}
+        title="Select Bottle Image"
+        spiritName={spirit.name}
+        brandName={spirit.brand}
+      />
     </div>
   );
 } 

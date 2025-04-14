@@ -133,7 +133,11 @@ export async function POST(request: Request) {
         console.log('Inviting users to private stream:', validatedData.invitedEmails);
       }
 
-      return NextResponse.json(stream);
+      // Return the full stream object with explicit ID field
+      return NextResponse.json({
+        id: stream.id,
+        ...stream
+      });
     } catch (validationError) {
       if (validationError instanceof z.ZodError) {
         console.error('Validation error:', validationError.errors);

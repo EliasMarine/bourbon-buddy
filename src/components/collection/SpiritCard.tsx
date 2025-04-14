@@ -2,13 +2,11 @@
 
 import React, { useState } from 'react';
 import { Spirit } from '@/types';
-import { Star, Trash2, Tag, Droplets, Wine, Heart, ImageIcon } from 'lucide-react';
+import { Star, Trash2, Tag, Droplets, Wine, Heart } from 'lucide-react';
 import Link from 'next/link';
-import Image from 'next/image';
 import BottleLevelIndicator from './BottleLevelIndicator';
 import ConfirmationDialog from '../ui/ConfirmationDialog';
-import { getSafeImageUrl } from '@/lib/spiritUtils';
-import SafeImage from '@/components/ui/SafeImage';
+import DynamicSpiritImage from './DynamicSpiritImage';
 
 interface SpiritCardProps {
   spirit: Spirit;
@@ -19,10 +17,7 @@ interface SpiritCardProps {
 export default function SpiritCard({ spirit, onDelete, onToggleFavorite }: SpiritCardProps) {
   // State for delete confirmation dialog
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  
-  // Get safe image URL that works with Content Security Policy
-  const safeImageUrl = getSafeImageUrl(spirit.imageUrl);
-  
+
   // Parse tasting notes if they exist
   const parseNotes = (notesStr: string | undefined | null | string[]): string => {
     if (!notesStr) return '';
@@ -101,23 +96,15 @@ export default function SpiritCard({ spirit, onDelete, onToggleFavorite }: Spiri
       <Link href={`/collection/spirit/${spirit.id}`} className="block">
         <div className="bg-white/5 backdrop-blur-sm rounded-xl overflow-hidden border border-white/10 hover:border-amber-500/30 transition-all hover:shadow-lg hover:shadow-amber-500/10 group cursor-pointer">
           <div className="relative h-60 w-full bg-gray-900 flex items-center justify-center">
-            <div className="w-full h-full flex items-center justify-center relative">
-              <SafeImage
-                src={safeImageUrl}
-                alt={spirit.name}
-                width={200}
-                height={300}
-                style={{ height: 'auto' }}
-                className="object-contain max-h-56 max-w-[80%] transition-transform group-hover:scale-105"
-                loading="lazy"
-                fallback={
-                  <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 bg-gray-800/50">
-                    <ImageIcon className="w-12 h-12 mb-2 opacity-30" />
-                    <span>{spirit.name}</span>
-                  </div>
-                }
-              />
-            </div>
+            <DynamicSpiritImage
+              name={spirit.name}
+              brand={spirit.brand}
+              imageUrl={spirit.imageUrl}
+              webImageUrl={spirit.webImageUrl}
+              width={200}
+              height={300}
+              className="object-contain max-h-56 max-w-[80%] transition-transform group-hover:scale-105"
+            />
             {/* Type badge */}
             <div className="absolute top-3 left-3 bg-black/60 text-white px-3 py-1 rounded-full text-xs font-medium backdrop-blur-sm flex items-center gap-1">
               <Tag className="w-3 h-3" />

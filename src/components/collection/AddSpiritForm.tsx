@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { Wine } from 'lucide-react';
 import BourbonFillIndicator from '../ui/BourbonFillIndicator';
 import TastingNotesSelector, { TastingNoteCategory } from './TastingNotesSelector';
+import SpiritAutocomplete, { SpiritInfo } from './SpiritAutocomplete';
 
 interface AddSpiritFormProps {
   onAdd: (spirit: FormData) => Promise<void>;
@@ -65,6 +66,9 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
     type: string;
     description: string;
   } | null>(null);
+  // New state for spirit search
+  const [spiritSearchQuery, setSpiritSearchQuery] = useState('');
+  const [spiritSearchLoading, setSpiritSearchLoading] = useState(false);
 
   // Load saved form data on component mount
   useEffect(() => {
@@ -300,6 +304,82 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
     }
   };
 
+  // New function to handle spirit selection from autocomplete
+  const handleSpiritSelect = (spiritInfo: SpiritInfo) => {
+    setSpiritSearchLoading(true);
+    try {
+      // Populate form fields with selected spirit information
+      const nameInput = document.getElementById('name') as HTMLInputElement;
+      const brandInput = document.getElementById('brand') as HTMLInputElement;
+      const typeSelect = document.getElementById('type') as HTMLSelectElement;
+      const proofInput = document.getElementById('proof') as HTMLInputElement;
+      const priceInput = document.getElementById('price') as HTMLInputElement;
+      const releaseYearInput = document.getElementById('releaseYear') as HTMLInputElement;
+      const descriptionInput = document.getElementById('description') as HTMLTextAreaElement;
+
+      if (nameInput) nameInput.value = spiritInfo.name || '';
+      if (brandInput) brandInput.value = spiritInfo.distillery || '';
+      if (typeSelect) typeSelect.value = spiritInfo.type || '';
+      if (proofInput && spiritInfo.proof) proofInput.value = spiritInfo.proof.toString();
+      if (priceInput && spiritInfo.price) priceInput.value = spiritInfo.price.toString();
+      if (releaseYearInput && spiritInfo.releaseYear) releaseYearInput.value = spiritInfo.releaseYear.toString();
+      if (descriptionInput) descriptionInput.value = spiritInfo.description || '';
+
+      // If the spirit has an image URL, use it
+      if (spiritInfo.imageUrl) {
+        setImageUrl(spiritInfo.imageUrl);
+        setPreviewUrl(spiritInfo.imageUrl);
+        
+        // No need to search for additional images if we already have one
+        setAutoFetchedImages([
+          {
+            url: spiritInfo.imageUrl,
+            alt: spiritInfo.name,
+            source: 'Selected spirit database'
+          }
+        ]);
+        setSelectedImageIndex(0);
+        
+        toast.success('Spirit details loaded successfully!', {
+          icon: '🥃',
+          duration: 3000,
+          position: 'top-center',
+          style: {
+            borderRadius: '10px',
+            background: '#333',
+            color: '#fff',
+          },
+        });
+      } else {
+        // If no image URL is provided, try to search for images
+        fetchSpiritImages();
+      }
+      
+      // Save the updated form data to localStorage
+      setTimeout(() => {
+        const formData = {
+          name: nameInput?.value || '',
+          brand: brandInput?.value || '',
+          type: typeSelect?.value || '',
+          proof: proofInput?.value || '',
+          price: priceInput?.value || '',
+          rating: (document.getElementById('rating') as HTMLInputElement)?.value || '',
+          releaseYear: releaseYearInput?.value || '',
+          description: descriptionInput?.value || '',
+          selectedNotes,
+          isFavorite,
+          bottleLevel
+        };
+        localStorage.setItem('spiritFormData', JSON.stringify(formData));
+      }, 100);
+    } catch (error) {
+      console.error('Error populating form with spirit info:', error);
+      toast.error('Error loading spirit details');
+    } finally {
+      setSpiritSearchLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
@@ -439,6 +519,23 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
           ))}
         </div>
       ))}
+      {/* Spirit Search Autocomplete */}
+      <div className="mb-6">
+        <label htmlFor="spiritSearch" className="block text-sm font-medium text-gray-300 mb-2 flex items-center justify-between">
+          <span>Find Spirit</span>
+          <span className="text-xs text-gray-400">(Search to auto-fill details)</span>
+        </label>
+        <SpiritAutocomplete
+          onSpiritSelect={handleSpiritSelect}
+          onInputChange={setSpiritSearchQuery}
+          value={spiritSearchQuery}
+          isLoading={spiritSearchLoading}
+        />
+        <p className="mt-1 text-xs text-gray-400">
+          Type to search for spirits. Select a result to auto-fill the form below.
+        </p>
+      </div>
+      
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <div>
           <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-1 flex items-center justify-between">

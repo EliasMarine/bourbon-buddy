@@ -81,7 +81,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check if the user is the host
-    if (stream.host.email !== session.user.email) {
+    if (stream.host.email !== user.email) {
       return NextResponse.json(
         { error: 'Unauthorized - you are not the host of this stream' },
         { status: 403 }
@@ -137,7 +137,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Check if the user is the host
-    if (stream.host.email !== session.user.email) {
+    if (stream.host.email !== user.email) {
       return NextResponse.json(
         { error: 'Unauthorized - you are not the host of this stream' },
         { status: 403 }

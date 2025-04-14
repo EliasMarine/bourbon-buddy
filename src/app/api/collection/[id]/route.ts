@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Use standard query now that the webImageUrl column issue is fixed
     const spirit = await prisma.spirit.findUnique({
       where: { id },
     });
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
       ...spirit,
       nose: formatTastingNotes(spirit.nose),
       palate: formatTastingNotes(spirit.palate),
-      finish: formatTastingNotes(spirit.finish)
+      finish: formatTastingNotes(spirit.finish),
     };
 
     // Add cache control headers to prevent frequent re-fetching
@@ -47,12 +48,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(formattedSpirit, { headers });
   } catch (error: unknown) {
-    if (error && typeof error === 'object' && 'status' in error && error.status === 429) {
-      return NextResponse.json(
-        { error: 'Rate limit exceeded' },
-        { status: 429 }
-      );
-    }
     console.error('Spirit GET error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
@@ -184,36 +179,39 @@ export async function PUT(request: NextRequest) {
         }
       }
 
+      // Prepare update data
+      let updateData: any = {
+        name: validatedData.name,
+        brand: validatedData.brand,
+        category: validatedData.category,
+        type: validatedData.type,
+        description: validatedData.description,
+        proof: validatedData.proof,
+        price: validatedData.price,
+        imageUrl: validatedData.imageUrl,
+        webImageUrl: validatedData.webImageUrl,
+        bottleLevel: validatedData.bottleLevel,
+        rating: validatedData.rating,
+        // Ensure tasting notes are always stored as strings
+        nose: typeof validatedData.nose === 'string' ? validatedData.nose : JSON.stringify(validatedData.nose),
+        palate: typeof validatedData.palate === 'string' ? validatedData.palate : JSON.stringify(validatedData.palate),
+        finish: typeof validatedData.finish === 'string' ? validatedData.finish : JSON.stringify(validatedData.finish),
+        distillery: validatedData.distillery,
+        bottleSize: validatedData.bottleSize,
+        dateAcquired: validatedData.dateAcquired,
+        isFavorite: validatedData.isFavorite,
+        // Use connect to link to the existing owner
+        owner: {
+          connect: {
+            id: existingSpirit.ownerId
+          }
+        }
+      };
+      
       // Update the spirit but make sure to retain the original owner
       const spirit = await prisma.spirit.update({
         where: { id },
-        data: {
-          // Only include fields that are defined in the Prisma schema
-          name: validatedData.name,
-          brand: validatedData.brand,
-          category: validatedData.category,
-          type: validatedData.type,
-          description: validatedData.description,
-          proof: validatedData.proof,
-          price: validatedData.price,
-          imageUrl: validatedData.imageUrl,
-          bottleLevel: validatedData.bottleLevel,
-          rating: validatedData.rating,
-          // Ensure tasting notes are always stored as strings
-          nose: typeof validatedData.nose === 'string' ? validatedData.nose : JSON.stringify(validatedData.nose),
-          palate: typeof validatedData.palate === 'string' ? validatedData.palate : JSON.stringify(validatedData.palate),
-          finish: typeof validatedData.finish === 'string' ? validatedData.finish : JSON.stringify(validatedData.finish),
-          distillery: validatedData.distillery,
-          bottleSize: validatedData.bottleSize,
-          dateAcquired: validatedData.dateAcquired,
-          isFavorite: validatedData.isFavorite,
-          // Use connect to link to the existing owner
-          owner: {
-            connect: {
-              id: existingSpirit.ownerId
-            }
-          }
-        },
+        data: updateData,
       });
 
       console.log('Spirit updated successfully:', spirit.id);
@@ -236,6 +234,21 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json(
         { error: 'Rate limit exceeded' },
         { status: 429 }
+      );
+    }
+    
+    // Check for Prisma database column error
+    if (error && 
+        typeof error === 'object' && 
+        'code' in error && 
+        error.code === 'P2022') {
+      console.error('Database column error (likely webImageUrl missing):', error);
+      return NextResponse.json(
+        { 
+          error: 'Database schema mismatch', 
+          details: 'The webImageUrl field is not yet available in the database. Please apply the migration.'
+        },
+        { status: 500 }
       );
     }
     

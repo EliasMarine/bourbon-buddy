@@ -13,6 +13,7 @@ export interface Spirit {
   brand: string;
   description?: string;
   imageUrl?: string;
+  webImageUrl?: string;
   proof?: number;
   price?: number;
   rating?: number;

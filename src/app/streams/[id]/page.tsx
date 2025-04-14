@@ -138,7 +138,7 @@ interface Comment {
 
 export default function StreamPage() {
   const params = useParams();
-  const id = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : '';
+  const id = params?.id ? (typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : '') : '';
   const router = useRouter();
   const { data: session, status } = useSupabaseSession({ required: true });
   const [stream, setStream] = useState<Stream | null>(null);
@@ -298,12 +298,16 @@ export default function StreamPage() {
     };
   }, []);
 
-  // Fetch stream data
+  // Fetch stream data - add stable dependency check and skip if already loaded
   useEffect(() => {
+    // Skip fetch if we already have the stream data and are mounted
+    if (stream && isMounted) return;
+    
     if (session && isMounted && id) {
       fetchStream();
     }
-  }, [id, session, isMounted]);
+  // Add explicit dependencies only
+  }, [id, session, isMounted, stream]);
 
   // Set up video element with stream
   useEffect(() => {
@@ -628,7 +632,7 @@ export default function StreamPage() {
       
       setStream(data.stream);
       
-      const userIsHost = user?.email === data.stream.host.email;
+      const userIsHost = session?.user?.email === data.stream.host.email;
       setIsHost(userIsHost);
       
       if (userIsHost) {
@@ -849,7 +853,7 @@ export default function StreamPage() {
 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !socket || !user) return;
+    if (!newMessage.trim() || !socket || !session?.user) return;
 
     const message: ChatMessage = {
       id: Date.now().toString(),
@@ -869,6 +873,23 @@ export default function StreamPage() {
     // Add message locally to avoid delay
     setMessages(prev => [...prev, message]);
     setNewMessage('');
+  };
+
+  // Function to toggle video size
+  const toggleVideoSize = () => {
+    setVideoSize(prev => prev === 'normal' ? 'medium' : 'normal');
+    
+    // Wait for layout adjustment
+    setTimeout(() => {
+      // Scroll to video container when enlarging
+      if (videoSize === 'normal' && videoContainerRef.current) {
+        try {
+          scrollToVideoContainer();
+        } catch (err) {
+          console.error('Error scrolling to video container:', err);
+        }
+      }
+    }, 100);
   };
 
   // Function to toggle fullscreen
@@ -1380,22 +1401,6 @@ export default function StreamPage() {
     }
   };
 
-  // Function to toggle video size
-  const toggleVideoSize = () => {
-    setVideoSize(prevSize => prevSize === 'normal' ? 'medium' : 'normal');
-    
-    // Wait for layout adjustment
-    setTimeout(() => {
-      if (videoContainerRef.current) {
-        try {
-          scrollToVideoContainer();
-        } catch (err) {
-          console.error('Error scrolling to video container:', err);
-        }
-      }
-    }, 100);
-  };
-  
   const scrollToVideoContainer = () => {
     if (videoContainerRef.current) {
       videoContainerRef.current.scrollIntoView({ 
@@ -1433,8 +1438,8 @@ export default function StreamPage() {
       id: Date.now().toString(),
       content: newComment,
       user: {
-        name: user?.name || 'Anonymous',
-        avatar: user?.image || undefined,
+        name: session?.user?.name || 'Anonymous',
+        avatar: session?.user?.image || undefined,
       },
       timestamp: new Date(),
       likes: 0,
@@ -1484,30 +1489,24 @@ export default function StreamPage() {
     };
   }, []);
 
-  // Effect to ensure stream initializer is ready when deps are available
-  useEffect(() => {
-    // This effect handles the case where we need to wait for the DOM to be ready
-    // before we can initialize the stream
-    if (isHost && !isStreaming && !localStream && !videoRef.current) {
-      console.log('Video element not yet available, waiting before initializing stream...');
-    }
-  }, [isHost, isStreaming, localStream, videoRef.current]);
-
   // Add new effect to automatically request camera permissions for host
+  // Optimize to prevent multiple runs
   useEffect(() => {
-    // Automatically set streamStartedRef.current to true for hosts
-    // This will trigger the StreamInitializer to render and request permissions
-    if (isHost && !isStreaming && !localStream && isMounted) {
-      console.log('Host detected, automatically setting up camera permissions');
-      // Set a small delay to ensure the UI is fully rendered
-      const timer = setTimeout(() => {
-        streamStartedRef.current = true;
-        // Force a re-render
-        setPermissionStatus(prev => ({...prev}));
-      }, 500);
-      
-      return () => clearTimeout(timer);
+    // Skip if already initialized
+    if (!isHost || isStreaming || localStream || !isMounted || streamStartedRef.current) {
+      return;
     }
+    
+    console.log('Host detected, automatically setting up camera permissions');
+    // Set a small delay to ensure the UI is fully rendered
+    const timer = setTimeout(() => {
+      streamStartedRef.current = true;
+      // Force a re-render exactly once
+      setPermissionStatus(prev => ({...prev}));
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  // Minimize dependencies
   }, [isHost, isStreaming, localStream, isMounted]);
 
   // Request permissions manually if needed
@@ -1921,7 +1920,7 @@ export default function StreamPage() {
                 <ChatBox 
                   streamId={id} 
                   isHost={isHost} 
-                  userName={user?.name || 'Anonymous'} 
+                  userName={session?.user?.name || 'Anonymous'} 
                   socket={socket}
                   isCollapsed={isChatCollapsed}
                   onToggleCollapse={() => setIsChatCollapsed(!isChatCollapsed)}

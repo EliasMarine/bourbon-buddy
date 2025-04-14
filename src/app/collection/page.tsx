@@ -24,18 +24,46 @@ class FetchError extends Error {
 
 // Custom fetcher with error and retry handling
 const collectionFetcher = async (url: string) => {
-  const res = await fetch(url);
-  
-  // Handle HTTP errors
-  if (!res.ok) {
-    const error = new FetchError('An error occurred while fetching the data.');
-    // Add extra info to the error object
-    error.info = await res.json();
-    error.status = res.status;
+  try {
+    console.log('Fetching data from:', url);
+    const res = await fetch(url);
+    
+    // Handle HTTP errors
+    if (!res.ok) {
+      console.error('Fetch error, status:', res.status);
+      
+      const errorData = await res.json().catch(() => ({}));
+      console.error('Error response data:', errorData);
+      
+      const error = new FetchError('An error occurred while fetching the data.');
+      // Add extra info to the error object
+      error.info = errorData;
+      error.status = res.status;
+      throw error;
+    }
+    
+    const data = await res.json();
+    
+    // Add basic validation to verify data structure
+    if (!data || !Array.isArray(data.spirits)) {
+      console.warn('Unexpected data format received:', data);
+      // Fix data format if possible
+      if (data && !data.spirits) {
+        return { spirits: [] };
+      }
+    }
+    
+    return data;
+  } catch (err) {
+    console.error('Error in collection fetcher:', err);
+    // If it's already a FetchError, rethrow
+    if (err instanceof FetchError) throw err;
+    
+    // Otherwise, create a new FetchError with the message
+    const error = new FetchError('Failed to fetch collection data');
+    error.info = { originalError: err };
     throw error;
   }
-  
-  return res.json();
 };
 
 // Function to sort spirits - favorites first, then by name
@@ -49,6 +77,27 @@ const sortSpirits = (spiritsList: Spirit[]): Spirit[] => {
     return a.name.localeCompare(b.name);
   });
 };
+
+// Create a dedicated error component for data fetch errors
+function FetchErrorComponent({ error, onRetry }: { error: any, onRetry: () => void }) {
+  return (
+    <div className="py-20 text-center bg-white/5 backdrop-blur-sm rounded-xl border border-white/10">
+      <div className="max-w-md mx-auto p-6">
+        <h3 className="text-xl font-semibold text-white mb-4">Unable to load your collection</h3>
+        <p className="text-gray-300 mb-6">
+          {error?.info?.message || error?.message || "We couldn't load your spirits. Please try again."}
+        </p>
+        <button
+          onClick={onRetry}
+          className="bg-amber-500 hover:bg-amber-600 transition-colors text-white font-medium py-2 px-4 rounded-lg flex items-center gap-2 mx-auto"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Retry
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function CollectionPage() {
   const router = useRouter();
@@ -94,7 +143,15 @@ export default function CollectionPage() {
   
   // Filter and sanitize spirits to prevent display issues
   const sanitizedSpirits = useMemo(() => {
+    // Guard against undefined or null spirits array
+    if (!Array.isArray(spirits)) {
+      console.warn('Expected spirits to be an array, got:', spirits);
+      return [];
+    }
+    
     return spirits.map(spirit => {
+      if (!spirit) return null;
+      
       // Check if imageUrl is valid (not null, undefined, empty string, or invalid URL format)
       let validImageUrl = spirit.imageUrl;
       
@@ -123,7 +180,7 @@ export default function CollectionPage() {
         ...spirit,
         imageUrl: validImageUrl
       };
-    });
+    }).filter(Boolean); // Remove any null entries
   }, [spirits]);
   
   // Sort the sanitized spirits
@@ -406,6 +463,11 @@ export default function CollectionPage() {
                 <div className="w-12 h-12 border-t-2 border-amber-500 border-solid rounded-full animate-spin mx-auto mb-4"></div>
                 <p className="text-gray-300">Loading your collection...</p>
               </div>
+            ) : error ? (
+              <FetchErrorComponent 
+                error={error} 
+                onRetry={() => mutate()} 
+              />
             ) : spirits.length === 0 ? (
               <div className="text-center py-20 border border-dashed border-white/20 rounded-lg bg-white/5 backdrop-blur-sm">
                 <p className="text-xl text-gray-200 mb-4">Your collection is empty</p>
