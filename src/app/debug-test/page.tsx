@@ -1,3 +1,5 @@
+import { ReloadButton } from "./reload-button";
+
 export default function DebugTestPage() {
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -28,14 +30,7 @@ export default function DebugTestPage() {
         >
           Go to Homepage
         </a>
-        <button
-          onClick={() => {
-            window.location.reload();
-          }}
-          className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
-        >
-          Reload Page
-        </button>
+        <ReloadButton />
       </div>
     </div>
   );
