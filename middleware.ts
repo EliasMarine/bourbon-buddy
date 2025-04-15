@@ -272,6 +272,12 @@ export async function middleware(request: NextRequest) {
     response.headers.set('Referrer-Policy', 'origin-when-cross-origin');
     response.headers.set('Permissions-Policy', 'accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), payment=(), usb=()');
     
+    // Make sure we're not setting any CSP headers directly in middleware
+    if (response && response.headers) {
+      // Remove any CSP header if it exists (we'll use vercel.json for this)
+      response.headers.delete('Content-Security-Policy');
+    }
+    
     console.log(`[${debugId}] ✅ Middleware processing complete`);
     return response;
   } catch (error: unknown) {
