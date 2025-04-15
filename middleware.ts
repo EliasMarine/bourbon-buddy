@@ -52,6 +52,12 @@ function externalResourceMiddleware(req: NextRequest) {
 export async function middleware(request: NextRequest) {
   const debugId = generateDebugId();
   
+  // Log all environment variables to help with debugging
+  console.log(`[${debugId}] 🌍 ENV Vars Available:`, {
+    SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  });
+  
   try {
     console.log(`[${debugId}] 🔍 Processing ${request.method} ${request.nextUrl.pathname}`);
     
@@ -183,37 +189,53 @@ export async function middleware(request: NextRequest) {
     if (requiresAuth) {
       console.log(`[${debugId}] 🔒 Protected route detected: ${request.nextUrl.pathname}`);
       
+      // Check if Supabase env vars are available
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+        console.error(`[${debugId}] ❌ Missing Supabase env vars`);
+        return NextResponse.next();
+      }
+
       // Create Supabase client for auth session refresh - ONLY for protected routes
-      const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          cookies: {
-            getAll() {
-              return request.cookies.getAll();
-            },
-            setAll(cookiesToSet) {
-              // Set cookies on both the request and the response
-              cookiesToSet.forEach(({ name, value, options }) => {
-                try {
-                  request.cookies.set(name, value);
+      let supabase;
+      try {
+        supabase = createServerClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          {
+            cookies: {
+              getAll() {
+                return request.cookies.getAll();
+              },
+              setAll(cookiesToSet) {
+                response = NextResponse.next({
+                  request,
+                });
+                
+                cookiesToSet.forEach(({ name, value, options }) => {
                   response.cookies.set(name, value, options);
-                } catch (error) {
-                  console.error(`[${debugId}] 🍪 Error setting cookie ${name}:`, error);
-                }
-              });
-            },
-          },
-        }
-      );
+                });
+              }
+            }
+          }
+        );
+      } catch (error) {
+        console.error(`[${debugId}] ❌ Supabase Client Creation Error:`, error);
+        return NextResponse.next();
+      }
       
       // IMPORTANT: Call getUser to refresh the session if needed
       // This is critical to prevent users from being logged out unexpectedly
-      const { data, error } = await supabase.auth.getUser();
-      const supabaseUser = data?.user;
-      
-      if (error) {
-        console.error(`[${debugId}] ❌ Supabase error ${error.status || ''} on ${request.nextUrl.pathname}:`, error.message);
+      let supabaseUser;
+      try {
+        const { data, error } = await supabase.auth.getUser();
+        supabaseUser = data?.user;
+        
+        if (error) {
+          console.error(`[${debugId}] ❌ Supabase error ${error.status || ''} on ${request.nextUrl.pathname}:`, error.message);
+        }
+      } catch (error) {
+        console.error(`[${debugId}] ❌ Supabase getUser error:`, error);
+        // Continue without failing - just log the error
       }
       
       // Only log auth check for non-static routes and when debugging is enabled
@@ -261,6 +283,9 @@ export async function middleware(request: NextRequest) {
       }
       
       console.log(`[${debugId}] ✅ User authenticated for protected route`);
+      
+      // IMPORTANT: Return the response with any cookies set by the auth process
+      return response;
     }
     
     // Security headers - directly set on the response
