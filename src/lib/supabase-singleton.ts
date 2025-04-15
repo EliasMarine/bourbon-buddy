@@ -36,13 +36,12 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
       supabaseUrl,
       supabaseKey,
       {
-        // Improved realtime config
+        // Improved realtime config with more robust settings
         realtime: {
           params: {
-            eventsPerSecond: 5,
-            // Add retry parameters to WebSocket connection
-            heartbeatIntervalMs: 15000, // Heartbeat every 15s (default is 30s)
-            timeout: 60000 // Longer timeout before closing connection
+            eventsPerSecond: 3, // Reduce to avoid rate limits
+            heartbeatIntervalMs: 30000, // Longer heartbeat interval
+            timeout: 60000 // Longer timeout
           }
         },
         auth: {
@@ -57,35 +56,40 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
             const headers = new Headers(options.headers || {});
             headers.set('X-Client-Info', 'supabase-js/browser/singleton');
             
-            // Add retry logic for fetch
-            return new Promise((resolve, reject) => {
-              const attemptFetch = (retries = 0) => {
-                fetch(url, {
-                  ...options,
-                  headers,
-                  // This is critical for auth cookies to pass
-                  credentials: 'include',
-                  // Increase timeout to avoid Connection closed errors
-                  signal: options.signal || AbortSignal.timeout(60000) // 60 second timeout
-                })
-                .then(resolve)
-                .catch(error => {
-                  // Only retry for network errors, not HTTP errors
-                  if (error.name === 'TypeError' && retries < 3) {
-                    console.warn(`Supabase fetch error, retrying (${retries + 1}/3)...`, error);
-                    setTimeout(() => attemptFetch(retries + 1), 1000 * (retries + 1));
-                  } else {
-                    reject(error);
-                  }
-                });
-              };
-              
-              attemptFetch();
+            // Create a new AbortController with a longer timeout
+            const timeoutMs = 60000; // 60 seconds
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+            
+            return fetch(url, {
+              ...options,
+              headers,
+              // This is critical for auth cookies to pass
+              credentials: 'include',
+              // Use our custom abort controller
+              signal: controller.signal
+            }).finally(() => {
+              clearTimeout(timeoutId);
             });
           }
         }
       }
     );
+    
+    // Add console warning for disconnections
+    if (typeof window !== 'undefined') {
+      // Monitor for WebSocket errors using a global handler
+      window.addEventListener('error', (event) => {
+        if (
+          event.message && 
+          (event.message.includes('WebSocket') || 
+           event.message.includes('Connection closed'))
+        ) {
+          console.warn('WebSocket connection issue detected:', event.message);
+          // Don't reset the client to avoid loops, just log the warning
+        }
+      });
+    }
   }
 
   return browserInstance;

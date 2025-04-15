@@ -1,7 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
-import { Session, User, AuthError, RealtimeChannel } from '@supabase/supabase-js';
+import { Session, User, AuthError } from '@supabase/supabase-js';
 import { getSupabaseClient } from '@/lib/supabase-singleton';
 
 // Create a context for Supabase
@@ -369,73 +369,10 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       }
     );
     
-    // Add realtime connection monitoring
-    if (supabase.realtime) {
-      try {
-        // Cast realtime to any to work around TypeScript limitations
-        // This is safe because we're using standard Supabase realtime API
-        const realtime = supabase.realtime as any;
-        
-        // Listen for WebSocket connection events
-        realtime.on('open', () => {
-          console.log('Realtime connection opened successfully');
-        });
-        
-        realtime.on('close', () => {
-          console.warn('Realtime connection closed');
-        });
-        
-        realtime.on('error', (error: Error) => {
-          console.error('Realtime connection error:', error);
-          
-          // If we get a connection error, try to reconnect
-          if (isMountedRef.current) {
-            try {
-              console.log('Attempting to reconnect realtime connection...');
-              // Attempt to reconnect
-              realtime.connect();
-            } catch (reconnectError) {
-              console.error('Failed to reconnect realtime:', reconnectError);
-            }
-          }
-        });
-        
-        // Ensure we start with a clean connection
-        if (typeof window !== 'undefined') {
-          // Disconnect first if connected
-          if (realtime.isConnected()) {
-            realtime.disconnect();
-          }
-          
-          // Small delay before connecting
-          setTimeout(() => {
-            if (isMountedRef.current) {
-              try {
-                realtime.connect();
-              } catch (connError) {
-                console.error('Initial realtime connection failed:', connError);
-              }
-            }
-          }, 500);
-        }
-      } catch (realtimeError) {
-        console.error('Error setting up realtime listeners:', realtimeError);
-      }
-    }
-    
     // Clean up subscription on unmount
     return () => {
       isMountedRef.current = false;
       authListener.subscription.unsubscribe();
-      
-      // Clean up realtime connection
-      try {
-        if (supabase.realtime && supabase.realtime.isConnected()) {
-          supabase.realtime.disconnect();
-        }
-      } catch (error) {
-        console.error('Error disconnecting realtime:', error);
-      }
     };
   }, [supabase, userSynced]);
   

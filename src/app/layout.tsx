@@ -6,6 +6,8 @@ import Footer from '../components/layout/Footer'
 import ClientLayout from '../components/providers/ClientLayout'
 import SupabaseProvider from '../components/providers/SupabaseProvider'
 import AuthWrapper from '../components/auth/AuthWrapper'
+import EmergencyDebug from '../components/debug/EmergencyDebug'
+import ClientDebug from '../components/debug/ClientDebug'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -34,6 +36,9 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/images/svg%20logo%20icon/Glencairn/Bourbon%20Budy%20(200%20x%2050%20px)%20(Logo)(1).svg" type="image/svg+xml" />
       </head>
       <body className={`${inter.className} min-h-screen bg-gray-900 text-white`}>
+        <EmergencyDebug />
+        <ClientDebug />
+        
         <SupabaseProvider>
           <ClientLayout>
             <Navbar />
