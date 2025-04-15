@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { CsrfFormWrapper } from './csrf-form-wrapper'
 import { useCsrf } from '@/hooks/use-csrf'
 import { useSupabase } from '@/components/providers/SupabaseProvider'
+import { signInWithProxyEndpoint } from '@/lib/supabase-singleton'
 
 interface LoginFormProps {
   callbackUrl?: string
@@ -18,7 +19,7 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
   const [loading, setLoading] = useState(false)
   const [debugInfo, setDebugInfo] = useState<any>(null)
   const router = useRouter()
-  const supabase = useSupabase()
+  const { supabase, refreshSession } = useSupabase()
   
   const handleSubmit = async (e: FormEvent<HTMLFormElement>, csrfHeaders: Record<string, string>) => {
     e.preventDefault()
@@ -38,9 +39,60 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
         return
       }
       
-      console.log('✅ Form validation passed, attempting Supabase authentication...')
+      console.log('✅ Form validation passed, attempting authentication via proxy...')
       
-      // Sign in with Supabase
+      // Try the new proxy endpoint first to avoid CORS issues
+      try {
+        const data = await signInWithProxyEndpoint(email, password);
+        
+        console.log('✅ Login successful via proxy:', {
+          userId: data.user?.id,
+          email: data.user?.email?.substring(0, 3) + '***',
+          hasSession: !!data.session,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Refresh the session to ensure we have the latest state
+        await refreshSession();
+        
+        // Sync user with database - critical step to prevent auth/DB sync issues
+        try {
+          console.log('🔄 Syncing user with database...')
+          const syncResponse = await fetch('/api/auth/sync-user', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...csrfHeaders
+            }
+          })
+          
+          if (!syncResponse.ok) {
+            console.warn('⚠️ User sync failed:', {
+              status: syncResponse.status,
+              statusText: syncResponse.statusText
+            })
+            // Continue with redirection even if sync fails
+            // The middleware will handle future requests
+          } else {
+            console.log('✅ User sync successful')
+          }
+        } catch (syncError) {
+          console.error('❌ User sync error:', syncError)
+          // Continue with redirection even if sync fails
+        }
+        
+        console.log('🔄 Redirecting to:', callbackUrl)
+        
+        // Successful login, redirect
+        router.push(callbackUrl)
+        router.refresh()
+        return;
+      } catch (proxyError) {
+        console.warn('⚠️ Proxy login failed, falling back to direct Supabase auth:', proxyError);
+        // Fall back to direct authentication (below)
+      }
+      
+      // Fall back to direct Supabase authentication if proxy fails
       const authResult = await supabase.auth.signInWithPassword({
         email,
         password

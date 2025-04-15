@@ -206,5 +206,58 @@ export function createAdminClient(): SupabaseClient {
   );
 }
 
+/**
+ * Sign in using our proxy endpoint to avoid CORS issues
+ */
+export async function signInWithProxyEndpoint(email: string, password: string) {
+  try {
+    // Use our proxy endpoint for authentication, which properly handles CORS
+    const response = await fetch('/api/auth/proxy', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+      credentials: 'include', // Important for cookies
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(result.error || 'Authentication failed');
+    }
+    
+    // Store the session data locally for Supabase client to use
+    if (typeof window !== 'undefined' && result.data?.session) {
+      try {
+        // Get the current instance to update its session
+        const currentInstance = getSupabaseClient();
+        
+        // Manually set the auth state - this triggers the auth event listeners
+        if (currentInstance.auth && typeof currentInstance.auth.setSession === 'function') {
+          await currentInstance.auth.setSession({
+            access_token: result.data.session.access_token,
+            refresh_token: result.data.session.refresh_token
+          });
+          
+          // After setting the session, explicitly trigger a state refresh
+          // This helps ensure React components are properly updated
+          const { data } = await currentInstance.auth.getUser();
+          console.log('User authenticated:', data.user?.email);
+        }
+      } catch (err) {
+        console.error('Error setting session:', err);
+        // Even if setting the session fails, we can still return the data
+        // The Supabase provider might be able to recover on next refresh
+      }
+    }
+    
+    return result.data;
+  } catch (error) {
+    console.error('Authentication proxy error:', error);
+    throw error;
+  }
+}
+
 // Export a default instance for convenience
 export default getSupabaseClient(); 
