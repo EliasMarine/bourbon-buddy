@@ -19,14 +19,14 @@ Sentry.init({
   // Force enable for testing
   enabled: true,
   
-  // Enable CSP reporting
-  integrations: [
-    new Sentry.Integrations.Breadcrumbs({ 
-      console: true, 
-      fetch: true, 
-      xhr: true 
-    }),
-  ],
+  // EDGE RUNTIME COMPATIBILITY: Remove Breadcrumbs integration which causes errors in Edge
+  // integrations: [
+  //  new Sentry.Integrations.Breadcrumbs({ 
+  //    console: true, 
+  //    fetch: true, 
+  //    xhr: true 
+  //  }),
+  // ],
 
   // Capture CSP violations
   beforeSend(event, hint) {
