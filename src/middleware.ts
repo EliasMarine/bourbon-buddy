@@ -192,8 +192,8 @@ export async function middleware(request: NextRequest) {
     if (process.env.NODE_ENV === 'production') {
       response.headers.set('Content-Security-Policy', 
         "default-src 'self'; " +
-        `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live; ` +
-        `script-src-elem 'self' 'nonce-${nonce}' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live; ` +
+        `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live *.clarity.ms https://c.bing.com; ` +
+        `script-src-elem 'self' 'nonce-${nonce}' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live *.clarity.ms https://c.bing.com; ` +
         "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data: blob: https: http:; " +
         "font-src 'self' data:; " +
@@ -227,9 +227,15 @@ export async function middleware(request: NextRequest) {
         'https://idmsa.apple.com.cn'
       ];
 
+      const clarityDomains = [
+        'https://*.clarity.ms',
+        'https://c.bing.com'
+      ];
+
       const devDomains = [
         ...allowedDomains.map(domain => `https://${domain}`),
-        ...appleAuthDomains
+        ...appleAuthDomains,
+        ...clarityDomains
       ].join(' ');
 
       // More permissive CSP for development to avoid blocking scripts
