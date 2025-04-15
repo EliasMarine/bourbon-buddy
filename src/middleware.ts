@@ -192,15 +192,15 @@ export async function middleware(request: NextRequest) {
     if (process.env.NODE_ENV === 'production') {
       response.headers.set('Content-Security-Policy', 
         "default-src 'self'; " +
-        `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live *.clarity.ms https://c.bing.com; ` +
-        `script-src-elem 'self' 'nonce-${nonce}' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live *.clarity.ms https://c.bing.com; ` +
+        `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live *.clarity.ms https://c.bing.com; ` +
+        `script-src-elem 'self' 'nonce-${nonce}' 'unsafe-inline' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live *.clarity.ms https://c.bing.com; ` +
         "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data: blob: https: http:; " +
         "font-src 'self' data:; " +
-        "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://vercel.live https: http: " + 
+        "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://vercel.live https://*.vercel.app https: http: " + 
         allowedDomains.map(domain => `https://${domain}`).join(' ') + "; " +
         "worker-src 'self' blob:; " +
-        "frame-src 'self' https://appleid.apple.com; " +
+        "frame-src 'self' https://appleid.apple.com https://vercel.live; " +
         "object-src 'none'; " +
         "base-uri 'self'; " +
         "form-action 'self'; " +

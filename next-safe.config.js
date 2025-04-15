@@ -76,6 +76,7 @@ module.exports = {
       "https://vercel.live", 
       "https://bourbonbuddy.live", 
       "https://bourbon-buddy.vercel.app",
+      "https://*.vercel.app",
       "https://api.stripe.com",
       "https://checkout.paddle.com",
       // Sentry URLs - comprehensive list to ensure all connections work
@@ -96,7 +97,8 @@ module.exports = {
       "self", 
       "https://appleid.apple.com",
       "https://js.stripe.com",
-      "https://checkout.paddle.com"
+      "https://checkout.paddle.com",
+      "https://vercel.live"
     ],
     'worker-src': ["self", "blob:"],
     'object-src': ["none"],
