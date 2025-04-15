@@ -10,6 +10,7 @@ module.exports = {
       "strict-dynamic",
       "unsafe-inline", 
       "unsafe-eval", 
+      "wasm-unsafe-eval",
       // Only keep essential domains for script-src when using strict-dynamic
       "https://appleid.cdn-apple.com", 
       "https://signin.apple.com",
@@ -19,7 +20,9 @@ module.exports = {
       "https://apis.google.com",
       "https://plausible.io",
       "https://*.clarity.ms",
-      "https://c.bing.com"
+      "https://c.bing.com",
+      "https://vercel.live",
+      "https://hjodvataujilredguzig.supabase.co"
     ],
     // Add script-src-elem directive to handle inline scripts and elements
     'script-src-elem': [
@@ -40,7 +43,8 @@ module.exports = {
       "https://apis.google.com",
       "https://plausible.io",
       "https://*.clarity.ms",
-      "https://c.bing.com"
+      "https://c.bing.com",
+      "https://hjodvataujilredguzig.supabase.co"
     ],
     'style-src': ["self", "unsafe-inline"],
     'img-src': ["self", "data:", "blob:", 
@@ -76,7 +80,6 @@ module.exports = {
       "https://vercel.live", 
       "https://bourbonbuddy.live", 
       "https://bourbon-buddy.vercel.app",
-      "https://*.vercel.app",
       "https://api.stripe.com",
       "https://checkout.paddle.com",
       // Sentry URLs - comprehensive list to ensure all connections work
