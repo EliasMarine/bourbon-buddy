@@ -37,6 +37,12 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
   // In browser, use singleton pattern
   if (!browserInstance) {
     console.log('🔑 Creating new Supabase browser client instance');
+    
+    // Get the domain for cookie config
+    const domain = typeof window !== 'undefined' ? window.location.hostname : undefined;
+    // Don't use localhost as domain for cookies to avoid issues
+    const cookieDomain = domain && !domain.includes('localhost') ? domain : undefined;
+    
     browserInstance = createBrowserClient(
       supabaseUrl,
       supabaseKey,
@@ -47,18 +53,26 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
             eventsPerSecond: 2, // Reduced rate to avoid limits
             heartbeatIntervalMs: 40000, // Longer heartbeat interval
             timeout: 120000 // Longer timeout (2 minutes)
-          },
-          // Auto-reconnection is enabled by default in newer versions
-          // We can only configure the params above according to the API
+          }
         },
         auth: {
           // Ensure cookies are used for auth
           persistSession: true,
           autoRefreshToken: true,
-          detectSessionInUrl: false
+          detectSessionInUrl: false,
+          flowType: 'pkce' // Use PKCE flow for better security
         },
+        // Use cookieOptions instead of cookies for domain
+        ...(cookieDomain ? {
+          cookieOptions: {
+            domain: cookieDomain,
+            secure: true,
+            sameSite: 'lax',
+            path: '/'
+          }
+        } : {}),
         global: {
-          // Increase timeouts for better reliability
+          // Properly handles credentials for CORS
           fetch: (url, options = {}) => {
             const headers = new Headers(options.headers || {});
             headers.set('X-Client-Info', 'supabase-js/browser/singleton');
@@ -68,12 +82,12 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
             
+            // Always use 'include' for credentials to ensure cookies are sent
             return fetch(url, {
               ...options,
               headers,
-              // This is critical for auth cookies to pass
+              // Always include credentials for Supabase requests
               credentials: 'include',
-              // Use our custom abort controller
               signal: controller.signal
             }).finally(() => {
               clearTimeout(timeoutId);

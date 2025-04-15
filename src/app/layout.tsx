@@ -30,12 +30,12 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" id="app-root">
       <head>
         <link rel="icon" href="/images/svg%20logo%20icon/Glencairn/Bourbon%20Budy%20(200%20x%2050%20px)%20(Logo)(1).svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/images/svg%20logo%20icon/Glencairn/Bourbon%20Budy%20(200%20x%2050%20px)%20(Logo)(1).svg" type="image/svg+xml" />
       </head>
-      <body className={`${inter.className} min-h-screen bg-gray-900 text-white`}>
+      <body className={`${inter.className} min-h-screen bg-gray-900 text-white`} id="app-body">
         <EmergencyDebug />
         <ClientDebug />
         
