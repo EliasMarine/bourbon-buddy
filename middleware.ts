@@ -272,23 +272,6 @@ export async function middleware(request: NextRequest) {
     response.headers.set('Referrer-Policy', 'origin-when-cross-origin');
     response.headers.set('Permissions-Policy', 'accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), payment=(), usb=()');
     
-    // Generate CSP header to allow necessary scripts and connections
-    const cspHeader = `
-      default-src 'self';
-      script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://vercel.live https://hjodvataujilredguzig.supabase.co;
-      script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live https://*.clarity.ms https://c.bing.com https://hjodvataujilredguzig.supabase.co;
-      connect-src 'self' https://hjodvataujilredguzig.supabase.co wss://hjodvataujilredguzig.supabase.co wss://ws-us3.pusher.com https://api.openai.com https://vercel.live https://*.vercel.app https: http: https://bourbonbuddy.live https://bourbon-buddy.vercel.app;
-      style-src 'self' 'unsafe-inline';
-      img-src 'self' data: blob: https: http:;
-      font-src 'self' data: https://fonts.gstatic.com;
-      frame-src 'self' https://vercel.live https://appleid.apple.com https://js.stripe.com https://checkout.paddle.com;
-      object-src 'none';
-      base-uri 'self';
-    `.replace(/\s{2,}/g, ' ').trim();
-
-    // Set CSP header on the response
-    response.headers.set('Content-Security-Policy', cspHeader);
-    
     console.log(`[${debugId}] ✅ Middleware processing complete`);
     return response;
   } catch (error: unknown) {
