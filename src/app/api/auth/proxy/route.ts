@@ -2,28 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 // CORS headers function to ensure proper headers
-function getCorsHeaders(origin: string | null) {
-  // Default CORS headers
-  const headers = {
+function getCorsHeaders(origin: string | null): Record<string, string> {
+  // Base CORS headers that are common to all responses
+  const baseHeaders: Record<string, string> = {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-csrf-token',
-    'Access-Control-Max-Age': '86400', // 24 hours
-    'Access-Control-Allow-Credentials': 'true'
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Max-Age': '86400' // 24 hours
   };
-
-  // If we have an origin, use it; otherwise use * (not recommended for production)
-  // For better security in production, you should validate the origin against a whitelist
+  
+  // If we have an origin, use it specifically (preferred approach for security)
   if (origin) {
     return {
-      ...headers,
+      ...baseHeaders,
       'Access-Control-Allow-Origin': origin
     };
   }
   
-  // Fallback for development or when origin is not available
+  // Fallback to main domain when no origin provided (for API testing/direct calls)
   return {
-    ...headers,
-    'Access-Control-Allow-Origin': '*'
+    ...baseHeaders,
+    'Access-Control-Allow-Origin': 'https://bourbon-buddy.vercel.app'
   };
 }
 
@@ -32,6 +31,8 @@ function getCorsHeaders(origin: string | null) {
  */
 export async function OPTIONS(request: NextRequest) {
   const origin = request.headers.get('origin');
+  console.log('Auth proxy preflight request from origin:', origin);
+  
   return NextResponse.json({}, { 
     status: 204,
     headers: getCorsHeaders(origin)
@@ -50,7 +51,13 @@ export async function POST(request: NextRequest) {
     // Create a direct Supabase client (no cookies)
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
     );
 
     // Get request body

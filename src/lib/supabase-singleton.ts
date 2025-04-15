@@ -211,6 +211,8 @@ export function createAdminClient(): SupabaseClient {
  */
 export async function signInWithProxyEndpoint(email: string, password: string) {
   try {
+    console.log(`Attempting auth via proxy for ${email.substring(0, 3)}***`);
+    
     // Use our proxy endpoint for authentication, which properly handles CORS
     const response = await fetch('/api/auth/proxy', {
       method: 'POST',
@@ -221,35 +223,60 @@ export async function signInWithProxyEndpoint(email: string, password: string) {
       credentials: 'include', // Important for cookies
     });
 
-    const result = await response.json();
-    
-    if (!response.ok) {
-      throw new Error(result.error || 'Authentication failed');
+    // Try to parse the response - may fail if network error
+    let result;
+    try {
+      result = await response.json();
+    } catch (parseError) {
+      console.error('Failed to parse auth response:', parseError);
+      throw new Error(`Authentication failed: ${response.status} ${response.statusText}`);
     }
+    
+    // Check if the response is successful
+    if (!response.ok) {
+      console.error('Auth proxy error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: result.error
+      });
+      throw new Error(result.error || `Authentication failed: ${response.status} ${response.statusText}`);
+    }
+    
+    console.log('Auth proxy successful, got session data');
     
     // Store the session data locally for Supabase client to use
     if (typeof window !== 'undefined' && result.data?.session) {
       try {
         // Get the current instance to update its session
+        console.log('Setting Supabase session from proxy data');
         const currentInstance = getSupabaseClient();
         
+        // Reset the client first to ensure a clean state
+        resetSupabaseClient();
+        const refreshedInstance = getSupabaseClient();
+        
         // Manually set the auth state - this triggers the auth event listeners
-        if (currentInstance.auth && typeof currentInstance.auth.setSession === 'function') {
-          await currentInstance.auth.setSession({
+        if (refreshedInstance.auth && typeof refreshedInstance.auth.setSession === 'function') {
+          await refreshedInstance.auth.setSession({
             access_token: result.data.session.access_token,
             refresh_token: result.data.session.refresh_token
           });
           
           // After setting the session, explicitly trigger a state refresh
           // This helps ensure React components are properly updated
-          const { data } = await currentInstance.auth.getUser();
-          console.log('User authenticated:', data.user?.email);
+          console.log('Session set, getting user data');
+          const { data } = await refreshedInstance.auth.getUser();
+          console.log('User authenticated via proxy:', data.user?.email);
+        } else {
+          console.error('Failed to set session: auth.setSession not available');
         }
       } catch (err) {
-        console.error('Error setting session:', err);
+        console.error('Error setting session from proxy:', err);
         // Even if setting the session fails, we can still return the data
         // The Supabase provider might be able to recover on next refresh
       }
+    } else {
+      console.warn('No session data in proxy response or not in browser context');
     }
     
     return result.data;

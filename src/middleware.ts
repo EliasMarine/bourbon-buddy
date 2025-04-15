@@ -192,12 +192,12 @@ export async function middleware(request: NextRequest) {
     if (process.env.NODE_ENV === 'production') {
       response.headers.set('Content-Security-Policy', 
         "default-src 'self'; " +
-        `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live *.clarity.ms https://c.bing.com; ` +
-        `script-src-elem 'self' 'nonce-${nonce}' 'wasm-unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live *.clarity.ms https://c.bing.com; ` +
-        "style-src 'self' 'unsafe-inline'; " +
+        `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live *.clarity.ms https://c.bing.com; ` +
+        `style-src 'self' 'unsafe-inline'; ` +
         "img-src 'self' data: blob: https: http:; " +
         "font-src 'self' data:; " +
         "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://vercel.live https: http: " + 
+        "https://*.ingest.sentry.io https://sentry.io " +
         allowedDomains.map(domain => `https://${domain}`).join(' ') + "; " +
         "worker-src 'self' blob:; " +
         "frame-src 'self' https://appleid.apple.com; " +
@@ -231,18 +231,24 @@ export async function middleware(request: NextRequest) {
         'https://*.clarity.ms',
         'https://c.bing.com'
       ];
+      
+      const sentryDomains = [
+        'https://*.ingest.sentry.io',
+        'https://sentry.io'
+      ];
 
       const devDomains = [
         ...allowedDomains.map(domain => `https://${domain}`),
         ...appleAuthDomains,
-        ...clarityDomains
+        ...clarityDomains,
+        ...sentryDomains
       ].join(' ');
 
       // More permissive CSP for development to avoid blocking scripts
       response.headers.set('Content-Security-Policy', 
         `default-src 'self' ${devDomains} data: blob:; ` +
-        `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' ${devDomains} data: blob:; ` +
-        `script-src-elem 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' ${devDomains}; ` +
+        `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' ${devDomains} data: blob:; ` +
+        `style-src 'self' 'unsafe-inline'; ` +
         `connect-src 'self' ${devDomains} http://localhost:* ws://localhost:* https://*.supabase.co https://*.supabase.in wss://*.supabase.co https: http: 'unsafe-inline'; ` +
         `img-src 'self' ${devDomains} data: blob: https: http:; ` +
         `frame-src 'self' ${devDomains}; ` +

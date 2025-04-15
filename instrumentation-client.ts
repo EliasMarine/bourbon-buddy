@@ -5,12 +5,9 @@ import {
   browserTracingIntegration,
 } from "@sentry/nextjs";
 
-// Check if SENTRY_ENABLED_DEV is set to true for development environments
-const isEnabled = process.env.NODE_ENV === 'production' || process.env.SENTRY_ENABLED_DEV === 'true';
-
 // Initialize Sentry with client-side configuration
 Sentry.init({
-  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  dsn: "https://1354ee39e119c1b9670a897a0692d333@o4509142564667392.ingest.us.sentry.io/4509142568075264",
   
   // Use tunneling to avoid CSP issues
   tunnel: '/api/sentry-tunnel',
@@ -18,23 +15,20 @@ Sentry.init({
   // Disable debug mode - it causes issues with non-debug bundles
   debug: false,
   
-  // Only enable in production by default, or when explicitly enabled for dev
-  enabled: isEnabled,
+  // Set environment
+  environment: process.env.NODE_ENV,
   
   // Adjust these values - set to 1.0 to capture everything during testing
   tracesSampleRate: 1.0,
-  replaysSessionSampleRate: 1.0,
-  replaysOnErrorSampleRate: 1.0,
-  
-  // Set to 'development' or 'production' for proper environment separation in Sentry
-  environment: process.env.NODE_ENV,
+  replaysSessionSampleRate: 0.1, // 10% of sessions captured
+  replaysOnErrorSampleRate: 1.0, // 100% of error sessions captured
   
   // Integrations for full feature set
   integrations: [
     replayIntegration({
-      // Additional Replay configuration goes in here
-      maskAllText: false,
-      blockAllMedia: false,
+      // Session Replay configuration
+      maskAllText: true,
+      blockAllMedia: true,
     }),
     browserTracingIntegration(),
     browserProfilingIntegration(),
@@ -68,5 +62,5 @@ Sentry.init({
   },
 });
 
-// This export will instrument router navigations, and is only relevant when you enable tracing
+// This export will instrument router navigations
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart; 

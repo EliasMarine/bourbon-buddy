@@ -3,7 +3,7 @@
 import * as Sentry from '@sentry/nextjs'
 import { useEffect } from 'react'
 
-export default function GlobalError({
+export default function Error({
   error,
   reset,
 }: {
@@ -15,6 +15,9 @@ export default function GlobalError({
     Sentry.captureException(error)
   }, [error])
 
+  // Get error message safely
+  const errorMessage = (error as any)?.message || String(error);
+
   return (
     <div className="error-boundary-container">
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -25,7 +28,7 @@ export default function GlobalError({
           </p>
           <div className="bg-gray-50 p-4 rounded mb-4 overflow-auto max-h-36">
             <p className="font-mono text-sm text-gray-700">
-              {error.message}
+              {errorMessage}
             </p>
           </div>
           <button
