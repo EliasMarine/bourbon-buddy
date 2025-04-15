@@ -10,6 +10,11 @@ type SupabaseClientOptions = {
 // Global instance variable for client-side singleton
 let browserInstance: SupabaseClient | null = null;
 
+// Track WebSocket reconnection attempts
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+let reconnectTimeout: NodeJS.Timeout | null = null;
+
 /**
  * Returns a Supabase client suitable for the current environment
  * - On the server: Always creates a fresh instance
@@ -36,13 +41,15 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
       supabaseUrl,
       supabaseKey,
       {
-        // Improved realtime config with more robust settings
+        // Enhanced realtime config with more robust settings
         realtime: {
           params: {
-            eventsPerSecond: 3, // Reduce to avoid rate limits
-            heartbeatIntervalMs: 30000, // Longer heartbeat interval
-            timeout: 60000 // Longer timeout
-          }
+            eventsPerSecond: 2, // Reduced rate to avoid limits
+            heartbeatIntervalMs: 40000, // Longer heartbeat interval
+            timeout: 120000 // Longer timeout (2 minutes)
+          },
+          // Auto-reconnection is enabled by default in newer versions
+          // We can only configure the params above according to the API
         },
         auth: {
           // Ensure cookies are used for auth
@@ -57,7 +64,7 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
             headers.set('X-Client-Info', 'supabase-js/browser/singleton');
             
             // Create a new AbortController with a longer timeout
-            const timeoutMs = 60000; // 60 seconds
+            const timeoutMs = 90000; // 90 seconds
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
             
@@ -76,8 +83,20 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
       }
     );
     
-    // Add console warning for disconnections
+    // Add robust error handling for WebSocket connections
     if (typeof window !== 'undefined') {
+      // Setup global unhandled promise rejection handler for WebSocket issues
+      window.addEventListener('unhandledrejection', (event) => {
+        if (
+          event.reason && 
+          (event.reason.message?.includes('WebSocket connection') || 
+           event.reason.message?.includes('Connection closed'))
+        ) {
+          console.warn('WebSocket connection issue detected:', event.reason.message);
+          handleWebSocketReconnection();
+        }
+      });
+      
       // Monitor for WebSocket errors using a global handler
       window.addEventListener('error', (event) => {
         if (
@@ -86,7 +105,7 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
            event.message.includes('Connection closed'))
         ) {
           console.warn('WebSocket connection issue detected:', event.message);
-          // Don't reset the client to avoid loops, just log the warning
+          handleWebSocketReconnection();
         }
       });
     }
@@ -96,9 +115,59 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
 }
 
 /**
+ * Attempts to reconnect the WebSocket with exponential backoff
+ */
+function handleWebSocketReconnection() {
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    console.warn(`Reached maximum WebSocket reconnection attempts (${MAX_RECONNECT_ATTEMPTS})`);
+    // Reset for future attempts
+    reconnectAttempts = 0;
+    return;
+  }
+  
+  // Clear any existing timeout
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout);
+  }
+  
+  // Calculate exponential backoff delay
+  const backoffDelay = Math.min(30000, 1000 * Math.pow(2, reconnectAttempts));
+  console.log(`Attempting WebSocket reconnection in ${backoffDelay/1000}s (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+  
+  reconnectTimeout = setTimeout(() => {
+    if (browserInstance) {
+      try {
+        // Attempt to reconnect the realtime client
+        console.log('Reconnecting Supabase realtime client...');
+        const channel = browserInstance.channel('system');
+        channel.subscribe((status) => {
+          console.log('Supabase channel status:', status);
+          if (status === 'SUBSCRIBED') {
+            console.log('Successfully reconnected to Supabase realtime');
+            reconnectAttempts = 0;
+          }
+        });
+      } catch (error) {
+        console.error('Failed to reconnect Supabase realtime:', error);
+        reconnectAttempts++;
+        // Try again with longer delay
+        handleWebSocketReconnection();
+      }
+    }
+  }, backoffDelay);
+  
+  reconnectAttempts++;
+}
+
+/**
  * Resets the singleton instance - helpful for testing and auth state changes
  */
 export function resetSupabaseClient(): void {
+  // Clear any reconnection attempts
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout);
+  }
+  reconnectAttempts = 0;
   browserInstance = null;
 }
 
