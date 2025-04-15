@@ -13,10 +13,19 @@ module.exports = {
       "https://vercel.live",
       "https://hjodvataujilredguzig.supabase.co"
     ],
+    'script-src-elem': [
+      "'self'",
+      "'unsafe-inline'",
+      "'unsafe-eval'",
+      "'wasm-unsafe-eval'",
+      "https://vercel.live",
+      "https://hjodvataujilredguzig.supabase.co"
+    ],
     'connect-src': [
       "'self'",
       "https://hjodvataujilredguzig.supabase.co",
       "wss://hjodvataujilredguzig.supabase.co",
+      "wss://ws-us3.pusher.com",
       "https://api.openai.com", 
       "https://vercel.live", 
       "https://bourbonbuddy.live", 
