@@ -130,11 +130,12 @@ export async function middleware(request: NextRequest) {
   log(debugId, `🔄 Middleware processing ${request.method} ${request.nextUrl.pathname}`)
   
   try {
-    // Create the Supabase client using cookies
-    log(debugId, `🔑 Creating Supabase client with URL: ${process.env.NEXT_PUBLIC_SUPABASE_URL?.substring(0, 15)}...`);
-    
     // Create a response to modify later
-    const response = NextResponse.next()
+    let response = NextResponse.next({
+      request: {
+        headers: request.headers,
+      },
+    })
     
     // Create Supabase client with SSR
     const supabase = createServerClient(
@@ -146,11 +147,13 @@ export async function middleware(request: NextRequest) {
             return request.cookies.getAll()
           },
           setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              // Set cookies on both request (for this run) and response (for next time)
-              request.cookies.set(name, value)
-              response.cookies.set(name, value, options)
+            cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
+            response = NextResponse.next({
+              request,
             })
+            cookiesToSet.forEach(({ name, value, options }) =>
+              response.cookies.set(name, value, options)
+            )
           }
         }
       }
@@ -192,15 +195,15 @@ export async function middleware(request: NextRequest) {
     if (process.env.NODE_ENV === 'production') {
       response.headers.set('Content-Security-Policy', 
         "default-src 'self'; " +
-        `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live *.clarity.ms https://c.bing.com; ` +
+        `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://vercel.live *.clarity.ms https://c.bing.com https://js.stripe.com; ` +
         `style-src 'self' 'unsafe-inline'; ` +
         "img-src 'self' data: blob: https: http:; " +
         "font-src 'self' data:; " +
         "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://vercel.live https: http: " + 
-        "https://*.ingest.sentry.io https://sentry.io " +
+        "https://*.ingest.sentry.io https://sentry.io https://api.stripe.com " +
         allowedDomains.map(domain => `https://${domain}`).join(' ') + "; " +
         "worker-src 'self' blob:; " +
-        "frame-src 'self' https://appleid.apple.com; " +
+        "frame-src 'self' https://appleid.apple.com https://js.stripe.com; " +
         "object-src 'none'; " +
         "base-uri 'self'; " +
         "form-action 'self'; " +
@@ -236,23 +239,31 @@ export async function middleware(request: NextRequest) {
         'https://*.ingest.sentry.io',
         'https://sentry.io'
       ];
+      
+      const stripeDomains = [
+        'https://js.stripe.com',
+        'https://api.stripe.com'
+      ];
 
       const devDomains = [
         ...allowedDomains.map(domain => `https://${domain}`),
         ...appleAuthDomains,
         ...clarityDomains,
-        ...sentryDomains
+        ...sentryDomains,
+        ...stripeDomains
       ].join(' ');
 
       // More permissive CSP for development to avoid blocking scripts
       response.headers.set('Content-Security-Policy', 
         `default-src 'self' ${devDomains} data: blob:; ` +
-        `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' ${devDomains} data: blob:; ` +
+        `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' ${devDomains} https://js.stripe.com data: blob:; ` +
         `style-src 'self' 'unsafe-inline'; ` +
-        `connect-src 'self' ${devDomains} http://localhost:* ws://localhost:* https://*.supabase.co https://*.supabase.in wss://*.supabase.co https: http: 'unsafe-inline'; ` +
+        `connect-src 'self' ${devDomains} http://localhost:* ws://localhost:* https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://vercel.live https://api.stripe.com https: http: 'unsafe-inline'; ` +
         `img-src 'self' ${devDomains} data: blob: https: http:; ` +
-        `frame-src 'self' ${devDomains}; ` +
-        `style-src 'self' 'unsafe-inline';`
+        `frame-src 'self' ${devDomains} https://js.stripe.com; ` +
+        `font-src 'self' data:; ` +
+        `media-src 'self'; ` +
+        `child-src 'self' blob:;`
       );
       
       // Add the correct Permissions-Policy header for development too
@@ -290,15 +301,71 @@ export async function middleware(request: NextRequest) {
       return response
     }
     
+    // Check for auth cookies first - if none exist, no need to make API call
+    const hasCookies = supabaseCookies.some(cookieName => {
+      const cookie = request.cookies.get(cookieName);
+      return !!cookie && cookie.value !== '';
+    });
+    
+    if (!hasCookies) {
+      log(debugId, `🍪 No auth cookies found, skipping API call and redirecting immediately`);
+      
+      // For API routes, return 401 instead of redirecting
+      if (pathname.startsWith('/api/')) {
+        log(debugId, `🚫 API access denied, returning 401`);
+        return new NextResponse(
+          JSON.stringify({ 
+            error: 'Authentication required',
+            status: 'unauthorized',
+            message: 'Please sign in to access this resource'
+          }),
+          { 
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+              ...Object.fromEntries(Array.from(response.headers.entries()))
+            }
+          }
+        );
+      }
+      
+      // For regular routes, redirect to login
+      log(debugId, `🔄 Redirecting to login page (no cookies)`);
+      const redirectUrl = new URL('/login', request.url);
+      redirectUrl.searchParams.set('callbackUrl', request.nextUrl.pathname);
+      
+      return NextResponse.redirect(redirectUrl, {
+        headers: Object.fromEntries(Array.from(response.headers.entries()))
+      });
+    }
+    
     // Fetch the session with detailed error handling
     log(debugId, `🔑 Fetching Supabase auth session`);
     let user = null;
+    let sessionError = null;
     
     try {
       const { data, error } = await supabase.auth.getUser();
       
       if (error) {
+        sessionError = error;
         logError(debugId, `❌ Supabase user error:`, error.message);
+        
+        // Try to refresh the session as a fallback
+        try {
+          log(debugId, `🔄 Attempting to refresh session after user fetch error`);
+          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+          
+          if (!refreshError && refreshData.session?.user) {
+            log(debugId, `✅ Session refresh successful after user fetch error`);
+            user = refreshData.session.user;
+            sessionError = null;
+          } else {
+            logError(debugId, `❌ Session refresh also failed:`, refreshError?.message || 'No session returned');
+          }
+        } catch (refreshError) {
+          logError(debugId, `❌ Error during session refresh:`, refreshError);
+        }
       } else if (data.user) {
         user = data.user;
         // Only log email in non-production for security
@@ -330,16 +397,31 @@ export async function middleware(request: NextRequest) {
       }
     } catch (error) {
       logError(debugId, `🔥 Critical error fetching user:`, error);
-      
-      // Return a friendlier error response in production
-      if (process.env.NODE_ENV === 'production') {
-        // Let users continue their browsing experience despite auth errors
-        return response;
-      }
+      sessionError = error;
     }
     
     // Check if user is authenticated
     const isAuthenticated = !!user;
+    
+    // Decide whether to continue despite auth errors - more tolerant approach
+    // If we have cookies but couldn't validate the session, we'll still let the request through
+    // The client side auth will handle redirecting if needed
+    if (!isAuthenticated && sessionError && hasCookies) {
+      log(debugId, `⚠️ Auth error but cookies present - allowing request to proceed and letting client handle auth`);
+      
+      // Pass error info in headers for debugging
+      response.headers.set('x-auth-error', 'true');
+      if (typeof sessionError === 'object' && sessionError !== null && 'message' in sessionError) {
+        const errorMessage = String(sessionError.message).substring(0, 50); // Limit length
+        response.headers.set('x-auth-error-message', errorMessage);
+      }
+      
+      // For non-API routes, we'll let the client-side handle the auth state
+      if (!pathname.startsWith('/api/')) {
+        log(debugId, `✅ Allowing access despite auth error for client-side handling`);
+        return response;
+      }
+    }
     
     // Check if user is registered in the database system
     // Check in both app_metadata and user_metadata to be sure
@@ -416,7 +498,25 @@ export async function middleware(request: NextRequest) {
       
       // Try to force a refresh of the session to get the latest metadata
       try {
-        const { data: refreshData } = await supabase.auth.refreshSession();
+        console.log(`[${debugId}] 🔄 Attempting to refresh session`);
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        
+        if (refreshError) {
+          console.log(`[${debugId}] ⚠️ Session refresh error: ${refreshError.message}`);
+          // Don't redirect on refresh errors - just continue with current state
+          
+          // Pass user info in headers for server components
+          if (user) {
+            response.headers.set('x-user-id', user.id);
+            if (user.email) {
+              response.headers.set('x-user-email', user.email);
+            }
+          }
+          
+          log(debugId, `✅ Middleware continuing despite refresh error`);
+          return response;
+        }
+        
         if (refreshData?.session?.user?.app_metadata?.is_registered === true) {
           log(debugId, `User registration status updated after refresh, considering registered`);
           
@@ -433,6 +533,18 @@ export async function middleware(request: NextRequest) {
         }
       } catch (refreshError) {
         logError(debugId, 'Error refreshing session:', refreshError);
+        
+        // Continue with current session on errors
+        if (user) {
+          // Pass user info in headers for server components
+          response.headers.set('x-user-id', user.id);
+          if (user.email) {
+            response.headers.set('x-user-email', user.email);
+          }
+          
+          log(debugId, `✅ Middleware continuing with current session despite refresh error`);
+          return response;
+        }
       }
       
       // Check if we've already redirected this user recently to prevent redirect loops

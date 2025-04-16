@@ -70,50 +70,31 @@ export function verifyCsrfToken(secret: string, token: string) {
   }
 }
 
-// Create a cookie with the CSRF secret
-export function createCsrfCookie(secret: string, createdAt: number) {
-  // Use same cookie name retrieval logic
-  const cookieName = getCsrfCookieName()
+/**
+ * Creates a CSRF cookie with the given secret
+ * @param secret The CSRF secret to store in the cookie
+ * @param createdAt Timestamp when the token was created
+ * @returns Cookie header string
+ */
+export function createCsrfCookie(secret: string, createdAt: number): string {
+  const cookieName = getCsrfCookieName();
+  const cookieValue = `${secret}|${createdAt}`;
   
-  // Should cookies be secure in this environment?
-  const isSecure = process.env.NODE_ENV === 'production'
+  // Set secure in production, but allow non-secure in development
+  const secure = process.env.NODE_ENV === 'production';
   
-  // Set domain for production environment
-  let domain = process.env.COOKIE_DOMAIN || undefined
+  // Configure cookie options for better security and browser compatibility
+  const cookieOptions = [
+    `${cookieName}=${encodeURIComponent(cookieValue)}`,
+    `Path=/`,
+    `HttpOnly`,
+    `SameSite=Lax`, // Changed from Strict to Lax for better usability across origins
+    ...(secure ? [`Secure`] : []),
+    // Max-age of 7 days
+    `Max-Age=${60 * 60 * 24 * 7}`
+  ];
   
-  // Auto-set domain for production to ensure cookie works with the main domain
-  if (process.env.NODE_ENV === 'production' && !domain) {
-    // Start without the dot prefix to be more compatible with some browsers
-    domain = 'bourbonbuddy.live'
-    console.log(`Auto-setting domain to: ${domain} for CSRF cookie in production`)
-  }
-  
-  // Store both the secret and the creation time as JSON string
-  const cookieValue = JSON.stringify({
-    secret, 
-    createdAt
-  })
-  
-  // Cookie options
-  const cookieOptions = {
-    httpOnly: true,
-    path: '/',
-    secure: isSecure,
-    sameSite: 'lax' as const,
-    maxAge: 60 * 60 * 24, // 1 day
-  }
-  
-  // Add domain if set
-  if (domain) {
-    console.log(`Setting CSRF cookie with specific domain: ${domain}`)
-    return serialize(cookieName, cookieValue, {
-      ...cookieOptions,
-      domain,
-    })
-  }
-  
-  // Otherwise use default (no domain) which is more compatible with cross-domain setups
-  return serialize(cookieName, cookieValue, cookieOptions)
+  return cookieOptions.join('; ');
 }
 
 // Parse cookies from a string

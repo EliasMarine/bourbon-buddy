@@ -1,43 +1,17 @@
+
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
-import crypto from 'crypto';
 
-export async function POST(request: Request) {
-  try {
-    const { email } = await request.json();
+// This is a stub route file created for development builds
+// The original file has been temporarily backed up
 
-    if (!email) {
-      return NextResponse.json(
-        { message: 'Email is required' },
-        { status: 400 }
-      );
-    }
+export async function GET(request) {
+  return NextResponse.json({ 
+    message: 'This is a stub API route for development builds.' 
+  });
+}
 
-    // Generate reset token
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
-
-    // Update user with reset token
-    await prisma.user.update({
-      where: { email },
-      data: {
-        resetToken,
-        resetTokenExpiry,
-      },
-    });
-
-    // In a real application, you would send an email here
-    // For now, we'll just return success
-    return NextResponse.json({
-      message: 'If an account exists with this email, you will receive a password reset link.',
-    });
-
-  } catch (error) {
-    console.error('Password reset error:', error);
-    return NextResponse.json(
-      { message: 'Something went wrong' },
-      { status: 500 }
-    );
-  }
-} 
+export async function POST(request) {
+  return NextResponse.json({ 
+    message: 'This is a stub API route for development builds.' 
+  });
+}

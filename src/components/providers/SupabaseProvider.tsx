@@ -15,6 +15,7 @@ interface SupabaseContextType {
   refreshSession: () => Promise<void>;
   isSyncing: boolean;
   userSynced: boolean;
+  isSessionStable: boolean;
 }
 
 // Provide a default context value
@@ -28,6 +29,7 @@ const defaultContextValue: SupabaseContextType = {
   refreshSession: async () => {},
   isSyncing: false,
   userSynced: false,
+  isSessionStable: false,
 };
 
 // Create the context
@@ -39,6 +41,8 @@ let globalUserSynced = false;
 let globalRefreshingSession = false;
 // Global debounce map for auth events
 const globalAuthEvents: Record<string, number> = {};
+// Last successful refresh time to prevent excessive refreshes
+let lastSuccessfulRefresh = 0;
 
 /**
  * Provider component that wraps your app and makes Supabase client available
@@ -59,17 +63,28 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
   const lastSyncRef = useRef<Record<string, number>>({});
   // Track the last auth event timestamp to prevent rapid successive updates
   const lastAuthEventRef = useRef<Record<string, number>>(globalAuthEvents);
-  // Minimum time between syncs for the same user (5 seconds)
-  const MIN_SYNC_INTERVAL = 5000;
   // Minimum time between processing similar auth events (10 seconds - increased from 1 second to prevent loops)
   const MIN_AUTH_EVENT_INTERVAL = 10000;
   // Track if we're currently refreshing the session
   const isRefreshingSessionRef = useRef<boolean>(globalRefreshingSession);
+  // Minimum time between session refreshes (30 seconds)
+  const MIN_REFRESH_INTERVAL = 30000;
   // Track component mount state
   const isMountedRef = useRef<boolean>(false);
+  // Track session stabilization to prevent premature rendering
+  const [isSessionStable, setIsSessionStable] = useState(false);
   
-  // Refresh session data
+  // Refresh session data with improved timing
   async function refreshSession() {
+    const now = Date.now();
+    
+    // Prevent refreshing too frequently
+    if (now - lastSuccessfulRefresh < MIN_REFRESH_INTERVAL) {
+      console.log(`Session refresh skipped - last successful refresh was ${Math.round((now - lastSuccessfulRefresh) / 1000)}s ago`);
+      setIsSessionStable(true);
+      return;
+    }
+    
     // Prevent concurrent refreshes
     if (isRefreshingSessionRef.current) {
       console.log('Session refresh already in progress, skipping');
@@ -86,62 +101,185 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
         console.error('Supabase auth not initialized during refreshSession');
         setError({ message: 'Authentication service unavailable', status: 500 } as AuthError);
         setIsLoading(false);
+        setIsSessionStable(true);
         return;
       }
       
       console.log('Refreshing session...');
       
-      // First try to refresh the session to get the latest metadata
-      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      // First try to get the session from cookies
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       
-      // If refresh fails, try getSession
-      if (refreshError) {
-        console.warn('Session refresh failed, falling back to getSession:', refreshError);
-        
-        try {
-          const { data, error } = await supabase.auth.getSession();
+      if (sessionError) {
+        console.warn('GetSession failed:', sessionError);
+      } else if (sessionData?.session) {
+        console.log('Got session from cookies successfully');
+        if (isMountedRef.current) {
+          setSession(sessionData.session);
+          setUser(sessionData.session.user);
+          setError(null);
           
-          if (error) {
-            console.error('GetSession also failed:', error);
+          // Mark successful refresh time
+          lastSuccessfulRefresh = Date.now();
+        }
+        
+        // Even though we got the session, still try to refresh it to extend its lifetime
+      }
+      
+      // Only try to refresh if we don't already have a valid session
+      const shouldTryRefresh = !sessionData?.session || 
+                              (sessionData.session.expires_at && 
+                               sessionData.session.expires_at * 1000 < Date.now() + 30 * 60 * 1000); // 30 minutes
+      
+      if (shouldTryRefresh) {
+        // Proceed with session refresh
+        try {
+          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+          
+          if (refreshError) {
+            console.warn('Session refresh failed:', refreshError);
             
-            // Only try to recover if we're actually mounted
-            if (isMountedRef.current && typeof window !== 'undefined') {
-              const storedSession = localStorage.getItem('supabase.auth.token');
-              if (storedSession) {
-                console.log('Found stored session, attempting to recover');
-                // We have a stored session, let's try to recover by calling refreshSession again in 1s
-                setTimeout(() => {
-                  if (isMountedRef.current) refreshSession();
-                }, 1000);
+            // If we already have a session from getSession, we can continue with that
+            if (sessionData?.session) {
+              console.log('Continuing with existing session from cookies');
+              return;
+            }
+            
+            // Otherwise try a custom endpoint that may handle cookies better
+            try {
+              const response = await fetch('/api/auth/token-refresh', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({}) // Send empty body, the endpoint will try to get token from cookies
+              });
+              
+              if (response.ok) {
+                const data = await response.json();
+                console.log('Successfully refreshed session via proxy API');
+                
+                if (isMountedRef.current) {
+                  // Manually construct a session object from the response
+                  const manualSession: Session = {
+                    access_token: data.access_token,
+                    refresh_token: data.refresh_token,
+                    expires_in: data.expires_in || 3600,
+                    expires_at: Math.floor(Date.now() / 1000) + (data.expires_in || 3600),
+                    token_type: data.token_type || 'bearer',
+                    user: data.user
+                  };
+                  
+                  setSession(manualSession);
+                  setUser(manualSession.user);
+                  setError(null);
+                  
+                  // Mark successful refresh time
+                  lastSuccessfulRefresh = Date.now();
+                }
+              } else {
+                console.error('Proxy token refresh failed:', await response.text());
+                
+                // Try manually recovering from localStorage as last resort
+                if (typeof window !== 'undefined') {
+                  try {
+                    const storedSession = localStorage.getItem('supabase.auth.token');
+                    if (storedSession) {
+                      console.log('Found stored session, attempting recovery');
+                      const parsedSession = JSON.parse(storedSession);
+                      
+                      if (parsedSession?.currentSession?.access_token) {
+                        console.log('Using locally stored session data as fallback');
+                        
+                        const localSession = parsedSession.currentSession;
+                        
+                        // Manually construct a session object
+                        const manualSession: Session = {
+                          access_token: localSession.access_token,
+                          refresh_token: localSession.refresh_token,
+                          expires_in: localSession.expires_in || 3600,
+                          expires_at: localSession.expires_at || Math.floor(Date.now() / 1000) + 3600,
+                          token_type: 'bearer',
+                          user: localSession.user
+                        };
+                        
+                        if (isMountedRef.current) {
+                          setSession(manualSession);
+                          setUser(manualSession.user);
+                          setError(null);
+                        }
+                        
+                        // Try using our server proxy to refresh with the refresh token
+                        if (manualSession.refresh_token) {
+                          try {
+                            const refreshResponse = await fetch('/api/auth/token-refresh', {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                              },
+                              body: JSON.stringify({
+                                refresh_token: manualSession.refresh_token
+                              })
+                            });
+                            
+                            if (refreshResponse.ok) {
+                              const result = await refreshResponse.json();
+                              console.log('Successfully refreshed session via proxy with explicit token');
+                              
+                              if (isMountedRef.current) {
+                                // Update the session with the refreshed data
+                                const updatedSession: Session = {
+                                  access_token: result.access_token,
+                                  refresh_token: result.refresh_token,
+                                  expires_in: result.expires_in || 3600,
+                                  expires_at: Math.floor(Date.now() / 1000) + (result.expires_in || 3600),
+                                  token_type: 'bearer',
+                                  user: result.user
+                                };
+                                
+                                setSession(updatedSession);
+                                setUser(updatedSession.user);
+                                
+                                // Mark successful refresh time
+                                lastSuccessfulRefresh = Date.now();
+                              }
+                            }
+                          } catch (proxyError) {
+                            console.error('Server proxy refresh with token failed:', proxyError);
+                          }
+                        }
+                      }
+                    }
+                  } catch (localStorageError) {
+                    console.error('Error parsing localStorage session:', localStorageError);
+                  }
+                }
               }
+            } catch (proxyError) {
+              console.error('Error calling token refresh proxy:', proxyError);
             }
-            
-            setError(error);
           } else {
-            // Successfully got session
+            // Successful refresh via normal method
+            console.log('Session refreshed successfully via standard method');
+            
             if (isMountedRef.current) {
-              setSession(data.session);
-              setUser(data.session?.user || null);
-              setError(null); // Clear any previous errors
+              setSession(refreshData.session);
+              setUser(refreshData.session?.user || null);
+              setError(null);
+              
+              // Mark successful refresh time
+              lastSuccessfulRefresh = Date.now();
             }
           }
-        } catch (innerError) {
-          console.error('Critical error in getSession fallback:', innerError);
-          if (isMountedRef.current) {
-            setError({ message: 'Failed to retrieve session', status: 500 } as AuthError);
-          }
+        } catch (refreshCatchError) {
+          console.error('Uncaught error in refreshSession:', refreshCatchError);
         }
       } else {
-        // Use the refreshed session data
-        if (isMountedRef.current) {
-          setSession(refreshData.session);
-          setUser(refreshData.session?.user || null);
-          setError(null); // Clear any previous errors
-        }
+        console.log('Skipping refresh - current session is still valid');
       }
       
       // Check for registration status in both app_metadata and user_metadata
-      const currentUser = refreshData?.session?.user || user;
+      const currentUser = sessionData?.session?.user || user;
       if (currentUser && isMountedRef.current) {
         const isRegistered = currentUser.app_metadata?.is_registered === true || 
                             currentUser.user_metadata?.is_registered === true;
@@ -167,13 +305,15 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
         console.log('Setting up retry for session refresh');
         setTimeout(() => {
           if (isMountedRef.current) refreshSession();
-        }, 3000); // Retry after 3 seconds
+        }, 5000); // Retry after 5 seconds (increased from 3)
       }
     } finally {
       isRefreshingSessionRef.current = false;
       globalRefreshingSession = false;
       if (isMountedRef.current) {
         setIsLoading(false);
+        // Mark session as stable once we've gone through the refresh process
+        setIsSessionStable(true);
       }
     }
   }
@@ -201,7 +341,7 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       const now = Date.now();
       const lastSync = lastSyncRef.current[userId] || 0;
       
-      if (now - lastSync < MIN_SYNC_INTERVAL) {
+      if (now - lastSync < MIN_AUTH_EVENT_INTERVAL) {
         console.log(`Skipping sync - last sync was ${(now - lastSync) / 1000}s ago`);
         return;
       }
@@ -292,7 +432,12 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     
     // Initialize session only if not already loading
     if (!isRefreshingSessionRef.current) {
-      refreshSession();
+      // Delay the initial session refresh to give cookies time to settle
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          refreshSession();
+        }
+      }, 800); // Increased from 500ms to give cookies more time to settle
     }
     
     // Defensive check to ensure auth is initialized
@@ -324,8 +469,30 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
         
         console.log(`Auth state changed: ${event}`);
         
+        // For SIGNED_IN events, always update session and user state right away
+        // This ensures the UI reflects the authenticated state promptly
+        if (event === 'SIGNED_IN' && session) {
+          // Mark session unstable during state transition
+          setIsSessionStable(false);
+          
+          if (isMountedRef.current) {
+            setSession(session);
+            setUser(session.user);
+            setIsLoading(false);
+            
+            // Mark successful refresh time to avoid immediate refresh after login
+            lastSuccessfulRefresh = Date.now();
+            
+            // Wait a bit for session to stabilize before marking as stable
+            setTimeout(() => {
+              if (isMountedRef.current) {
+                setIsSessionStable(true);
+              }
+            }, 500);
+          }
+        }
         // Special handling for TOKEN_REFRESHED to prevent infinite loops
-        if (event === 'TOKEN_REFRESHED') {
+        else if (event === 'TOKEN_REFRESHED') {
           // Only process token refreshed events once every 30 seconds max
           const lastTokenRefreshTime = lastAuthEventRef.current['TOKEN_REFRESHED'] || 0;
           
@@ -339,16 +506,27 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
             setSession(session);
             setUser(session?.user || null);
           }
-        } else {
+        } 
+        // For SIGNED_OUT, don't redirect immediately - allow the last page render to complete
+        else if (event === 'SIGNED_OUT') {
+          if (isMountedRef.current) {
+            // Small delay before clearing session to allow any in-flight renders to complete
+            setTimeout(() => {
+              if (isMountedRef.current) {
+                setSession(null);
+                setUser(null);
+                setIsLoading(false);
+              }
+            }, 100);
+          }
+        }
+        else {
           // For other events, update normally
           if (isMountedRef.current) {
             setSession(session);
             setUser(session?.user || null);
+            setIsLoading(false);
           }
-        }
-        
-        if (isMountedRef.current) {
-          setIsLoading(false);
         }
         
         // Only sync on SIGNED_IN event when we don't have a synced user already
@@ -386,7 +564,20 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     refreshSession,
     isSyncing,
     userSynced,
+    isSessionStable,
   };
+  
+  // Use a full-page loader when the session is unstable
+  if (!isSessionStable) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        <div className="text-center">
+          <div className="mb-4 h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <p className="text-muted-foreground">Loading your session...</p>
+        </div>
+      </div>
+    );
+  }
   
   return (
     <SupabaseContext.Provider value={value}>

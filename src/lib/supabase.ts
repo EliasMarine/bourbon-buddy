@@ -1,8 +1,8 @@
-import { createClient } from '@supabase/supabase-js';
 import { createBrowserClient as createSsrBrowserClient } from '@supabase/ssr';
 import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import type { CookieOptions } from '@supabase/ssr';
+import { SupabaseClient } from '@supabase/supabase-js';
 
 // Storage bucket configuration
 const STORAGE_BUCKET = 'spirits';
@@ -22,14 +22,14 @@ function isServerSide() {
 }
 
 // Define a global type for browser usage
-let globalSupabaseBrowserClient: ReturnType<typeof createSsrBrowserClient> | null = null;
+let globalSupabaseBrowserClient: SupabaseClient | null = null;
 
 /**
  * Creates a Supabase client for browser usage
  */
 export function createBrowserClient() {
   // Use singleton for browser clients
-  if (!isServerSide() && globalSupabaseBrowserClient) {
+  if (typeof window !== 'undefined' && globalSupabaseBrowserClient) {
     return globalSupabaseBrowserClient;
   }
   
@@ -40,7 +40,7 @@ export function createBrowserClient() {
   );
   
   // Cache for reuse
-  if (!isServerSide()) {
+  if (typeof window !== 'undefined') {
     globalSupabaseBrowserClient = client;
   }
   
@@ -49,36 +49,25 @@ export function createBrowserClient() {
 
 /**
  * Creates a Supabase client for server components
- * Note: This function is only compatible with Next.js App Router
- * DO NOT use in pages/ directory
  */
 export async function createServerComponentClient() {
-  // Import cookies dynamically to avoid issues with pages/ directory
-  const { cookies } = await import('next/headers');
   const cookieStore = await cookies();
   
-  const client = createServerClient(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll();
         },
-        set(name, value, options) {
+        setAll(cookiesToSet) {
           try {
-            cookieStore.set(name, value, options);
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
           } catch (error) {
-            // The `set` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
-          }
-        },
-        remove(name, options) {
-          try {
-            cookieStore.set(name, '', { ...options, maxAge: 0 });
-          } catch (error) {
-            // The `remove` method was called from a Server Component.
+            // The `setAll` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing
             // user sessions.
           }
@@ -86,16 +75,17 @@ export async function createServerComponentClient() {
       }
     }
   );
-  
-  return client;
 }
 
 /**
  * Creates a Supabase client for middleware
  */
 export function createMiddlewareClient(request: NextRequest) {
+  // Create an unmodified response
   let response = NextResponse.next({
-    request,
+    request: {
+      headers: request.headers,
+    },
   });
   
   const supabase = createServerClient(
@@ -103,31 +93,17 @@ export function createMiddlewareClient(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name) {
-          return request.cookies.get(name)?.value;
+        getAll() {
+          return request.cookies.getAll();
         },
-        set(name, value, options) {
-          // Ensure proper cookie attributes based on environment
-          const cookieOptions = {
-            ...options,
-            // In production, use the proper domain & security settings
-            // In development, use less restrictive settings to aid in testing
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: process.env.NODE_ENV === 'production' ? 'lax' as const : 'none' as const,
-            path: '/',
-            // Ensure the cookie lasts a reasonable amount of time
-            maxAge: 60 * 60 * 24 * 7, // 7 days
-          };
-          
-          request.cookies.set(name, value);
-          response.cookies.set(name, value, cookieOptions);
-        },
-        remove(name, options) {
-          request.cookies.delete(name);
-          response.cookies.set(name, '', { 
-            ...options,
-            maxAge: 0,
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value));
+          response = NextResponse.next({
+            request,
           });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options)
+          );
         }
       }
     }

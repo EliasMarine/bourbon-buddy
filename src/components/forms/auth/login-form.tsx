@@ -45,7 +45,7 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
       try {
         const data = await signInWithProxyEndpoint(email, password);
         
-        console.log('✅ Login successful via proxy:', {
+        console.log('✅ Login successful via token endpoint:', {
           userId: data.user?.id,
           email: data.user?.email?.substring(0, 3) + '***',
           hasSession: !!data.session,
@@ -88,7 +88,7 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
         router.refresh()
         return;
       } catch (proxyError) {
-        console.warn('⚠️ Proxy login failed, falling back to direct Supabase auth:', proxyError);
+        console.warn('⚠️ Token login failed, falling back to direct Supabase auth:', proxyError);
         // Fall back to direct authentication (below)
       }
       

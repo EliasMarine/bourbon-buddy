@@ -21,12 +21,21 @@ let reconnectTimeout: NodeJS.Timeout | null = null;
  * - In the browser: Returns the global singleton instance
  */
 export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClient {
-  const supabaseUrl = options?.supabaseUrl || process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseKey = options?.supabaseKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const supabaseUrl = options?.supabaseUrl || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = options?.supabaseKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   // Ensure we have the required config
   if (!supabaseUrl || !supabaseKey) {
     throw new Error('Missing required Supabase configuration. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.');
+  }
+
+  // Validate URL format
+  try {
+    // This will throw if the URL is invalid
+    new URL(supabaseUrl);
+  } catch (error) {
+    console.error('Invalid Supabase URL:', error);
+    throw new Error(`Invalid Supabase URL: ${supabaseUrl}. Please check your environment variables.`);
   }
 
   // In a server context, always create a fresh instance
@@ -74,24 +83,266 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
         global: {
           // Properly handles credentials for CORS
           fetch: (url, options = {}) => {
-            const headers = new Headers(options.headers || {});
-            headers.set('X-Client-Info', 'supabase-js/browser/singleton');
-            
-            // Create a new AbortController with a longer timeout
-            const timeoutMs = 90000; // 90 seconds
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-            
-            // Always use 'include' for credentials to ensure cookies are sent
-            return fetch(url, {
-              ...options,
-              headers,
-              // Always include credentials for Supabase requests
-              credentials: 'include',
-              signal: controller.signal
-            }).finally(() => {
-              clearTimeout(timeoutId);
-            });
+            try {
+              const headers = new Headers(options.headers || {});
+              headers.set('X-Client-Info', 'supabase-js/browser/singleton');
+              
+              // Create a new AbortController with a longer timeout
+              const timeoutMs = 90000; // 90 seconds
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+              
+              // Get URL as string for easier pattern matching
+              const urlString = url.toString();
+              
+              console.log(`Supabase fetch: ${options.method || 'GET'} ${urlString.split('?')[0]}`);
+              
+              // Detect browser
+              const userAgent = typeof window !== 'undefined' ? window.navigator.userAgent : '';
+              const isFirefox = userAgent.includes('Firefox');
+              const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+              
+              // ========================
+              // AUTH REQUEST INTERCEPTION
+              // ========================
+              
+              // Handle auth-related requests to avoid CORS issues
+              if (urlString.includes('/auth/v1/')) {
+                // For Firefox, use proxy for logout
+                if (isFirefox && urlString.includes('/auth/v1/logout')) {
+                  clearTimeout(timeoutId);
+                  console.log('Intercepting logout request to use proxy');
+                  
+                  // Get the authorization header safely
+                  const authHeader = typeof options.headers === 'object' && options.headers !== null 
+                    ? (options.headers as Record<string, string>)['Authorization'] || ''
+                    : '';
+                  
+                  return fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': authHeader
+                    },
+                    credentials: 'include'
+                  });
+                }
+                
+                // Handle user info requests to avoid CORS issues
+                if (urlString.includes('/auth/v1/user')) {
+                  clearTimeout(timeoutId);
+                  console.log('Intercepting user info request to use proxy');
+                  
+                  // Get the authorization header safely
+                  const authHeader = typeof options.headers === 'object' && options.headers !== null 
+                    ? (options.headers as Record<string, string>)['Authorization'] || ''
+                    : '';
+                  
+                  return fetch('/api/auth/user', {
+                    method: 'GET',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': authHeader
+                    },
+                    credentials: 'include',
+                    mode: 'same-origin'
+                  }).catch(error => {
+                    console.error('Error using auth user proxy:', error);
+                    throw error;
+                  });
+                }
+                
+                // Handle token requests with URL parameters (GET requests with refresh_token)
+                if (urlString.includes('/auth/v1/token') && urlString.includes('grant_type=refresh_token')) {
+                  clearTimeout(timeoutId);
+                  console.log('Intercepting refresh token URL request to use proxy');
+                  
+                  // Extract the refresh token from URL
+                  const url = new URL(urlString);
+                  const refreshToken = url.searchParams.get('refresh_token');
+                  
+                  // Get CSRF token if available
+                  let csrfToken = '';
+                  try {
+                    if (typeof window !== 'undefined' && window.sessionStorage) {
+                      csrfToken = window.sessionStorage.getItem('csrfToken') || '';
+                    }
+                  } catch (error) {
+                    console.warn('Unable to retrieve CSRF token from sessionStorage:', error);
+                  }
+                  
+                  return fetch('/api/auth/token-refresh', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
+                    },
+                    body: JSON.stringify({
+                      refresh_token: refreshToken
+                    }),
+                    credentials: 'include',
+                    mode: 'same-origin'
+                  }).catch(error => {
+                    console.error('Error using refresh token proxy (URL params):', error);
+                    throw error;
+                  });
+                }
+                
+                // Handle token requests
+                if (urlString.includes('/auth/v1/token')) {
+                  // Parse body data - handle both string and other formats
+                  let body: Record<string, any> = {};
+                  try {
+                    if (options.body) {
+                      if (typeof options.body === 'string') {
+                        body = JSON.parse(options.body);
+                      } else if (options.body instanceof FormData) {
+                        // Convert FormData to object
+                        const formData = options.body;
+                        formData.forEach((value, key) => {
+                          body[key] = value;
+                        });
+                      } else if (options.body instanceof URLSearchParams) {
+                        // Convert URLSearchParams to object
+                        const params = options.body;
+                        params.forEach((value, key) => {
+                          body[key] = value;
+                        });
+                      } else if (typeof options.body === 'object') {
+                        // Already an object
+                        body = options.body as Record<string, any>;
+                      }
+                    }
+                  } catch (err) {
+                    console.error('Error parsing request body:', err);
+                  }
+                  
+                  // Password sign-in
+                  if ('email' in body && 'password' in body && body.grant_type === 'password') {
+                    clearTimeout(timeoutId);
+                    console.log('Intercepting sign-in request to use proxy');
+                    
+                    return fetch('/api/auth/token', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        email: body.email,
+                        password: body.password
+                      }),
+                      credentials: 'include',
+                      mode: 'same-origin' // Set to same-origin to avoid CORS
+                    }).catch(error => {
+                      console.error('Error using auth token proxy:', error);
+                      throw error;
+                    });
+                  }
+                  
+                  // Token refresh - ALWAYS use our proxy for all browsers
+                  if ('refresh_token' in body && body.grant_type === 'refresh_token') {
+                    clearTimeout(timeoutId);
+                    console.log('Intercepting refresh token request to use proxy');
+                    
+                    // Get CSRF token if available
+                    let csrfToken = '';
+                    try {
+                      if (typeof window !== 'undefined' && window.sessionStorage) {
+                        csrfToken = window.sessionStorage.getItem('csrfToken') || '';
+                      }
+                    } catch (error) {
+                      console.warn('Unable to retrieve CSRF token from sessionStorage:', error);
+                    }
+                    
+                    // Extract refresh token from request
+                    const refreshToken = body.refresh_token;
+                    
+                    // Check if refresh token is valid
+                    if (!refreshToken || typeof refreshToken !== 'string' || refreshToken.length < 10) {
+                      console.warn('Invalid refresh token detected, attempting to get token from localStorage');
+                      
+                      // Try to get a refresh token from localStorage as fallback
+                      let storedToken = '';
+                      try {
+                        if (typeof window !== 'undefined' && window.localStorage) {
+                          // Look for Supabase refresh token in local storage
+                          const storageKey = 'sb-' + 
+                            (supabaseUrl?.split('//')[1]?.split('.')[0] || 'fallback') + 
+                            '-auth-token';
+                          
+                          const authData = window.localStorage.getItem(storageKey);
+                          if (authData) {
+                            try {
+                              const parsedData = JSON.parse(authData);
+                              if (parsedData?.refresh_token) {
+                                storedToken = parsedData.refresh_token;
+                                console.log('Found refresh token in localStorage, using as fallback');
+                              }
+                            } catch (parseError) {
+                              console.warn('Error parsing localStorage auth data:', parseError);
+                            }
+                          }
+                        }
+                      } catch (storageError) {
+                        console.warn('Error accessing localStorage:', storageError);
+                      }
+                      
+                      // Use the stored token if available
+                      if (storedToken) {
+                        console.log('Using fallback refresh token from localStorage');
+                        body.refresh_token = storedToken;
+                      }
+                    }
+                    
+                    return fetch('/api/auth/token-refresh', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
+                      },
+                      body: JSON.stringify({
+                        refresh_token: body.refresh_token
+                      }),
+                      credentials: 'include',
+                      mode: 'same-origin'
+                    }).then(response => {
+                      if (!response.ok) {
+                        console.error(`Refresh token proxy error: ${response.status} ${response.statusText}`);
+                        // Let the Supabase client handle this error
+                      } else {
+                        console.log('Refresh token proxy successful');
+                      }
+                      return response;
+                    }).catch(error => {
+                      console.error('Error using refresh token proxy:', error);
+                      throw error;
+                    });
+                  }
+                }
+                
+                // For any other auth endpoint, add CORS mode explicitly
+                console.log(`Auth request: ${urlString} with credentials`);
+              }
+              
+              // For all other requests, add CORS mode and credentials
+              const fetchPromise = fetch(url, {
+                ...options,
+                headers,
+                // Always include credentials for Supabase requests
+                credentials: 'include',
+                signal: controller.signal,
+                mode: 'cors'
+              });
+              
+              // Add timeout cleanup
+              return fetchPromise.finally(() => {
+                clearTimeout(timeoutId);
+              });
+            } catch (error) {
+              console.error('Error in Supabase fetch interceptor:', error);
+              // Re-throw to maintain expected error handling
+              throw error;
+            }
           }
         }
       }
@@ -211,10 +462,10 @@ export function createAdminClient(): SupabaseClient {
  */
 export async function signInWithProxyEndpoint(email: string, password: string) {
   try {
-    console.log(`Attempting auth via proxy for ${email.substring(0, 3)}***`);
+    console.log(`Attempting auth via token endpoint for ${email.substring(0, 3)}***`);
     
-    // Use our proxy endpoint for authentication, which properly handles CORS
-    const response = await fetch('/api/auth/proxy', {
+    // Use our dedicated token endpoint for authentication, which properly handles CORS
+    const response = await fetch('/api/auth/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -234,7 +485,7 @@ export async function signInWithProxyEndpoint(email: string, password: string) {
     
     // Check if the response is successful
     if (!response.ok) {
-      console.error('Auth proxy error response:', {
+      console.error('Auth token endpoint error response:', {
         status: response.status,
         statusText: response.statusText,
         error: result.error
@@ -242,14 +493,25 @@ export async function signInWithProxyEndpoint(email: string, password: string) {
       throw new Error(result.error || `Authentication failed: ${response.status} ${response.statusText}`);
     }
     
-    console.log('Auth proxy successful, got session data');
+    console.log('Auth token endpoint successful, got session data');
+    
+    // Transform response to match Supabase format expected by other code
+    const transformedResult = {
+      session: {
+        access_token: result.access_token,
+        refresh_token: result.refresh_token,
+        expires_in: result.expires_in,
+        token_type: result.token_type || 'bearer',
+        user: result.user
+      },
+      user: result.user
+    };
     
     // Store the session data locally for Supabase client to use
-    if (typeof window !== 'undefined' && result.data?.session) {
+    if (typeof window !== 'undefined' && transformedResult.session) {
       try {
         // Get the current instance to update its session
-        console.log('Setting Supabase session from proxy data');
-        const currentInstance = getSupabaseClient();
+        console.log('Setting Supabase session from token endpoint data');
         
         // Reset the client first to ensure a clean state
         resetSupabaseClient();
@@ -258,33 +520,33 @@ export async function signInWithProxyEndpoint(email: string, password: string) {
         // Manually set the auth state - this triggers the auth event listeners
         if (refreshedInstance.auth && typeof refreshedInstance.auth.setSession === 'function') {
           await refreshedInstance.auth.setSession({
-            access_token: result.data.session.access_token,
-            refresh_token: result.data.session.refresh_token
+            access_token: transformedResult.session.access_token,
+            refresh_token: transformedResult.session.refresh_token
           });
           
           // After setting the session, explicitly trigger a state refresh
           // This helps ensure React components are properly updated
           console.log('Session set, getting user data');
           const { data } = await refreshedInstance.auth.getUser();
-          console.log('User authenticated via proxy:', data.user?.email);
+          console.log('User authenticated via token endpoint:', data.user?.email);
         } else {
           console.error('Failed to set session: auth.setSession not available');
         }
       } catch (err) {
-        console.error('Error setting session from proxy:', err);
+        console.error('Error setting session from token endpoint:', err);
         // Even if setting the session fails, we can still return the data
         // The Supabase provider might be able to recover on next refresh
       }
     } else {
-      console.warn('No session data in proxy response or not in browser context');
+      console.warn('No session data in token endpoint response or not in browser context');
     }
     
-    return result.data;
+    return transformedResult;
   } catch (error) {
-    console.error('Authentication proxy error:', error);
+    console.error('Authentication token endpoint error:', error);
     throw error;
   }
 }
 
-// Export a default instance for convenience
-export default getSupabaseClient(); 
+// Don't export a default instance to avoid premature initialization errors
+// Instead, import and call getSupabaseClient() when needed 

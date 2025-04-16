@@ -1,4 +1,4 @@
-import { createServerClient, createBrowserClient } from '@supabase/ssr'
+import { createBrowserClient, createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
 import { redirect } from 'next/navigation'
@@ -25,10 +25,7 @@ export async function createServerComponentClient() {
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll().map(cookie => ({
-            name: cookie.name,
-            value: cookie.value,
-          }))
+          return cookieStore.getAll()
         },
         setAll(cookiesToSet) {
           try {
@@ -58,10 +55,7 @@ export async function createActionClient() {
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll().map(cookie => ({
-            name: cookie.name,
-            value: cookie.value,
-          }))
+          return cookieStore.getAll()
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) =>
@@ -78,7 +72,9 @@ export async function createActionClient() {
  */
 export function createMiddlewareClient(request: NextRequest) {
   let response = NextResponse.next({
-    request,
+    request: {
+      headers: request.headers,
+    },
   })
   
   const supabase = createServerClient(
@@ -90,13 +86,13 @@ export function createMiddlewareClient(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set(name, value)
-            response = NextResponse.next({
-              request,
-            })
-            response.cookies.set(name, value, options)
+          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
+          response = NextResponse.next({
+            request,
           })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options)
+          )
         },
       },
     }

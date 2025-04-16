@@ -8,17 +8,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logSecurityEvent } from './error-handlers';
 
-// Allowed origins for CORS requests - set via environment variables
-const getAllowedOrigins = (): string[] => {
-  const originsString = process.env.ALLOWED_ORIGINS || '';
-  if (!originsString) {
-    // Default: only allow same origin in production
-    return process.env.NODE_ENV === 'production' 
-      ? [] 
-      : ['http://localhost:3000'];
-  }
-  return originsString.split(',').map(origin => origin.trim());
-};
+const ALLOWED_ORIGINS = [
+  // Production
+  'https://bourbonbuddy.live',
+  'https://www.bourbonbuddy.live',
+  'https://bourbon-buddy.vercel.app',
+  // Supabase domains
+  'https://hjodvataujilredguzig.supabase.co',
+  // Development
+  'http://localhost:3000',
+  'http://localhost:4000'
+];
 
 /**
  * Validates if an origin is allowed based on configuration
@@ -26,7 +26,7 @@ const getAllowedOrigins = (): string[] => {
 export function isOriginAllowed(origin: string | null): boolean {
   if (!origin) return false;
   
-  const allowedOrigins = getAllowedOrigins();
+  const allowedOrigins = ALLOWED_ORIGINS;
   
   // If no allowed origins are configured, only allow same-origin requests
   if (allowedOrigins.length === 0) {
@@ -52,28 +52,19 @@ export function isOriginAllowed(origin: string | null): boolean {
  * Adds CORS headers to a response based on the request origin
  */
 export function setCorsHeaders(req: NextRequest, res: NextResponse): NextResponse {
-  const origin = req.headers.get('origin');
+  const origin = req.headers.get('origin') || '';
   
-  // If no origin header, this is likely a same-origin request
-  if (!origin) {
-    return res;
-  }
+  // Check if the origin is in our allowed list
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? 
+    origin : ALLOWED_ORIGINS[0];
   
-  // Check if the origin is allowed
-  if (isOriginAllowed(origin)) {
-    res.headers.set('Access-Control-Allow-Origin', origin);
-    res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token');
-    res.headers.set('Access-Control-Allow-Credentials', 'true');
-    res.headers.set('Access-Control-Max-Age', '86400'); // 24 hours
-  } else {
-    // Log unauthorized CORS attempt
-    logSecurityEvent(
-      'unauthorized_cors_attempt', 
-      { origin, path: req.nextUrl.pathname },
-      'medium'
-    );
-  }
+  // Set CORS headers
+  res.headers.set('Access-Control-Allow-Origin', allowedOrigin);
+  res.headers.set('Access-Control-Allow-Credentials', 'true');
+  res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.headers.set('Access-Control-Allow-Headers', 
+    'Content-Type, Authorization, X-CSRF-Token, csrf-token, x-csrf-token, CSRF-Token');
+  res.headers.set('Access-Control-Max-Age', '86400');
   
   return res;
 }
@@ -82,20 +73,8 @@ export function setCorsHeaders(req: NextRequest, res: NextResponse): NextRespons
  * Handles CORS preflight requests (OPTIONS)
  */
 export function handleCorsPreflightRequest(req: NextRequest): NextResponse {
-  const origin = req.headers.get('origin');
-  
-  if (!origin || !isOriginAllowed(origin)) {
-    return new NextResponse(null, { status: 204 });
-  }
-  
-  const res = new NextResponse(null, { status: 204 });
-  res.headers.set('Access-Control-Allow-Origin', origin);
-  res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token');
-  res.headers.set('Access-Control-Allow-Credentials', 'true');
-  res.headers.set('Access-Control-Max-Age', '86400'); // 24 hours
-  
-  return res;
+  const response = new NextResponse(null, { status: 204 }); // No content
+  return setCorsHeaders(req, response);
 }
 
 /**

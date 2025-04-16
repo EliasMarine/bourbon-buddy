@@ -1,114 +1,62 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-// CORS headers function to ensure proper headers
-function getCorsHeaders(origin: string | null): Record<string, string> {
-  // Base CORS headers that are common to all responses
-  const baseHeaders: Record<string, string> = {
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-csrf-token',
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Max-Age': '86400' // 24 hours
-  };
-  
-  // If we have an origin, use it specifically (preferred approach for security)
-  if (origin) {
-    return {
-      ...baseHeaders,
-      'Access-Control-Allow-Origin': origin
-    };
-  }
-  
-  // Fallback to main domain when no origin provided (for API testing/direct calls)
-  return {
-    ...baseHeaders,
-    'Access-Control-Allow-Origin': 'https://bourbon-buddy.vercel.app'
-  };
-}
+import { cookies } from 'next/headers'
+import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { isOriginAllowed, setCorsHeaders, handleCorsPreflightRequest } from '@/lib/cors'
 
 /**
- * Handle CORS preflight requests
+ * Handle OPTIONS requests (CORS preflight)
  */
-export async function OPTIONS(request: NextRequest) {
-  const origin = request.headers.get('origin');
-  console.log('Auth proxy preflight request from origin:', origin);
-  
-  return NextResponse.json({}, { 
-    status: 204,
-    headers: getCorsHeaders(origin)
-  });
+export function OPTIONS(req: NextRequest) {
+  return handleCorsPreflightRequest(req)
 }
 
 /**
  * Proxy for Supabase auth sign-in
  * This route handles authentication without CORS issues
  */
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const origin = request.headers.get('origin');
-    console.log('Auth proxy request from origin:', origin);
+    const body = await req.json()
+    const { url, method, body: supabaseRequestBody } = body
+    const authHeader = req.headers.get('Authorization')
+    
+    if (!authHeader) {
+      const response = NextResponse.json(
+        { error: 'No authorization header' },
+        { status: 401 }
+      )
+      setCorsHeaders(req, response)
+      return response
+    }
     
     // Create a direct Supabase client (no cookies)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      }
-    );
-
-    // Get request body
-    const body = await request.json();
-    const { email, password } = body;
-
-    if (!email || !password) {
-      return NextResponse.json(
-        { error: 'Email and password are required' },
-        { status: 400, headers: getCorsHeaders(origin) }
-      );
-    }
-
-    // Sign in with email and password
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
-
-    if (error) {
-      console.error('Auth proxy sign-in error:', error);
-      return NextResponse.json(
-        { 
-          error: error.message,
-          code: error.code || 'unknown',
-          status: error.status || 400
-        },
-        { status: error.status || 401, headers: getCorsHeaders(origin) }
-      );
-    }
-
-    // Success response
-    console.log('Auth proxy sign-in successful for:', email);
+    const supabase = createSupabaseServerClient()
     
-    return NextResponse.json(
-      { 
-        data,
-        message: 'Authentication successful',
-        timestamp: new Date().toISOString()
+    // Forward the request to Supabase
+    const supabaseResponse = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}${url}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        'Authorization': authHeader,
       },
-      { status: 200, headers: getCorsHeaders(origin) }
-    );
+      ...(supabaseRequestBody ? { body: JSON.stringify(supabaseRequestBody) } : {}),
+    })
+    
+    // Get the response data
+    const data = await supabaseResponse.json()
+    
+    // Return response with proper CORS headers
+    const response = NextResponse.json(data, { status: supabaseResponse.status })
+    setCorsHeaders(req, response)
+    return response
   } catch (error) {
-    console.error('Error in auth proxy:', error);
-    return NextResponse.json(
-      { 
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
-      },
-      { status: 500, headers: getCorsHeaders(null) }
-    );
+    console.error('Auth proxy error:', error)
+    const response = NextResponse.json(
+      { error: 'Internal Server Error' },
+      { status: 500 }
+    )
+    setCorsHeaders(req, response)
+    return response
   }
 } 

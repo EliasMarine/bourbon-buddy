@@ -48,9 +48,20 @@ export function createServerClient() {
             return [];
           }
         },
-        async setAll() {
-          // Server components can't set cookies directly
-          // This is handled by the middleware
+        async setAll(cookiesToSet) {
+          try {
+            // Server components can't set cookies directly
+            // This is handled by middleware
+            const cookieStore = await getCookieStore();
+            
+            // Skip setting cookies in server components - this will be handled by middleware
+            // We just need to fulfill the interface contract without throwing errors
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('Skipping cookie setting in server component (expected behavior)');
+            }
+          } catch (error) {
+            // Ignore errors in server components
+          }
         },
       },
     }
