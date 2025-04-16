@@ -11,7 +11,8 @@ module.exports = {
       "'unsafe-eval'",
       "'wasm-unsafe-eval'",
       "https://vercel.live",
-      "https://hjodvataujilredguzig.supabase.co"
+      "https://hjodvataujilredguzig.supabase.co",
+      "https://js.stripe.com"
     ],
     'script-src-elem': [
       "'self'",
@@ -19,8 +20,10 @@ module.exports = {
       "'unsafe-eval'",
       "'wasm-unsafe-eval'",
       "https://vercel.live",
-      "https://hjodvataujilredguzig.supabase.co"
+      "https://hjodvataujilredguzig.supabase.co",
+      "https://js.stripe.com"
     ],
+    'worker-src': ["'self'", "blob:", "'unsafe-eval'", "'wasm-unsafe-eval'"],
     'connect-src': [
       "'self'",
       "https://hjodvataujilredguzig.supabase.co",
@@ -60,8 +63,7 @@ module.exports = {
     'frame-ancestors': ["'self'"],
     'manifest-src': ["'self'"],
     'media-src': ["'self'"],
-    'child-src': ["'self'", "blob:"],
-    'worker-src': ["'self'", "blob:"]
+    'child-src': ["'self'", "blob:"]
   },
   frameOptions: 'SAMEORIGIN',
   permissionsPolicy: false,

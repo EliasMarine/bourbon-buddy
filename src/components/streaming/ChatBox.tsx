@@ -116,7 +116,8 @@ export default function ChatBox({
         }
 
         // Create new socket connection
-        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || window.location.origin;
+        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 
+          (process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : window.location.origin);
 
         console.log('Connecting to socket server at:', socketUrl);
 

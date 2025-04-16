@@ -8,6 +8,8 @@ import SupabaseProvider from '../components/providers/SupabaseProvider'
 import AuthWrapper from '../components/auth/AuthWrapper'
 import EmergencyDebug from '../components/debug/EmergencyDebug'
 import ClientDebug from '../components/debug/ClientDebug'
+import CorsHandler from '../components/cors-handler'
+import { initSentry } from '@/lib/sentry'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -22,6 +24,11 @@ export const metadata = {
       { url: '/images/svg%20logo%20icon/Glencairn/Bourbon%20Budy%20(200%20x%2050%20px)%20(Logo)(1).svg', type: 'image/svg+xml' }
     ]
   }
+}
+
+// Initialize Sentry on client-side only
+if (typeof window !== 'undefined') {
+  initSentry()
 }
 
 export default function RootLayout({
@@ -41,6 +48,7 @@ export default function RootLayout({
         
         <SupabaseProvider>
           <ClientLayout>
+            <CorsHandler />
             <Navbar />
             <main className="pt-16">
               <AuthWrapper>

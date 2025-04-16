@@ -60,6 +60,7 @@ export default function PricingPage() {
               ctaText="Subscribe Now"
               ctaLink="/signup?plan=enthusiast"
               highlighted={true}
+              plan="enthusiast"
             />
 
             {/* Connoisseur Plan */}
@@ -72,52 +73,21 @@ export default function PricingPage() {
               ctaText="Subscribe Now"
               ctaLink="/signup?plan=connoisseur"
               highlighted={false}
+              plan="connoisseur"
             />
           </div>
         </BillingProvider>
 
         {/* FAQ Section */}
-        <div className="mt-20 max-w-3xl mx-auto">
+        <div className="mt-24">
           <h2 className="text-3xl font-bold text-center mb-12">Frequently Asked Questions</h2>
-          
-          <div className="space-y-6">
+          <div className="grid md:grid-cols-2 gap-8">
             {pricingFaqs.map((faq, index) => (
-              <div key={index} className="bg-gray-800/50 rounded-xl p-6 shadow-lg border border-gray-700">
+              <div key={index} className="bg-gray-800/30 rounded-lg p-6">
                 <h3 className="text-xl font-semibold text-white mb-3">{faq.question}</h3>
-                <p className="text-gray-300 leading-relaxed">{faq.answer}</p>
+                <p className="text-gray-300">{faq.answer}</p>
               </div>
             ))}
-          </div>
-          
-          <div className="mt-12 text-center">
-            <Link 
-              href="/faq" 
-              className="text-amber-500 hover:text-amber-400 font-medium"
-            >
-              View all FAQs
-            </Link>
-          </div>
-        </div>
-
-        {/* CTA Section */}
-        <div className="mt-20 bg-gradient-to-r from-amber-900/20 to-gray-800/50 rounded-xl p-8 shadow-lg border border-amber-900/30 text-center">
-          <h2 className="text-2xl md:text-3xl font-bold mb-4">Ready to enhance your bourbon experience?</h2>
-          <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-            Join thousands of bourbon enthusiasts who trust Bourbon Buddy to manage their collections.
-          </p>
-          <div className="flex flex-col sm:flex-row justify-center gap-4">
-            <Link 
-              href="/signup" 
-              className="px-8 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors font-medium text-lg"
-            >
-              Get Started Free
-            </Link>
-            <Link 
-              href="/about" 
-              className="px-8 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors font-medium text-lg"
-            >
-              Learn More
-            </Link>
           </div>
         </div>
       </div>

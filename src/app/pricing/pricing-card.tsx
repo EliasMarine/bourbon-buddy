@@ -1,9 +1,14 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { Check } from 'lucide-react'
+import { loadStripe } from '@stripe/stripe-js'
 import GlencairnGlass from '@/components/ui/icons/GlencairnGlass'
 import { useBilling } from './billing-context'
+import { useSupabase } from '@/components/providers/SupabaseProvider'
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
 interface PricingCardProps {
   name: string
@@ -14,6 +19,8 @@ interface PricingCardProps {
   ctaText: string
   ctaLink: string
   highlighted: boolean
+  priceId?: string
+  plan?: 'enthusiast' | 'connoisseur'
 }
 
 export function PricingCard({
@@ -24,10 +31,50 @@ export function PricingCard({
   fillLevel,
   ctaText,
   ctaLink,
-  highlighted
+  highlighted,
+  priceId,
+  plan
 }: PricingCardProps) {
-  const { isAnnual, getPrice } = useBilling()
+  const { isAnnual, getPrice, getPriceId } = useBilling()
+  const { isAuthenticated } = useSupabase()
+  const [isLoading, setIsLoading] = useState(false)
   const displayPrice = getPrice(monthlyPrice)
+  
+  // Use the context function to get the price ID if plan is provided
+  const effectivePriceId = plan ? getPriceId(plan) : priceId
+
+  async function handleCheckout() {
+    if (!effectivePriceId) return
+    
+    try {
+      setIsLoading(true)
+      
+      const response = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          priceId: effectivePriceId,
+          isAnnual
+        }),
+      })
+      
+      const { url, error } = await response.json()
+      
+      if (error) {
+        console.error('Error creating checkout session:', error)
+        return
+      }
+      
+      // Redirect to checkout
+      window.location.href = url
+    } catch (error) {
+      console.error('Failed to create checkout session:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
   
   return (
     <div 
@@ -79,16 +126,32 @@ export function PricingCard({
         </ul>
       </div>
       <div className="p-6 border-t border-gray-700 bg-gray-800">
-        <Link 
-          href={ctaLink} 
-          className={`block w-full py-3 px-4 rounded-lg ${
-            highlighted 
-              ? 'bg-amber-600 hover:bg-amber-700' 
-              : 'bg-gray-700 hover:bg-gray-600'
-          } text-white font-medium text-center transition-colors`}
-        >
-          {ctaText}
-        </Link>
+        {monthlyPrice > 0 ? (
+          <button 
+            onClick={handleCheckout}
+            disabled={isLoading || !isAuthenticated || !effectivePriceId}
+            className={`block w-full py-3 px-4 rounded-lg ${
+              highlighted 
+                ? 'bg-amber-600 hover:bg-amber-700' 
+                : 'bg-gray-700 hover:bg-gray-600'
+            } text-white font-medium text-center transition-colors ${
+              (isLoading || !isAuthenticated || !effectivePriceId) ? 'opacity-70 cursor-not-allowed' : ''
+            }`}
+          >
+            {isLoading ? 'Processing...' : !isAuthenticated ? 'Sign in to Subscribe' : ctaText}
+          </button>
+        ) : (
+          <Link 
+            href={ctaLink} 
+            className={`block w-full py-3 px-4 rounded-lg ${
+              highlighted 
+                ? 'bg-amber-600 hover:bg-amber-700' 
+                : 'bg-gray-700 hover:bg-gray-600'
+            } text-white font-medium text-center transition-colors`}
+          >
+            {ctaText}
+          </Link>
+        )}
       </div>
     </div>
   )

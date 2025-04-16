@@ -64,3 +64,6 @@ next-env.d.ts
 .env.local.bak
 scripts/reset-prisma-connection.js
 src/app/test-tunnel/README.md
+
+# Sentry Config File
+.env.sentry-build-plugin

@@ -33,6 +33,7 @@ export default function StreamsPage() {
   const [filter, setFilter] = useState<'all' | 'live'>('all');
   const [userName, setUserName] = useState<string>('');
   const [isCleaningUp, setIsCleaningUp] = useState(false);
+  const cleanupRef = useRef(false);
 
   useEffect(() => {
     fetchStreams();
@@ -42,8 +43,11 @@ export default function StreamsPage() {
       setUserName(session.user.name);
     }
 
-    // Trigger cleanup when page loads
-    triggerCleanup();
+    // Trigger cleanup only once when page loads
+    if (!cleanupRef.current) {
+      triggerCleanup();
+      cleanupRef.current = true;
+    }
   }, [session]);
 
   const fetchStreams = async () => {
@@ -66,6 +70,8 @@ export default function StreamsPage() {
   };
 
   const triggerCleanup = async () => {
+    if (cleanupRef.current) return; // Skip if already triggered
+
     try {
       const response = await fetch('/api/streams/cleanup', {
         method: 'POST'

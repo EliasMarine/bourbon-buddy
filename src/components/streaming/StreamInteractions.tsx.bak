@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSupabaseSession, useSession } from '@/hooks/use-supabase-session';
 import { Share2, Flag, Heart, Star, DollarSign, Copy, Twitter, Facebook, MessageCircle, Link2, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -13,6 +13,17 @@ interface StreamInteractionsProps {
   initialIsSubscribed?: boolean;
 }
 
+// Cache for interaction states - prevents unnecessary fetches
+const interactionCache = new Map<string, {
+  likes: number;
+  isLiked: boolean;
+  isSubscribed: boolean;
+  timestamp: number;
+}>();
+
+// Cache timeout in ms (1 minute)
+const CACHE_TIMEOUT = 60000;
+
 export default function StreamInteractions({
   streamId,
   hostId,
@@ -21,6 +32,9 @@ export default function StreamInteractions({
   initialIsSubscribed = false,
 }: StreamInteractionsProps) {
   const { data: session } = useSession();
+  const user = session?.user;
+  const userId = user?.id; // Extract stable primitive value
+  
   const [likes, setLikes] = useState(initialLikes);
   const [isLiked, setIsLiked] = useState(initialIsLiked);
   const [isSubscribed, setIsSubscribed] = useState(initialIsSubscribed);
@@ -30,13 +44,91 @@ export default function StreamInteractions({
   const [tipMessage, setTipMessage] = useState('');
   const [showShareMenu, setShowShareMenu] = useState(false);
   const shareMenuRef = useRef<HTMLDivElement>(null);
+  const hasInitializedRef = useRef(false);
+  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Check cache first before fetching
+  const getCachedInteractions = (streamId: string): {
+    likes: number;
+    isLiked: boolean;
+    isSubscribed: boolean;
+  } | null => {
+    const cached = interactionCache.get(streamId);
+    if (!cached) return null;
+    
+    // Check if cache is still valid
+    if (Date.now() - cached.timestamp < CACHE_TIMEOUT) {
+      return cached;
+    }
+    
+    // Cache expired
+    interactionCache.delete(streamId);
+    return null;
+  };
+
+  // Memoize the fetch function to keep it stable between renders
+  const fetchInteractionStates = useCallback(async () => {
+    // Skip if we've already initialized and there's no user change
+    if (hasInitializedRef.current && !userId) return;
+    
+    // Check cache first
+    const cached = getCachedInteractions(streamId);
+    if (cached) {
+      console.log('Using cached interaction states');
+      setLikes(cached.likes);
+      setIsLiked(cached.isLiked);
+      setIsSubscribed(cached.isSubscribed);
+      hasInitializedRef.current = true;
+      return;
+    }
+    
+    // Debounce the fetch - cancel any pending timeouts
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current);
+    }
+    
+    // Set a short timeout before actually fetching to prevent rapid calls
+    fetchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/streams/${streamId}/interactions`);
+        
+        if (!response.ok) {
+          console.error('Failed to fetch interaction states:', response.status);
+          return;
+        }
+        
+        const data = await response.json();
+        setLikes(data.likes);
+        setIsLiked(data.isLiked);
+        setIsSubscribed(data.isSubscribed);
+        hasInitializedRef.current = true;
+        
+        // Cache the result
+        interactionCache.set(streamId, {
+          ...data,
+          timestamp: Date.now()
+        });
+      } catch (error) {
+        console.error('Failed to fetch interaction states:', error);
+      } finally {
+        fetchTimeoutRef.current = null;
+      }
+    }, 100);
+  }, [streamId, userId]);
 
   useEffect(() => {
-    if (user) {
-      // Fetch initial states
+    // Only fetch if we have a user ID and we haven't initialized yet
+    if (userId && !hasInitializedRef.current) {
       fetchInteractionStates();
     }
-  }, [session]);
+    
+    // Cleanup timeout if component unmounts
+    return () => {
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
+    };
+  }, [userId, fetchInteractionStates]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -48,18 +140,6 @@ export default function StreamInteractions({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  const fetchInteractionStates = async () => {
-    try {
-      const response = await fetch(`/api/streams/${streamId}/interactions`);
-      const data = await response.json();
-      setLikes(data.likes);
-      setIsLiked(data.isLiked);
-      setIsSubscribed(data.isSubscribed);
-    } catch (error) {
-      console.error('Failed to fetch interaction states:', error);
-    }
-  };
 
   const handleLike = async () => {
     if (!session) {

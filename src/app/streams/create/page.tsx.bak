@@ -20,6 +20,7 @@ export default function CreateStreamPage() {
   const [invitedEmails, setInvitedEmails] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState('');
   const [step, setStep] = useState<1 | 2>(1);
+  const [formSubmitted, setFormSubmitted] = useState(false);
   
   // Store form data to persist between steps
   const [formData, setFormData] = useState({
@@ -98,6 +99,10 @@ export default function CreateStreamPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
+    // Prevent multiple submissions
+    if (formSubmitted || isLoading) return;
+    
     setIsLoading(true);
     setError('');
 
@@ -111,6 +116,9 @@ export default function CreateStreamPage() {
       if (privacy === 'private' && invitedEmails.length === 0) {
         throw new Error('Please add at least one email to invite for a private tasting');
       }
+
+      // Mark form as submitted to prevent duplicate submissions
+      setFormSubmitted(true);
 
       // Combine form data with privacy settings
       const streamData = {
@@ -133,9 +141,27 @@ export default function CreateStreamPage() {
         throw new Error(errorData.error || 'Failed to create stream');
       }
 
-      const stream = await response.json();
+      const data = await response.json();
       toast.success('Tasting stream created!');
-      router.push(`/streams/${stream.id}`);
+      
+      // Extract ID from response data and ensure it's available before redirecting
+      console.log('Stream creation response data:', data);
+      
+      if (data && data.id) {
+        console.log('Redirecting to new stream:', `/streams/${data.id}`);
+        
+        // Add a small delay to ensure toast is visible before redirect
+        setTimeout(() => {
+          // Use direct window.location navigation instead of router for hard redirect
+          window.location.href = `/streams/${data.id}`;
+        }, 1000);
+      } else {
+        console.error('Stream created but no ID returned:', data);
+        // Fallback to streams list if we can't get a specific ID
+        setTimeout(() => {
+          window.location.href = '/streams';
+        }, 1000);
+      }
     } catch (error: any) {
       console.error('Stream creation error:', error);
       setError(error.message || 'Failed to create stream');
@@ -373,12 +399,12 @@ export default function CreateStreamPage() {
                     </button>
                     <button
                       type="submit"
-                      disabled={isLoading || (privacy === 'private' && invitedEmails.length === 0)}
+                      disabled={isLoading || formSubmitted || (privacy === 'private' && invitedEmails.length === 0)}
                       className={`px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${
                         (privacy === 'private' && invitedEmails.length === 0) ? 'opacity-50 hover:from-amber-600 hover:to-amber-700' : ''
                       }`}
                     >
-                      {isLoading ? 'Creating...' : 'Start Tasting'}
+                      {formSubmitted ? 'Redirecting...' : isLoading ? 'Creating...' : 'Start Tasting'}
                       <Video size={18} />
                     </button>
                   </div>

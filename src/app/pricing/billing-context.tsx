@@ -2,10 +2,24 @@
 
 import { createContext, useContext, useState, ReactNode } from 'react'
 
+// Price IDs from Stripe Dashboard
+// You would replace these with your actual Stripe price IDs
+const PRICE_IDS = {
+  enthusiast: {
+    monthly: process.env.NEXT_PUBLIC_STRIPE_PRICE_ENTHUSIAST_MONTHLY || 'price_enthusiast_monthly',
+    annual: process.env.NEXT_PUBLIC_STRIPE_PRICE_ENTHUSIAST_ANNUAL || 'price_enthusiast_annual',
+  },
+  connoisseur: {
+    monthly: process.env.NEXT_PUBLIC_STRIPE_PRICE_CONNOISSEUR_MONTHLY || 'price_connoisseur_monthly',
+    annual: process.env.NEXT_PUBLIC_STRIPE_PRICE_CONNOISSEUR_ANNUAL || 'price_connoisseur_annual',
+  }
+}
+
 interface BillingContextType {
   isAnnual: boolean
   setIsAnnual: (value: boolean) => void
   getPrice: (monthlyPrice: number) => string
+  getPriceId: (plan: 'enthusiast' | 'connoisseur') => string
 }
 
 const BillingContext = createContext<BillingContextType | undefined>(undefined)
@@ -22,8 +36,13 @@ export function BillingProvider({ children }: { children: ReactNode }) {
     return monthlyPrice.toFixed(2)
   }
 
+  const getPriceId = (plan: 'enthusiast' | 'connoisseur'): string => {
+    if (!PRICE_IDS[plan]) return ''
+    return isAnnual ? PRICE_IDS[plan].annual : PRICE_IDS[plan].monthly
+  }
+
   return (
-    <BillingContext.Provider value={{ isAnnual, setIsAnnual, getPrice }}>
+    <BillingContext.Provider value={{ isAnnual, setIsAnnual, getPrice, getPriceId }}>
       {children}
     </BillingContext.Provider>
   )

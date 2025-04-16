@@ -5,7 +5,8 @@ import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { redirect, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-import { createSupabaseBrowserClient } from '@/lib/supabase';
+import { getSupabaseClient } from '@/lib/supabase-singleton';
+import { useSupabase } from '@/components/providers/SupabaseProvider';
 import { 
   PlusCircle, 
   Droplets, 
@@ -29,7 +30,9 @@ console.log(`[${DEBUG_ID}] 🚀 Dashboard page component initialized`);
 export default function DashboardPage() {
   console.log(`[${DEBUG_ID}] 🔄 Dashboard page rendering`);
   
-  const { data: session, status } = useSupabaseSession();
+  const { data: session, status, isLoading: sessionLoading } = useSupabaseSession();
+  // Get additional session stability info from context
+  const { isSessionStable } = useSupabase();
   const [loading, setLoading] = useState(true);
   const [collectionStats, setCollectionStats] = useState({
     totalSpirits: 0,
@@ -40,17 +43,32 @@ export default function DashboardPage() {
   const router = useRouter();
   const statsLoadedRef = useRef(false);
   const fetchingRef = useRef(false);
+  const authStabilizedRef = useRef(false);
 
   console.log(`[${DEBUG_ID}] 🔐 Auth status: ${status}`);
   console.log(`[${DEBUG_ID}] 👤 Session:`, session ? "Present" : "Not present");
+  console.log(`[${DEBUG_ID}] 🔒 Session stable:`, isSessionStable);
 
   // Fetch collection stats
   useEffect(() => {
     console.log(`[${DEBUG_ID}] 📊 Collection stats effect triggered`);
     console.log(`[${DEBUG_ID}] 📋 Effect state:`, { 
       loading, 
-      hasSession: !!session
+      hasSession: !!session,
+      sessionStable: isSessionStable
     });
+    
+    // Don't attempt to fetch stats until session state is stable
+    if (!isSessionStable) {
+      console.log(`[${DEBUG_ID}] ⏳ Session state not yet stable, delaying stats fetch`);
+      return;
+    }
+    
+    // Mark auth as stabilized when we get here with a stable session
+    if (!authStabilizedRef.current && isSessionStable) {
+      authStabilizedRef.current = true;
+      console.log(`[${DEBUG_ID}] 🔒 Auth has stabilized`);
+    }
     
     const fetchStats = async () => {
       // Prevent concurrent fetches
@@ -59,73 +77,109 @@ export default function DashboardPage() {
         return;
       }
       
-      if (!session) {
-        console.log(`[${DEBUG_ID}] ⚠️ No session found, skipping stats fetch`);
+      // If still waiting for auth status, delay stats fetch
+      if (status === 'loading') {
+        console.log(`[${DEBUG_ID}] ⏳ Auth status still loading, delaying stats fetch`);
+        setLoading(true);
         return;
       }
       
-      // Skip if already loaded and same session to prevent loops
-      if (statsLoadedRef.current && !loading) {
-        console.log(`[${DEBUG_ID}] ✅ Stats already loaded, skipping fetch`);
-        return;
-      }
-      
-      try {
-        fetchingRef.current = true;
-        console.log(`[${DEBUG_ID}] 🌐 Fetching collection stats from API`);
-        const startTime = Date.now();
-        const response = await fetch('/api/collection/stats');
-        console.log(`[${DEBUG_ID}] ⏱️ Stats API call took ${Date.now() - startTime}ms`);
-        console.log(`[${DEBUG_ID}] 🔍 API response status:`, response.status);
-        
-        if (response.ok) {
-          const data = await response.json();
-          console.log(`[${DEBUG_ID}] ✅ Stats data received:`, data);
-          setCollectionStats({
-            totalSpirits: data.totalSpirits || 0,
-            favorites: data.favorites || 0,
-            tastings: data.tastings || 0
-          });
-          statsLoadedRef.current = true;
-        } else {
-          console.warn(`[${DEBUG_ID}] ⚠️ Failed to fetch stats with status ${response.status}, using default values`);
-          
-          // Try to get response body for more debug info
-          try {
-            const errorBody = await response.text();
-            console.error(`[${DEBUG_ID}] 🚨 Error response body:`, errorBody);
-          } catch (e) {
-            console.error(`[${DEBUG_ID}] 🚨 Could not read error response body`);
-          }
-          
-          setError(`API error: ${response.status} ${response.statusText}`);
-        }
-      } catch (error) {
-        console.error(`[${DEBUG_ID}] ❌ Error fetching collection stats:`, error);
-        setError(`Network error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      } finally {
+      // If not authenticated after loading completes, use default stats
+      if (status === 'unauthenticated') {
+        console.log(`[${DEBUG_ID}] ⚠️ No session found after auth loaded, using default stats`);
+        setCollectionStats({
+          totalSpirits: 0,
+          favorites: 0,
+          tastings: 0
+        });
         setLoading(false);
-        fetchingRef.current = false;
+        // Don't return here - allow the redirect to happen naturally
+      }
+      
+      // Only fetch stats if we're authenticated
+      if (status === 'authenticated' && session) {
+        // Skip if already loaded to prevent loops
+        if (statsLoadedRef.current && !loading) {
+          console.log(`[${DEBUG_ID}] ✅ Stats already loaded, skipping fetch`);
+          return;
+        }
+        
+        try {
+          fetchingRef.current = true;
+          console.log(`[${DEBUG_ID}] 🌐 Fetching collection stats from API`);
+          const startTime = Date.now();
+          
+          // Add timeout to prevent hanging requests
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+          
+          const response = await fetch('/api/collection/stats', {
+            signal: controller.signal,
+            credentials: 'include',
+            cache: 'no-store' // Add this to prevent caching
+          });
+          
+          clearTimeout(timeoutId);
+          
+          console.log(`[${DEBUG_ID}] ⏱️ Stats API call took ${Date.now() - startTime}ms`);
+          console.log(`[${DEBUG_ID}] 🔍 API response status:`, response.status);
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`[${DEBUG_ID}] ✅ Stats data received:`, data);
+            setCollectionStats({
+              totalSpirits: data.totalSpirits || 0,
+              favorites: data.favorites || 0,
+              tastings: data.tastings || 0
+            });
+            statsLoadedRef.current = true;
+          } else {
+            console.warn(`[${DEBUG_ID}] ⚠️ Failed to fetch stats with status ${response.status}, using default values`);
+            
+            // Try to get response body for more debug info
+            try {
+              const errorBody = await response.text();
+              console.error(`[${DEBUG_ID}] 🚨 Error response body:`, errorBody);
+            } catch (e) {
+              console.error(`[${DEBUG_ID}] 🚨 Could not read error response body`);
+            }
+            
+            setError(`API error: ${response.status} ${response.statusText}`);
+          }
+        } catch (error: unknown) {
+          if (error instanceof Error && error.name === 'AbortError') {
+            console.warn(`[${DEBUG_ID}] ⏱️ Stats fetch timed out, setting default values`);
+          } else {
+            console.error(`[${DEBUG_ID}] ❌ Error fetching collection stats:`, error);
+          }
+          setError(`Network error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+          fetchingRef.current = false;
+          setLoading(false);
+        }
       }
     };
 
-    if (status !== 'loading') {
-      console.log(`[${DEBUG_ID}] 🚀 Authentication status resolved, fetching stats`);
-      // Use setTimeout to debounce rapid consecutive calls
+    // Only run fetch after session is stable and auth is in a complete state
+    if (isSessionStable && (status === 'authenticated' || status === 'unauthenticated')) {
+      // Increasing the delay to give more time for authentication to settle
       const timeoutId = setTimeout(() => {
-        fetchStats();
-      }, 100);
+        if (!fetchingRef.current) {
+          fetchStats();
+        }
+      }, 500);
       
       return () => clearTimeout(timeoutId);
     }
-  }, [status, loading]); // Add loading to the dependencies since we use it in the effect
+  }, [status, session, isSessionStable]); // Add isSessionStable as a dependency
 
   // Show loading state while checking auth
-  if (status === 'loading' || loading) {
+  if (!isSessionStable || status === 'loading' || loading) {
     console.log(`[${DEBUG_ID}] ⏳ Showing loading state`);
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-500"></div>
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-500 mb-4"></div>
+        <p className="text-gray-400">Loading your dashboard...</p>
       </div>
     );
   }
@@ -151,8 +205,8 @@ export default function DashboardPage() {
     );
   }
 
-  // Redirect if no session
-  if (!session) {
+  // Redirect if no session - only do this after session is stable to avoid flash of redirect
+  if (isSessionStable && !session) {
     console.log(`[${DEBUG_ID}] 🔄 No session found, redirecting to login`);
     redirect('/login');
     return null;

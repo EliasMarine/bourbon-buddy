@@ -425,7 +425,7 @@ export default function ChatBox({
 
   // Poll vote handler
   const handlePollVote = (pollId: string, optionId: string) => {
-    if (!user?.id) {
+    if (!session?.user?.id) {
       toast.error('You must be signed in to vote');
       return;
     }
