@@ -1,10 +1,32 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { updateSession } from '@/utils/supabase/middleware';
 
 // Helper to generate a debug ID for tracing requests through logs
 function generateDebugId() {
   return Math.random().toString(36).substring(2, 8);
+}
+
+// Helper function to determine if verbose logging is enabled
+function isVerboseLoggingEnabled(): boolean {
+  return process.env.NODE_ENV !== 'production' || process.env.DEBUG_AUTH === 'true';
+}
+
+// Custom logger that respects the environment settings
+function log(debugId: string, message: string, data?: any) {
+  if (isVerboseLoggingEnabled()) {
+    if (data) {
+      console.log(`[${debugId}] ${message}`, data);
+    } else {
+      console.log(`[${debugId}] ${message}`);
+    }
+  }
+}
+
+// Error logger (always logs errors even in production)
+function logError(debugId: string, message: string, error: any) {
+  console.error(`[${debugId}] ${message}`, error);
 }
 
 // Helper to check if a path matches any of the patterns
@@ -48,278 +70,236 @@ function externalResourceMiddleware(req: NextRequest) {
   }
 }
 
-// Main middleware function
-export async function middleware(request: NextRequest) {
-  const debugId = generateDebugId();
+// Extract code from URL for auth sessions (password reset flows)
+function extractAuthCode(req: NextRequest): string | null {
+  // Check for code parameter in URL
+  const code = req.nextUrl.searchParams.get('code');
+  if (code) return code;
   
-  // Log all environment variables to help with debugging
-  console.log(`[${debugId}] 🌍 ENV Vars Available:`, {
-    SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  });
+  // Also check for auth code in hash fragment (needed for some auth flows)
+  const url = req.url;
+  if (url.includes('#')) {
+    try {
+      // Convert hash fragment to searchParams to extract code
+      const hashPart = url.split('#')[1];
+      const params = new URLSearchParams(hashPart);
+      return params.get('code');
+    } catch (error) {
+      console.error('Error extracting auth code from hash:', error);
+    }
+  }
+  
+  return null;
+}
+
+// Protected routes requiring authentication
+const protectedRoutes = [
+  '/dashboard',
+  '/profile',
+  '/streams/create',
+  '/collection',
+  '/api/collection',
+  '/api/spirits/',
+  '/api/users/',
+  '/api/user/',
+  '/api/upload',
+  '/api/protected'
+]
+
+// Public routes accessible without authentication
+const publicRoutes = [
+  '/login',
+  '/signup',
+  '/auth',
+  '/api/auth',
+  '/api/csrf',
+  '/api/status',
+  '/_next',
+  '/static',
+  '/images',
+  '/favicon.ico'
+]
+
+// Static asset patterns to ignore
+const staticAssetPatterns = [
+  /\.(jpe?g|png|gif|webp|svg|ico)$/i,
+  /\.(css|js|map)$/i,
+  /^\/socket\.io\//,
+  /^\/api\/socketio/
+]
+
+// Get allowed domains from env
+function getAllowedDomains(): string[] {
+  const domains = [
+    'bourbonbuddy.live',
+    'bourbon-buddy.vercel.app'
+  ]
+  
+  // Add any domains from env vars
+  if (process.env.ALLOWED_DEV_ORIGINS) {
+    const envDomains = process.env.ALLOWED_DEV_ORIGINS.split(',')
+      .map(d => d.trim())
+      .filter(Boolean)
+      
+    domains.push(...envDomains.map(url => {
+      try {
+        // Extract just the hostname from URLs
+        return new URL(url).hostname
+      } catch (e) {
+        return url // If not a valid URL, use as is
+      }
+    }))
+  }
+  
+  // Add localhost for development
+  if (process.env.NODE_ENV !== 'production') {
+    domains.push('localhost')
+  }
+  
+  // Use Array.from to convert Set to Array for better TypeScript compatibility
+  return Array.from(new Set(domains))
+}
+
+// Supabase-related cookies to monitor
+const supabaseCookies = ['sb-access-token', 'sb-refresh-token']
+
+// List of allowed domains
+const allowedDomains = getAllowedDomains()
+
+// Helper function to get the base path from a URL
+function getBasePath(path: string): string {
+  const segments = path.split('/').filter(Boolean);
+  return segments.length > 0 ? `/${segments[0]}` : '/';
+}
+
+/**
+ * Auth middleware for handling authentication and authorization
+ */
+export async function middleware(request: NextRequest) {
+  // Add debug ID to track individual requests through the logs
+  const debugId = generateDebugId()
+  log(debugId, `🔄 Middleware processing ${request.method} ${request.nextUrl.pathname}`)
   
   try {
-    console.log(`[${debugId}] 🔍 Processing ${request.method} ${request.nextUrl.pathname}`);
-    
-    // Check for HTTP to HTTPS upgrade
-    const resourceRedirect = externalResourceMiddleware(request);
-    if (resourceRedirect) return resourceRedirect;
-    
-    // Define static asset paths to skip processing
-    const staticAssetPaths = [
-      '/_next/static/',
-      '/_next/image/',
-      '/images/',
-      '/favicon.ico',
-      '/robots.txt',
-      '/sitemap.xml',
-      '.css',
-      '.js',
-      '.webp',
-      '.svg',
-      '.jpg',
-      '.jpeg',
-      '.png',
-      '.gif',
-      '.ico'
-    ];
-    
-    // Fast check for static assets to skip expensive processing
-    const isStaticAsset = isPathMatch(request.nextUrl.pathname, staticAssetPaths);
-    
-    // Skip auth checks for static assets - return minimal response
-    if (isStaticAsset) {
-      console.log(`[${debugId}] 📦 Static asset detected, skipping auth checks`);
-      const response = NextResponse.next();
-      // Add basic cache headers for static assets
-      response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-      return response;
-    }
-    
-    // Create a response object to modify
+    // Create a response to modify later
     let response = NextResponse.next({
       request: {
         headers: request.headers,
-      }
-    });
+      },
+    })
     
-    // Public assets and static paths to skip auth checks
-    const publicPaths = [
-      '/images/',
-      '/favicon.ico',
-      '/socket.io',
-      '/_next/',
-      '/api/auth/',
-      '/api/csrf', // Add CSRF API route
-      '/login',
-      '/signup', // Added signup route
-      '/register',
-      '/reset-password',
-      '/verify-email',
-      '/api/csrf/',
-      '/static/',
-      '/public/',
-      '/about',
-      '/pricing',
-      '/faq',
-      '/contact',
-      '/api/status', // API status endpoint
-      '/api/health', // Health check endpoint
-      '/api/webhooks/', // Webhook endpoints
-      '/api/images/', // Public image serving API
-      '/api/auth-debug', // Auth debugging endpoint
-      '/api/auth-test', // Auth testing endpoint
-      '/', // Add root path as public
-      '/forgot-password',
-      '/explore',
-      '/streams',
-      '/api/reporting', // CSP reporting endpoint
-    ];
+    // Generate a random nonce for CSP using Web Crypto API
+    const randomBytes = crypto.getRandomValues(new Uint8Array(16))
+    const nonce = btoa(String.fromCharCode.apply(null, Array.from(randomBytes)))
     
-    // Check if the path matches any public path
-    const isPublicPath = isPathMatch(request.nextUrl.pathname, publicPaths);
+    // Add primary headers
+    response.headers.set('x-debug-id', debugId)
+    response.headers.set('x-nonce', nonce) // Pass nonce to layouts/pages
     
-    // Skip auth checks for public paths and just return the response with headers
-    if (isPublicPath) {
-      console.log(`[${debugId}] 🔓 Public path detected: ${request.nextUrl.pathname}`);
-      
-      // Add cache control for static assets 
-      if (request.nextUrl.pathname.startsWith('/_next/') || request.nextUrl.pathname.includes('/images/')) {
-        response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-      }
-      return response;
+    // Security headers
+    response.headers.set('X-XSS-Protection', '1; mode=block')
+    response.headers.set('X-Content-Type-Options', 'nosniff')
+    response.headers.set('X-Frame-Options', 'DENY')
+    response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+    
+    /**
+     * Content Security Policy (CSP) Implementation
+     */
+    const cspHeader = `
+      default-src 'self';
+      script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'unsafe-inline' https://vercel.live https://vercel.com https://*.clarity.ms https://c.bing.com cdn.vercel-insights.com va.vercel-scripts.com;
+      connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://vercel.live https://vercel.com https://*.pusher.com wss://*.pusher.com https://vitals.vercel-insights.com https: http:;
+      style-src 'self' 'unsafe-inline';
+      img-src 'self' https://vercel.live https://vercel.com data: blob: https: http:;
+      font-src 'self' data:;
+      frame-src 'self' https://vercel.live https://vercel.com;
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self';
+      frame-ancestors 'self';
+      worker-src 'self' blob:;
+      manifest-src 'self';
+      media-src 'self';
+      child-src 'self' blob:;
+    `
+    
+    // Format the CSP header correctly
+    const contentSecurityPolicyHeaderValue = cspHeader
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+    
+    // Set the CSP header
+    response.headers.set('Content-Security-Policy', contentSecurityPolicyHeaderValue)
+    
+    // Add the correct Permissions-Policy header
+    response.headers.set('Permissions-Policy', 
+      "accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), payment=(), usb=()"
+    )
+    
+    // Skip processing for static assets to improve performance
+    const isStaticAsset = staticAssetPatterns.some(pattern => 
+      pattern.test(request.nextUrl.pathname)
+    )
+    
+    if (isStaticAsset) {
+      log(debugId, `📦 Static asset, skipping auth check: ${request.nextUrl.pathname}`)
+      return response
     }
+    
+    // Update the Supabase session which fixes the CSRF token issues
+    const sessionResponse = await updateSession(request)
+    
+    // Copy over the cookies from the session response
+    sessionResponse.cookies.getAll().forEach(cookie => {
+      response.cookies.set(cookie.name, cookie.value)
+    })
     
     // Skip WebSocket upgrade requests
     if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-      console.log(`[${debugId}] 🔌 WebSocket upgrade request detected`);
-      return response;
+      log(debugId, `🔌 WebSocket upgrade request detected`);
+      return response
     }
     
-    // Skip socket.io polling requests
-    if (request.nextUrl.pathname.includes('/api/socketio') || 
-        request.nextUrl.pathname.includes('/api/socket.io')) {
-      console.log(`[${debugId}] 🔄 Socket.IO request detected`);
-      return response;
-    }
-    
-    // Protected routes requiring authentication
-    const protectedRoutes = [
-      '/dashboard',
-      '/profile',
-      '/streams/create',
-      '/collection',
-      '/api/collection',
-      '/api/spirits/',
-      '/api/users/',
-      '/api/user/',
-      '/api/upload',
-      '/api/protected'
-    ];
+    // Get the base path for efficient route checking
+    const pathname = request.nextUrl.pathname;
+    const basePath = getBasePath(pathname);
 
-    // Regular expression for routes like /streams/{id}/host
-    const streamHostRegex = /^\/streams\/[^\/]+\/host$/;
-    
-    // Check if current path requires authentication
-    const requiresAuth = 
-      isPathMatch(request.nextUrl.pathname, protectedRoutes) ||
-      streamHostRegex.test(request.nextUrl.pathname);
-    
-    // Only perform Supabase auth check if the route requires authentication
-    if (requiresAuth) {
-      console.log(`[${debugId}] 🔒 Protected route detected: ${request.nextUrl.pathname}`);
-      
-      // Check if Supabase env vars are available
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-        console.error(`[${debugId}] ❌ Missing Supabase env vars`);
-        return NextResponse.next();
-      }
+    // Determine if this is a public path that doesn't need authentication
+    const isPublicPath = publicRoutes.some(route => pathname.startsWith(route));
 
-      // Create Supabase client for auth session refresh - ONLY for protected routes
-      let supabase;
-      try {
-        supabase = createServerClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          {
-            cookies: {
-              getAll() {
-                return request.cookies.getAll();
-              },
-              setAll(cookiesToSet) {
-                response = NextResponse.next({
-                  request,
-                });
-                
-                cookiesToSet.forEach(({ name, value, options }) => {
-                  response.cookies.set(name, value, options);
-                });
-              }
-            }
-          }
-        );
-      } catch (error) {
-        console.error(`[${debugId}] ❌ Supabase Client Creation Error:`, error);
-        return NextResponse.next();
-      }
-      
-      // IMPORTANT: Call getUser to refresh the session if needed
-      // This is critical to prevent users from being logged out unexpectedly
-      let supabaseUser;
-      try {
-        const { data, error } = await supabase.auth.getUser();
-        supabaseUser = data?.user;
-        
-        if (error) {
-          console.error(`[${debugId}] ❌ Supabase error ${error.status || ''} on ${request.nextUrl.pathname}:`, error.message);
-        }
-      } catch (error) {
-        console.error(`[${debugId}] ❌ Supabase getUser error:`, error);
-        // Continue without failing - just log the error
-      }
-      
-      // Only log auth check for non-static routes and when debugging is enabled
-      if ((process.env.NODE_ENV !== 'production' || process.env.DEBUG_AUTH === 'true') && 
-          !isStaticAsset && !isPublicPath) {
-        console.log(`[${debugId}] 👤 Auth check:`, {
-          hasUser: !!supabaseUser,
-          userId: supabaseUser?.id?.substring(0, 8) + '...',
-          userEmail: supabaseUser?.email?.substring(0, 3) + '***', // Partial for privacy
-          path: request.nextUrl.pathname
-        });
-      }
-      
-      // Add security headers for authenticated routes
-      response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-      response.headers.set('Pragma', 'no-cache');
-      response.headers.set('Expires', '0');
-      response.headers.set('Surrogate-Control', 'no-store');
-      
-      // Check if the user is authenticated via Supabase
-      if (!supabaseUser) {
-        console.log(`[${debugId}] 🚫 Authentication required but no user found, redirecting`);
-        
-        // In production, for API requests, return 401 instead of redirecting
-        if (process.env.NODE_ENV === 'production' && request.nextUrl.pathname.startsWith('/api/')) {
-          return new NextResponse(
-            JSON.stringify({ 
-              error: 'Authentication required',
-              status: 'unauthorized'
-            }),
-            { 
-              status: 401,
-              headers: {
-                'Content-Type': 'application/json',
-                ...Object.fromEntries(response.headers)
-              }
-            }
-          );
-        }
-        
-        // Redirect to login page with callback URL
-        const url = new URL('/login', request.url);
-        url.searchParams.set('callbackUrl', request.nextUrl.pathname);
-        return NextResponse.redirect(url);
-      }
-      
-      console.log(`[${debugId}] ✅ User authenticated for protected route`);
-      
-      // IMPORTANT: Return the response with any cookies set by the auth process
-      return response;
+    if (isPublicPath) {
+      log(debugId, `🔓 Public path, skipping auth check: ${pathname}`)
+      return response
     }
     
-    // Security headers - directly set on the response
-    response.headers.set('X-DNS-Prefetch-Control', 'on');
-    response.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
-    response.headers.set('X-XSS-Protection', '1; mode=block');
-    response.headers.set('X-Content-Type-Options', 'nosniff');
-    response.headers.set('X-Frame-Options', 'SAMEORIGIN');
-    response.headers.set('Referrer-Policy', 'origin-when-cross-origin');
-    response.headers.set('Permissions-Policy', 'accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), payment=(), usb=()');
+    // Check if this is a protected route
+    const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
     
-    // Make sure we're not setting any CSP headers directly in middleware
-    if (response && response.headers) {
-      // Remove any CSP header if it exists (we'll use vercel.json for this)
-      response.headers.delete('Content-Security-Policy');
+    // For API routes, we only need authentication, not full registration
+    const isApiRoute = pathname.startsWith('/api/');
+    
+    // Check if URL requires authentication
+    if (isProtectedRoute) {
+      log(debugId, `🔒 Protected route access: ${pathname}`);
+      // Additional auth logic can be implemented here if needed
     }
     
-    console.log(`[${debugId}] ✅ Middleware processing complete`);
+    log(debugId, `✅ Middleware processing complete`);
     return response;
-  } catch (error: unknown) {
-    console.error(`[${debugId}] 🔥 Critical error in middleware:`, error);
+  } catch (error) {
+    logError(debugId, `🔥 Critical middleware error:`, error);
     
-    // Handle critical errors in production - don't block the request
+    // In production, don't block the request even if middleware fails
     if (process.env.NODE_ENV === 'production') {
       console.warn(`[${debugId}] ⚠️ Bypassing middleware due to critical error`);
       return NextResponse.next();
     }
     
-    // In development, we should see the error
+    // In development, show the error
     return new NextResponse(
       JSON.stringify({ 
-        error: 'Middleware error', 
-        message: error instanceof Error ? error.message : 'Unknown error', 
-        debugId 
+        error: 'Middleware failed', 
+        message: error instanceof Error ? error.message : 'Unknown error'
       }),
       { 
         status: 500,
@@ -333,7 +313,13 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Match all paths except for specific static assets
-    '/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)'
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * Feel free to modify this pattern to include more paths.
+     */
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
-}; 
+} 

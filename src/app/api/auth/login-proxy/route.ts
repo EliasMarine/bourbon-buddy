@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { setCorsHeaders, handleCorsPreflightRequest } from '@/lib/cors'
 import { validateCsrfToken } from '@/lib/csrf'
-import { createClient as createSupabaseClient } from '@/lib/auth'
-import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { createClient } from '@/utils/supabase/server'
 
 /**
  * Handle OPTIONS requests (CORS preflight)
@@ -72,8 +71,8 @@ export async function POST(req: NextRequest) {
       return response
     }
 
-    // Initialize Supabase admin client
-    const supabase = createSupabaseServerClient()
+    // Initialize Supabase client
+    const supabase = await createClient()
 
     // Authenticate with Supabase
     const { data, error } = await supabase.auth.signInWithPassword({
