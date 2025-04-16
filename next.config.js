@@ -132,23 +132,83 @@ const nextConfig = {
   },
   // Apply security headers for all paths
   async headers() {
-    return [
+    const isVercelPreview = process.env.VERCEL_ENV === 'preview' || 
+                           process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview';
+    
+    // Default security headers (from next-safe)
+    const defaultHeaders = [
       {
         source: '/:path*',
         headers: securityHeaders,
       },
     ];
+    
+    // Add specific CORS headers for Vercel preview environments
+    if (isVercelPreview) {
+      console.log('🔒 Adding CORS headers for Vercel preview environment');
+      
+      defaultHeaders.push({
+        source: '/api/:path*',
+        headers: [
+          {
+            key: 'Access-Control-Allow-Origin',
+            value: '*',
+          },
+          {
+            key: 'Access-Control-Allow-Methods',
+            value: 'GET, POST, PUT, DELETE, OPTIONS',
+          },
+          {
+            key: 'Access-Control-Allow-Headers',
+            value: 'Content-Type, Authorization, x-csrf-token, csrf-token, X-CSRF-Token',
+          },
+          {
+            key: 'Access-Control-Allow-Credentials',
+            value: 'true',
+          },
+          // Add cache control headers to prevent caching of API responses
+          {
+            key: 'Cache-Control',
+            value: 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          },
+          {
+            key: 'Pragma', 
+            value: 'no-cache',
+          },
+          {
+            key: 'Expires',
+            value: '0',
+          },
+        ],
+      });
+    }
+    
+    return defaultHeaders;
   },
 }
 
 // Make sure adding Sentry options is the last code to run before exporting
 module.exports = withSentryConfig(nextConfig, {
-  org: process.env.SENTRY_ORG || "your-org",
-  project: process.env.SENTRY_PROJECT || "your-project",
+  org: process.env.SENTRY_ORG || "bourbon-buddy",
+  project: process.env.SENTRY_PROJECT || "bourbon-buddy",
   
   // Only print logs for uploading source maps in CI
   silent: !process.env.CI,
   
   // Automatically tree-shake Sentry logger statements to reduce bundle size
   disableLogger: true,
+
+  // Enable debug ID injection - IMPORTANT for source maps
+  injectDebugIds: true,
+  
+  // Upload source maps during build
+  sourcemaps: {
+    // Include source maps for both client and server bundles
+    assets: ['.next/static/chunks/**.js', '.next/server/chunks/**.js'],
+    // Only upload source maps related to the app, not node_modules
+    ignore: ['node_modules'],
+  },
+  
+  // Enable debug to troubleshoot source map issues
+  debug: true,
 });
