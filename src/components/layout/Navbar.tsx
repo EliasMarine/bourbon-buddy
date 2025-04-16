@@ -90,6 +90,7 @@ export default function Navbar() {
   ];
 
   const isActive = (path: string) => {
+    if (!pathname) return false;
     if (path === '/' && pathname !== '/') return false;
     return pathname.startsWith(path);
   };
@@ -112,7 +113,7 @@ export default function Navbar() {
         console.error('Error clearing storage:', storageError);
       }
       
-      // First, server-side logout which clears all cookies
+      // Use our server-side logout endpoint which handles everything
       console.log('🔄 Calling server logout endpoint');
       const logoutResponse = await fetch('/api/auth/logout', {
         method: 'POST',
@@ -123,45 +124,62 @@ export default function Navbar() {
       });
       
       if (!logoutResponse.ok) {
-        console.error('❌ Server logout failed:', await logoutResponse.text());
+        console.error('❌ Server logout failed:', await logoutResponse.json());
       } else {
         console.log('✅ Server logout successful');
       }
       
-      // Sign out from Supabase client-side
-      console.log('🔄 Signing out from Supabase');
-      await supabase.auth.signOut();
-      console.log('✅ Supabase sign out complete');
+      // Skip the direct Supabase call which causes CORS issues
+      // Instead, rely on our server endpoint which already handles it
       
-      // Wait a moment for Supabase to clean up
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Wait a moment for cleanup
+      await new Promise(resolve => setTimeout(resolve, 200));
       
-      // Use signOut from useSupabaseSession
+      // Reset client-side auth state
       if (signOut) {
-        console.log('🔄 Using session signOut');
-        await signOut();
+        try {
+          console.log('🔄 Resetting client auth state');
+          await signOut();
+        } catch (signOutError) {
+          console.error('Error in client signOut:', signOutError);
+          // Continue with logout process even if this fails
+        }
       }
       
       console.log('✅ Sign out process complete');
       
-      // Redirect to home page
-      window.location.href = '/';
+      // Force clear all cookies by resetting document.cookie
+      const cookies = document.cookie.split(';');
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i];
+        const eqPos = cookie.indexOf('=');
+        const name = eqPos > -1 ? cookie.substring(0, eqPos).trim() : cookie.trim();
+        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;`;
+      }
+      
+      // Redirect to home page with a slight delay to allow for cleanup
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 100);
     } catch (error) {
       console.error('❌ Error during sign out:', error);
       
       // If something fails, try a more aggressive cleanup approach
       try {
-        // Clear all cookies manually via API
-        await fetch('/api/auth/logout', { 
-          method: 'POST',
-          credentials: 'include'
-        });
+        // Clear all cookies manually
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+          const cookie = cookies[i];
+          const eqPos = cookie.indexOf('=');
+          const name = eqPos > -1 ? cookie.substring(0, eqPos).trim() : cookie.trim();
+          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;`;
+        }
         
-        // Redirect to home page
+        // Last resort: just redirect
         window.location.href = '/';
       } catch (fallbackError) {
         console.error('❌ Even fallback logout failed:', fallbackError);
-        // Last resort: just redirect
+        // Force reload to homepage
         window.location.href = '/';
       }
     }

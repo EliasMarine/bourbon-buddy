@@ -1,49 +1,81 @@
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { setCorsHeaders, handleCorsPreflightRequest } from '@/lib/cors'
+import { validateCsrfToken } from '@/lib/csrf'
 
-export async function POST() {
+/**
+ * Handle OPTIONS requests (CORS preflight)
+ */
+export function OPTIONS(req: NextRequest) {
+  return handleCorsPreflightRequest(req)
+}
+
+/**
+ * Logout endpoint for Supabase authentication
+ * This route proxies logout requests to avoid CORS issues with Firefox
+ */
+export async function POST(req: NextRequest) {
   try {
-    // Create response to clear all cookies
-    const response = NextResponse.json({ success: true });
+    console.log('Logout endpoint called')
     
-    // Define common auth cookie names that might need to be cleared
-    const cookiesToClear = [
-      // NextAuth cookies
-      'next-auth.session-token',
-      '__Secure-next-auth.session-token',
-      '__Host-next-auth.session-token',
-      'next-auth.csrf-token',
-      '__Host-next-auth.csrf-token',
-      'next-auth.callback-url',
-      '__Secure-next-auth.callback-url',
-      // Supabase cookies
-      'sb-access-token',
-      'sb-refresh-token',
-      // CSRF tokens 
-      'csrf_secret',
-      '__Host-csrf_secret'
-    ];
+    // Skip CSRF validation in development mode to simplify local testing
+    if (process.env.NODE_ENV !== 'development') {
+      // Validate CSRF token
+      const isValid = validateCsrfToken(req)
+      if (!isValid) {
+        console.error('Invalid CSRF token for logout')
+        return NextResponse.json(
+          { error: 'Invalid CSRF token' },
+          { status: 403 }
+        )
+      }
+    } else {
+      console.log('Skipping CSRF validation in development mode')
+    }
     
-    // Clear all cookies with proper settings
-    cookiesToClear.forEach(name => {
-      // Add explicit cookie expiration for each cookie
+    // Create a direct Supabase client
+    const supabase = createSupabaseServerClient()
+    
+    // Handle logout on the server side
+    const { error } = await supabase.auth.signOut({ scope: 'global' })
+    
+    if (error) {
+      console.error('Logout error:', error.message)
+      const response = NextResponse.json(
+        { error: error.message },
+        { status: 500 }
+      )
+      setCorsHeaders(req, response)
+      return response
+    }
+    
+    // Create response with proper CORS headers
+    const response = NextResponse.json({
+      message: 'Successfully logged out'
+    })
+    
+    // Clear auth cookies directly from the response
+    const authCookies = ['sb-access-token', 'sb-refresh-token', 'supabase-auth-token'];
+    
+    authCookies.forEach(cookieName => {
       response.cookies.set({
-        name,
+        name: cookieName,
         value: '',
         expires: new Date(0),
         path: '/',
         sameSite: 'lax',
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production'
       });
     });
     
-    return response;
+    setCorsHeaders(req, response)
+    return response
   } catch (error) {
-    console.error('Error during logout:', error);
-    return NextResponse.json(
-      { error: 'Failed to sign out properly' },
+    console.error('Logout error:', error)
+    const response = NextResponse.json(
+      { error: 'Internal Server Error' },
       { status: 500 }
-    );
+    )
+    setCorsHeaders(req, response)
+    return response
   }
 } 
