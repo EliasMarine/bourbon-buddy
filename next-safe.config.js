@@ -12,7 +12,15 @@ module.exports = {
       "'wasm-unsafe-eval'",
       "https://vercel.live",
       "https://hjodvataujilredguzig.supabase.co",
-      "https://js.stripe.com"
+      "https://js.stripe.com",
+      "https://appleid.cdn-apple.com", 
+      "https://signin.apple.com",
+      "https://cdn.jsdelivr.net",
+      "https://cdn.paddle.com",
+      "https://apis.google.com",
+      "https://plausible.io",
+      "https://*.clarity.ms",
+      "https://c.bing.com"
     ],
     'script-src-elem': [
       "'self'",
@@ -21,7 +29,19 @@ module.exports = {
       "'wasm-unsafe-eval'",
       "https://vercel.live",
       "https://hjodvataujilredguzig.supabase.co",
-      "https://js.stripe.com"
+      "https://js.stripe.com",
+      "https://www.apple.com",
+      "https://appleid.cdn-apple.com",
+      "https://idmsa.apple.com",
+      "https://gsa.apple.com",
+      "https://idmsa.apple.com.cn",
+      "https://signin.apple.com",
+      "https://cdn.jsdelivr.net",
+      "https://cdn.paddle.com",
+      "https://apis.google.com",
+      "https://plausible.io",
+      "https://*.clarity.ms",
+      "https://c.bing.com"
     ],
     'worker-src': ["'self'", "blob:", "'unsafe-eval'", "'wasm-unsafe-eval'"],
     'connect-src': [
@@ -44,7 +64,7 @@ module.exports = {
       "https://c.bing.com"
     ].concat(
       process.env.NODE_ENV !== "production" 
-        ? ["http://localhost:*", "ws://localhost:*"] 
+        ? ["http://localhost:*", "https://localhost:*", "ws://localhost:*", "wss://localhost:*"] 
         : []
     ),
     'frame-src': [

@@ -3,8 +3,15 @@ const nextSafeConfig = require('./next-safe.config');
 const nextSafe = require('next-safe');
 const { withSentryConfig } = require("@sentry/nextjs");
 
-// Generate security headers from next-safe
-const securityHeaders = nextSafe(nextSafeConfig);
+// Generate security headers from next-safe with nonce generation enabled
+const securityHeaders = nextSafe({
+  ...nextSafeConfig,
+  contentSecurityPolicy: {
+    ...nextSafeConfig.contentSecurityPolicy,
+    // Enable nonce generation for scripts
+    useNonce: true
+  }
+});
 
 // Define Next.js config
 const nextConfig = {
