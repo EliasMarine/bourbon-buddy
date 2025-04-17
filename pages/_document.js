@@ -1,12 +1,22 @@
 import { Html, Head, Main, NextScript } from 'next/document'
-import crypto from 'crypto'
+import { headers } from 'next/headers'
 
 export default function Document() {
-  // Generate a random nonce server-side
-  // This approach ensures the nonce is generated when the document is rendered
-  const cspNonce = typeof process !== 'undefined' ? 
-    (process.env.CSP_NONCE || crypto.randomBytes(16).toString('base64')) : 
-    null
+  // Attempt to retrieve nonce from headers (set by middleware)
+  let cspNonce = '';
+  
+  try {
+    // In Pages Router, we need a different approach than App Router
+    // We can't use the headers() function directly here
+    // This will be handled at runtime by Next.js
+    if (typeof window === 'undefined' && typeof process !== 'undefined') {
+      // Let Next.js use the nonce from response headers
+      // The middleware sets x-csp-nonce, which Next.js will use
+      cspNonce = process.env.CSP_NONCE || '';
+    }
+  } catch (error) {
+    console.error('Error getting CSP nonce:', error);
+  }
 
   return (
     <Html lang="en">

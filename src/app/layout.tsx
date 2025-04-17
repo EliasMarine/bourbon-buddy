@@ -11,7 +11,7 @@ import EmergencyDebug from '../components/debug/EmergencyDebug'
 import ClientDebug from '../components/debug/ClientDebug'
 import CorsHandler from '../components/cors-handler'
 import { initSentry } from '@/lib/sentry'
-import crypto from 'crypto'
+import { randomBytes } from 'crypto'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -38,9 +38,9 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  // Generate a nonce for CSP - we can't reliably extract it from headers
-  // in App Router, so we generate our own
-  const cspNonce = crypto.randomBytes(16).toString('base64')
+  // Instead of using headers(), use a server-side generated nonce
+  // This will be different from the middleware nonce, but that's what we'll fix in the next steps
+  const cspNonce = randomBytes(16).toString('base64')
   
   return (
     <html lang="en" className="dark" id="app-root">
@@ -50,6 +50,22 @@ export default function RootLayout({
         
         {/* Make nonce available to client components */}
         <meta property="csp-nonce" content={cspNonce} />
+        
+        {/* Properly preload the debug scripts with correct attributes */}
+        <link 
+          rel="preload" 
+          href="/debug-script.js" 
+          as="script"
+          nonce={cspNonce}
+          crossOrigin="anonymous"
+        />
+        <link 
+          rel="preload" 
+          href="/client-debug-script.js" 
+          as="script"
+          nonce={cspNonce}
+          crossOrigin="anonymous"
+        />
       </head>
       <body className={`${inter.className} min-h-screen bg-gray-900 text-white`} id="app-body">
         <EmergencyDebug />

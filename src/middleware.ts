@@ -183,6 +183,8 @@ export async function middleware(request: NextRequest) {
     
     // Add primary headers
     response.headers.set('x-nonce', nonce)
+    // Set explicit x-csp-nonce header for use in _document.js and layout.tsx
+    response.headers.set('x-csp-nonce', nonce)
     
     // Check if we should use relaxed CSP for development
     const isDevelopment = process.env.NODE_ENV !== 'production' || 
@@ -197,13 +199,43 @@ export async function middleware(request: NextRequest) {
       // In production, use the strict CSP with nonce
       const cspHeader = `
         default-src 'self';
-        script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'strict-dynamic' 'unsafe-inline' https://vercel.live https://vercel.com https://hjodvataujilredguzig.supabase.co https://js.stripe.com https://appleid.cdn-apple.com https://signin.apple.com https://cdn.jsdelivr.net https://cdn.paddle.com https://apis.google.com https://plausible.io https://*.clarity.ms https://c.bing.com https://cdn.vercel-insights.com https://va.vercel-scripts.com;
-        script-src-elem 'self' 'nonce-${nonce}' 'unsafe-eval' 'strict-dynamic' 'unsafe-inline' https://vercel.live https://vercel.com https://hjodvataujilredguzig.supabase.co https://js.stripe.com https://www.apple.com https://appleid.cdn-apple.com https://idmsa.apple.com https://gsa.apple.com https://idmsa.apple.com.cn https://signin.apple.com https://cdn.jsdelivr.net https://cdn.paddle.com https://apis.google.com https://plausible.io https://*.clarity.ms https://c.bing.com https://cdn.vercel-insights.com https://va.vercel-scripts.com;
+        script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'strict-dynamic' 
+          'sha256-4A/MBGXVD2ITXEBraYCO7UPf5RGK8bHB21M+Rj9prPo=' 
+          'sha256-Viyac4C8o6yViUPcgS2fKtVgTmcnCOZOVQWYxPyGl+c=' 
+          'sha256-cs1PeCKZCf+dKJxzDwFXd9H4JxYRpgsY2a7Q6OvUOGc='
+          'sha256-MXn3aJpFWxiOTA2NYvWWK9ArpuHSUt0hk1zvjbvb118='
+          'sha256-ertUDuGy6qgMhU+HGGXJPmbcPxl4hO7w59rH3WZDPWA='
+          'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='
+          'unsafe-inline'
+          https://vercel.live https://vercel.com https://hjodvataujilredguzig.supabase.co 
+          https://js.stripe.com https://appleid.cdn-apple.com https://signin.apple.com 
+          https://cdn.jsdelivr.net https://cdn.paddle.com https://apis.google.com 
+          https://plausible.io https://*.clarity.ms https://c.bing.com 
+          https://cdn.vercel-insights.com https://va.vercel-scripts.com;
+        script-src-elem 'self' 'nonce-${nonce}' 'unsafe-eval' 'strict-dynamic' 
+          'sha256-4A/MBGXVD2ITXEBraYCO7UPf5RGK8bHB21M+Rj9prPo=' 
+          'sha256-Viyac4C8o6yViUPcgS2fKtVgTmcnCOZOVQWYxPyGl+c=' 
+          'sha256-cs1PeCKZCf+dKJxzDwFXd9H4JxYRpgsY2a7Q6OvUOGc='
+          'sha256-MXn3aJpFWxiOTA2NYvWWK9ArpuHSUt0hk1zvjbvb118='
+          'sha256-ertUDuGy6qgMhU+HGGXJPmbcPxl4hO7w59rH3WZDPWA='
+          'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='
+          'unsafe-inline'
+          https://vercel.live https://vercel.com https://hjodvataujilredguzig.supabase.co 
+          https://js.stripe.com https://appleid.cdn-apple.com https://signin.apple.com 
+          https://cdn.jsdelivr.net https://cdn.paddle.com https://apis.google.com 
+          https://plausible.io https://*.clarity.ms https://c.bing.com 
+          https://cdn.vercel-insights.com https://va.vercel-scripts.com;
         style-src 'self' 'unsafe-inline';
         img-src 'self' data: blob: https: http:;
         font-src 'self' data: https://fonts.gstatic.com;
-        connect-src 'self' https://hjodvataujilredguzig.supabase.co wss://hjodvataujilredguzig.supabase.co wss://ws-us3.pusher.com https://api.openai.com https://vercel.live https://vercel.com https://bourbonbuddy.live https://bourbon-buddy.vercel.app https://api.stripe.com https://checkout.paddle.com https://*.ingest.sentry.io https://o4509142564667392.ingest.us.sentry.io https://sentry.io https://*.sentry.io https://sentry-cdn.com https://*.clarity.ms https://c.bing.com https://cdn.vercel-insights.com https://va.vercel-scripts.com https: http:;
-        frame-src 'self' https://vercel.live https://vercel.com https://appleid.apple.com https://js.stripe.com https://checkout.paddle.com;
+        connect-src 'self' https://hjodvataujilredguzig.supabase.co wss://hjodvataujilredguzig.supabase.co 
+          wss://ws-us3.pusher.com https://api.openai.com https://vercel.live https://vercel.com 
+          https://bourbonbuddy.live https://bourbon-buddy.vercel.app https://api.stripe.com 
+          https://checkout.paddle.com https://*.ingest.sentry.io https://o4509142564667392.ingest.us.sentry.io 
+          https://sentry.io https://*.sentry.io https://sentry-cdn.com https://*.clarity.ms 
+          https://c.bing.com https://cdn.vercel-insights.com https://va.vercel-scripts.com https: http:;
+        frame-src 'self' https://vercel.live https://vercel.com https://appleid.apple.com 
+          https://js.stripe.com https://checkout.paddle.com;
         worker-src 'self' blob: 'unsafe-eval' 'wasm-unsafe-eval';
         object-src 'none';
         base-uri 'self';
@@ -212,7 +244,7 @@ export async function middleware(request: NextRequest) {
         manifest-src 'self';
         media-src 'self';
         child-src 'self' blob:;
-      `.replace(/\s+/g, ' ').trim()
+      `.replace(/\s{2,}/g, ' ').trim()
       
       response.headers.set('Content-Security-Policy', cspHeader)
     }

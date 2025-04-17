@@ -1,11 +1,11 @@
 'use client'
 
-import Script from 'next/script'
+import NonceScript from './NonceScript'
 
 export default function EmergencyDebug() {
   return (
     <>
-      <Script
+      <NonceScript
         id="emergency-debug"
         src="/debug-script.js"
         strategy="beforeInteractive"

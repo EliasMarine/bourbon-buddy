@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import Script from 'next/script'
+import { useState } from 'react'
+import NonceScript from './NonceScript'
 
 export default function ClientDebug() {
   const [info, setInfo] = useState<Record<string, any>>({
@@ -18,7 +18,7 @@ export default function ClientDebug() {
   // Return only the Script component to load the external script
   // All debugging logic is moved to the external file
   return (
-    <Script
+    <NonceScript
       id="client-debug-script"
       src="/client-debug-script.js"
       strategy="afterInteractive"
