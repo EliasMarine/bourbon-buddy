@@ -7,10 +7,10 @@ module.exports = {
     'default-src': ["'self'"],
     'script-src': [
       "'self'",
-      "'unsafe-inline'",
       "'unsafe-eval'",
       "'wasm-unsafe-eval'",
       "https://vercel.live",
+      "https://vercel.com",
       "https://hjodvataujilredguzig.supabase.co",
       "https://js.stripe.com",
       "https://appleid.cdn-apple.com", 
@@ -20,14 +20,16 @@ module.exports = {
       "https://apis.google.com",
       "https://plausible.io",
       "https://*.clarity.ms",
-      "https://c.bing.com"
+      "https://c.bing.com",
+      "https://cdn.vercel-insights.com",
+      "https://va.vercel-scripts.com"
     ],
     'script-src-elem': [
       "'self'",
-      "'unsafe-inline'",
       "'unsafe-eval'",
       "'wasm-unsafe-eval'",
       "https://vercel.live",
+      "https://vercel.com",
       "https://hjodvataujilredguzig.supabase.co",
       "https://js.stripe.com",
       "https://www.apple.com",
@@ -41,7 +43,9 @@ module.exports = {
       "https://apis.google.com",
       "https://plausible.io",
       "https://*.clarity.ms",
-      "https://c.bing.com"
+      "https://c.bing.com",
+      "https://cdn.vercel-insights.com",
+      "https://va.vercel-scripts.com"
     ],
     'worker-src': ["'self'", "blob:", "'unsafe-eval'", "'wasm-unsafe-eval'"],
     'connect-src': [
@@ -51,6 +55,7 @@ module.exports = {
       "wss://ws-us3.pusher.com",
       "https://api.openai.com", 
       "https://vercel.live", 
+      "https://vercel.com",
       "https://bourbonbuddy.live", 
       "https://bourbon-buddy.vercel.app",
       "https://api.stripe.com",
@@ -61,7 +66,9 @@ module.exports = {
       "https://*.sentry.io",
       "https://sentry-cdn.com",
       "https://*.clarity.ms",
-      "https://c.bing.com"
+      "https://c.bing.com",
+      "https://cdn.vercel-insights.com",
+      "https://va.vercel-scripts.com"
     ].concat(
       process.env.NODE_ENV !== "production" 
         ? ["http://localhost:*", "https://localhost:*", "ws://localhost:*", "wss://localhost:*"] 
@@ -70,6 +77,7 @@ module.exports = {
     'frame-src': [
       "'self'", 
       "https://vercel.live", 
+      "https://vercel.com",
       "https://appleid.apple.com",
       "https://js.stripe.com",
       "https://checkout.paddle.com"

@@ -127,13 +127,13 @@ To deploy successfully on Vercel and prevent Prisma prepared statement conflicts
 1. Configure the following environment variables on Vercel:
 
 ```
-DATABASE_URL=postgresql://user:password@host:port/database?pgbouncer=true&connection_limit=1&pool_timeout=10
-DIRECT_DATABASE_URL=postgresql://user:password@host:port/database
-SHADOW_DATABASE_URL=postgresql://user:password@host:port/shadow_database
-REDIS_URL=redis://username:password@host:port
-MUX_TOKEN_ID=your-mux-token-id
-MUX_TOKEN_SECRET=your-mux-token-secret
-MUX_WEBHOOK_SECRET=your-mux-webhook-secret
+DATABASE_URL=postgresql://<username>:<password>@<host>:<port>/<database>?pgbouncer=true&connection_limit=1&pool_timeout=10
+DIRECT_DATABASE_URL=postgresql://<username>:<password>@<host>:<port>/<database>
+SHADOW_DATABASE_URL=postgresql://<username>:<password>@<host>:<port>/<shadow_database>
+REDIS_URL=redis://<username>:<password>@<host>:<port>
+MUX_TOKEN_ID=<your-mux-token-id>
+MUX_TOKEN_SECRET=<your-mux-token-secret>
+MUX_WEBHOOK_SECRET=<your-mux-webhook-secret>
 ```
 
 2. Ensure your build command uses `prisma generate`:
@@ -328,3 +328,33 @@ While this is a personal project, suggestions and feedback are welcome. Please o
 ## 📞 Support
 
 For support, please contact bourbonbuddy@bitspec.co
+
+## Setup
+
+1. Clone the repository
+2. Install dependencies: `npm install`
+3. Copy `.env.local.example` to `.env.local` and add your API keys:
+   ```
+   SERPAPI_KEY=your_serpapi_key_here
+   ```
+4. Run the development server: `npm run dev`
+5. Open http://localhost:3000 to view the app
+
+## Environment Variables
+
+- `SERPAPI_KEY`: Your SerpApi key for web searches. Get one at [SerpApi](https://serpapi.com/).
+
+## Getting a SerpApi Key
+
+1. Visit [SerpApi](https://serpapi.com/) and create an account
+2. Navigate to your dashboard to find your API key
+3. Add the key to your `.env.local` file
+
+## Web Search Integration
+
+The application integrates with SerpApi to fetch accurate information about spirits, including:
+
+- Distillery details (name, location, history)
+- Bottle information (price range, ratings, awards)
+- Tasting notes
+- Related articles and reviews

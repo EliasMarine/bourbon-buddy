@@ -3,6 +3,10 @@ const nextSafeConfig = require('./next-safe.config');
 const nextSafe = require('next-safe');
 const { withSentryConfig } = require("@sentry/nextjs");
 
+// Determine if we're in development mode
+const isDevelopment = process.env.NODE_ENV !== 'production';
+const cspMode = process.env.NEXT_PUBLIC_CSP_MODE || (isDevelopment ? 'development' : 'production');
+
 // Generate security headers from next-safe with nonce generation enabled
 const securityHeaders = nextSafe({
   ...nextSafeConfig,
@@ -142,6 +146,22 @@ const nextConfig = {
     const isVercelPreview = process.env.VERCEL_ENV === 'preview' || 
                            process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview';
     
+    // In development or when explicitly configured, use relaxed CSP settings
+    if (cspMode === 'development') {
+      console.log('🔒 Using relaxed CSP for development/debugging mode');
+      return [
+        {
+          source: '/:path*',
+          headers: [
+            {
+              key: 'Content-Security-Policy',
+              value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; connect-src 'self' http://localhost:* https://localhost:* ws://localhost:* wss://localhost:* https://* wss://*;"
+            },
+          ],
+        },
+      ];
+    }
+    
     // Default security headers (from next-safe)
     const defaultHeaders = [
       {
@@ -192,7 +212,7 @@ const nextConfig = {
     
     return defaultHeaders;
   },
-}
+};
 
 // Make sure adding Sentry options is the last code to run before exporting
 module.exports = withSentryConfig(nextConfig, {
