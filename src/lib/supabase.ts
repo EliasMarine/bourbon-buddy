@@ -1,8 +1,7 @@
-import { createBrowserClient as createSsrBrowserClient } from '@supabase/ssr';
+import { createBrowserClient } from '@supabase/ssr';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
-import { SupabaseClient } from '@supabase/supabase-js';
+import { type NextRequest, NextResponse } from 'next/server';
 
 // Storage bucket configuration
 const STORAGE_BUCKET = 'spirits';
@@ -21,37 +20,17 @@ function isServerSide() {
   return typeof window === 'undefined';
 }
 
-// Define a global type for browser usage
-let globalSupabaseBrowserClient: SupabaseClient | null = null;
-
-/**
- * Creates a Supabase client for browser usage
- */
-export function createBrowserClient() {
-  // Use singleton for browser clients
-  if (typeof window !== 'undefined' && globalSupabaseBrowserClient) {
-    return globalSupabaseBrowserClient;
-  }
-  
-  // Create a new client
-  const client = createSsrBrowserClient(
+// Browser client (used in client components)
+export const createClient = () => {
+  return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
-  
-  // Cache for reuse
-  if (typeof window !== 'undefined') {
-    globalSupabaseBrowserClient = client;
-  }
-  
-  return client;
-}
+};
 
-/**
- * Creates a Supabase client for server components
- */
-export async function createServerComponentClient() {
-  const cookieStore = await cookies();
+// Server component client
+export const createServerComponentClient = () => {
+  const cookieStore = cookies();
   
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -63,26 +42,67 @@ export async function createServerComponentClient() {
         },
         setAll(cookiesToSet) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch (error) {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch {
             // The `setAll` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing
             // user sessions.
           }
-        }
-      }
+        },
+      },
     }
   );
-}
+};
 
-/**
- * Creates a Supabase client for middleware
- */
-export function createMiddlewareClient(request: NextRequest) {
-  // Create an unmodified response
-  let response = NextResponse.next({
+// Server action client 
+export const createActionClient = () => {
+  const cookieStore = cookies();
+  
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
+};
+
+// Route handler client
+export const createRouteHandlerClient = () => {
+  const cookieStore = cookies();
+  
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        },
+      },
+    }
+  );
+};
+
+// Middleware client
+export const createMiddlewareClient = (request: NextRequest) => {
+  const response = NextResponse.next({
     request: {
       headers: request.headers,
     },
@@ -97,26 +117,43 @@ export function createMiddlewareClient(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value));
-          response = NextResponse.next({
-            request,
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set(name, value);
+            response.cookies.set({
+              name,
+              value,
+              ...options,
+              // Add secure flag in production
+              ...(process.env.NODE_ENV === 'production' ? { secure: true } : {})
+            });
           });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
-        }
-      }
+        },
+      },
     }
   );
   
   return { supabase, response };
+};
+
+// Get current user (for server components)
+export async function getUser() {
+  const supabase = createServerComponentClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  return user;
+}
+
+// Get current session (for server components)
+export async function getSession() {
+  const supabase = createServerComponentClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  return session;
 }
 
 /**
  * Gets the public URL for a file in storage
  */
 export function getStorageUrl(bucket: string = STORAGE_BUCKET, path: string) {
-  const client = createBrowserClient();
+  const client = createClient();
   return client.storage.from(bucket).getPublicUrl(path).data.publicUrl;
 }
 
@@ -128,7 +165,7 @@ export async function uploadFile(path: string, file: File, options?: {
   upsert?: boolean, 
   contentType?: string 
 }) {
-  const client = createBrowserClient();
+  const client = createClient();
   const bucket = options?.bucket || STORAGE_BUCKET;
   
   return client.storage.from(bucket).upload(path, file, {
@@ -144,7 +181,7 @@ export async function downloadFile(path: string, options?: {
   bucket?: string, 
   transform?: { width?: number, height?: number, quality?: number } 
 }) {
-  const client = createBrowserClient();
+  const client = createClient();
   const bucket = options?.bucket || STORAGE_BUCKET;
   
   return client.storage.from(bucket).download(path, {
@@ -161,7 +198,7 @@ export async function listFiles(directory: string = '', options?: {
   offset?: number, 
   sortBy?: { column: string, order: 'asc' | 'desc' }
 }) {
-  const client = createBrowserClient();
+  const client = createClient();
   const bucket = options?.bucket || STORAGE_BUCKET;
   
   return client.storage.from(bucket).list(directory, {
@@ -175,7 +212,7 @@ export async function listFiles(directory: string = '', options?: {
  * Removes a file from storage
  */
 export async function removeFiles(paths: string | string[], options?: { bucket?: string }) {
-  const client = createBrowserClient();
+  const client = createClient();
   const bucket = options?.bucket || STORAGE_BUCKET;
   
   // Accept both single string and array of strings
