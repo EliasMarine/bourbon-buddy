@@ -67,3 +67,20 @@ src/app/test-tunnel/README.md
 
 # Sentry Config File
 .env.sentry-build-plugin
+bourbon-buddy@0.1.0
+node
+.dev-build-backups/route.ts
+.dev-build-backups/route.ts.check-status.auth
+.dev-build-backups/route.ts.cleanup-streams.cron
+.dev-build-backups/route.ts.collection
+.dev-build-backups/route.ts.create-checkout-session
+.dev-build-backups/route.ts.featured.spirits
+.dev-build-backups/route.ts.forgot-password.auth
+.dev-build-backups/route.ts.health
+.dev-build-backups/route.ts.id.collection
+.dev-build-backups/route.ts.id.spirit
+.dev-build-backups/route.ts.id.spirits
+.dev-build-backups/route.ts.profile.user
+.dev-build-backups/route.ts.signup.auth
+.dev-build-backups/route.ts.stripe.webhooks
+.dev-build-backups/route.ts.sync-user.auth

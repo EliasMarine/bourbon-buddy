@@ -1,10 +1,11 @@
 import { Html, Head, Main, NextScript } from 'next/document'
-import crypto from 'crypto'
 
 export default function Document() {
-  // Generate a random nonce server-side
-  // This approach ensures the nonce is generated when the document is rendered
-  const cspNonce = crypto.randomBytes(16).toString('base64')
+  // In production, NextScript will automatically use the nonce from the CSP header
+  // In development, we use a fixed nonce for simplicity
+  const cspNonce = process.env.NODE_ENV === 'production' 
+    ? undefined // In production, NextScript will get the nonce from response headers
+    : 'development-nonce' // In development, use a fixed nonce
 
   return (
     <Html lang="en">
@@ -18,4 +19,4 @@ export default function Document() {
       </body>
     </Html>
   )
-} 
+}

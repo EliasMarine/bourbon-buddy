@@ -1,7 +1,7 @@
 import './globals.css'
 import { Inter } from 'next/font/google'
 import { Toaster } from 'sonner'
-import { cookies, headers } from 'next/headers'
+import { cookies } from 'next/headers'
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
 import ClientLayout from '../components/providers/ClientLayout'
@@ -11,7 +11,6 @@ import EmergencyDebug from '../components/debug/EmergencyDebug'
 import ClientDebug from '../components/debug/ClientDebug'
 import CorsHandler from '../components/cors-handler'
 import { initSentry } from '@/lib/sentry'
-import { randomBytes } from 'crypto'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -38,9 +37,12 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  // Instead of using headers(), use a server-side generated nonce
-  // This will be different from the middleware nonce, but that's what we'll fix in the next steps
-  const cspNonce = randomBytes(16).toString('base64')
+  // In App Router, we can't reliably get the nonce from headers at this level
+  // Instead, we'll use a fixed nonce for development and rely on the meta tag approach
+  // for client components to get the nonce from the DOM in production
+  const cspNonce = process.env.NODE_ENV === 'production' 
+    ? undefined // In production, scripts will get the nonce from meta tag
+    : 'development-nonce'; // In development, use a fixed nonce
   
   return (
     <html lang="en" className="dark" id="app-root">
@@ -87,4 +89,4 @@ export default function RootLayout({
       </body>
     </html>
   )
-} 
+}

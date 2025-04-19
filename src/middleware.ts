@@ -206,7 +206,6 @@ export async function middleware(request: NextRequest) {
           'sha256-MXn3aJpFWxiOTA2NYvWWK9ArpuHSUt0hk1zvjbvb118='
           'sha256-ertUDuGy6qgMhU+HGGXJPmbcPxl4hO7w59rH3WZDPWA='
           'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='
-          'unsafe-inline'
           https://vercel.live https://vercel.com https://hjodvataujilredguzig.supabase.co 
           https://js.stripe.com https://appleid.cdn-apple.com https://signin.apple.com 
           https://cdn.jsdelivr.net https://cdn.paddle.com https://apis.google.com 
@@ -219,7 +218,6 @@ export async function middleware(request: NextRequest) {
           'sha256-MXn3aJpFWxiOTA2NYvWWK9ArpuHSUt0hk1zvjbvb118='
           'sha256-ertUDuGy6qgMhU+HGGXJPmbcPxl4hO7w59rH3WZDPWA='
           'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='
-          'unsafe-inline'
           https://vercel.live https://vercel.com https://hjodvataujilredguzig.supabase.co 
           https://js.stripe.com https://appleid.cdn-apple.com https://signin.apple.com 
           https://cdn.jsdelivr.net https://cdn.paddle.com https://apis.google.com 
@@ -259,4 +257,4 @@ export async function middleware(request: NextRequest) {
     console.error(`[${debugId}] Middleware error:`, e)
     return response
   }
-} 
+}
