@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { createServerClient } from '@supabase/ssr'
 import { setCorsHeaders, handleCorsPreflightRequest } from '@/lib/cors'
-import { validateCsrfToken } from '@/lib/csrf'
 
 /**
  * Handle OPTIONS requests (CORS preflight)
@@ -12,84 +11,66 @@ export function OPTIONS(req: NextRequest) {
 
 /**
  * Logout endpoint for Supabase authentication
- * This route proxies logout requests to avoid CORS issues with Firefox
+ * This route handles proper logout by clearing cookies
  */
 export async function POST(req: NextRequest) {
   try {
     console.log('Logout endpoint called')
     
-    // Skip CSRF validation in development mode to simplify local testing
-    if (process.env.NODE_ENV !== 'development') {
-      // Validate CSRF token
-      const isValid = validateCsrfToken(req)
-      if (!isValid) {
-        console.error('Invalid CSRF token for logout')
-        return NextResponse.json(
-          { error: 'Invalid CSRF token' },
-          { status: 403 }
-        )
+    // Create a response to modify with cookie clearing
+    const response = NextResponse.json({ 
+      message: 'Successfully logged out' 
+    })
+    
+    // Create a Supabase server client specifically for logout
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return req.cookies.getAll()
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              response.cookies.set(name, value, options)
+            })
+          },
+        },
       }
-    } else {
-      console.log('Skipping CSRF validation in development mode')
-    }
+    )
     
-    // Create a direct Supabase client
-    const supabase = createSupabaseServerClient()
-    
-    // Handle logout on the server side with global scope to invalidate all sessions
-    const { error } = await supabase.auth.signOut({ scope: 'global' })
+    // Call Supabase's auth.signOut() to properly revoke tokens
+    const { error } = await supabase.auth.signOut()
     
     if (error) {
-      console.error('Logout error:', error.message)
-      const response = NextResponse.json(
+      console.error('Supabase logout error:', error.message)
+      return NextResponse.json(
         { error: error.message },
         { status: 500 }
       )
-      setCorsHeaders(req, response)
-      return response
     }
     
-    // Create response with proper CORS headers
-    const response = NextResponse.json({
-      message: 'Successfully logged out'
-    })
-    
-    // Clear auth cookies directly from the response - including all possible pattern variations
+    // Clear Supabase-related cookies directly (as a fallback)
     const authCookies = [
       'sb-access-token',
       'sb-refresh-token',
       'supabase-auth-token',
-      '__session', // Next.js session cookies
-      'supabase-session',
-      '_supabase_session',
-      // Add domain-specific cookie patterns using project reference
+      // Include project-specific cookie if available
       ...(process.env.NEXT_PUBLIC_SUPABASE_URL ? [
         `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL.split('//')[1]?.split('.')[0]}-auth-token`
       ] : [])
     ]
     
-    // For each cookie, set an expired cookie with all possible path and domain combinations
-    authCookies.forEach(cookieName => {
-      // Default cookie (path=/)
+    authCookies.forEach(name => {
       response.cookies.set({
-        name: cookieName,
+        name,
         value: '',
         expires: new Date(0),
         path: '/',
         sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production'
       })
-      
-      // Also add a version with secure flag for HTTPS
-      if (process.env.NODE_ENV === 'production' || req.url.includes('https')) {
-        response.cookies.set({
-          name: cookieName,
-          value: '',
-          expires: new Date(0),
-          path: '/',
-          sameSite: 'lax',
-          secure: true
-        })
-      }
     })
     
     // Add Cache-Control headers to prevent caching

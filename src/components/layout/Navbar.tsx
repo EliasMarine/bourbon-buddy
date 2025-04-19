@@ -104,95 +104,30 @@ export default function Navbar() {
       setIsProfileOpen(false);
       setIsMobileMenuOpen(false);
       
-      // Get Supabase URL prefix for localStorage keys
-      const supabaseUrlPrefix = process.env.NEXT_PUBLIC_SUPABASE_URL
-        ? process.env.NEXT_PUBLIC_SUPABASE_URL.split('//')[1]?.split('.')[0]
-        : '';
-      
-      // Use our server-side logout endpoint which handles everything
-      console.log('🔄 Calling server logout endpoint');
+      // Call the server-side logout endpoint
       const logoutResponse = await fetch('/api/auth/logout', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': sessionStorage.getItem('csrfToken') || ''
-        },
-        credentials: 'include' // Important to include cookies
+        credentials: 'include'
       });
       
       if (!logoutResponse.ok) {
-        console.error('❌ Server logout failed:', await logoutResponse.text());
+        console.error('Server logout failed:', await logoutResponse.text());
       } else {
-        console.log('✅ Server logout successful');
+        console.log('Server logout successful');
       }
       
-      // Reset client-side auth state
+      // Use the hook's signOut function
       if (signOut) {
-        try {
-          console.log('🔄 Resetting client auth state');
-          await signOut();
-        } catch (signOutError) {
-          console.error('Error in client signOut:', signOutError);
-        }
+        await signOut();
       }
       
-      // Clear browser storage - all possible Supabase auth storage items
-      try {
-        // Clear localStorage session and auth tokens
-        localStorage.removeItem('supabase.auth.token');
-        localStorage.removeItem(`sb-${supabaseUrlPrefix}-auth-token`);
-        
-        // Scan localStorage for any keys matching the pattern sb-*-auth-*
-        Object.keys(localStorage).forEach(key => {
-          if (key.startsWith('sb-') && key.includes('-auth-')) {
-            localStorage.removeItem(key);
-          }
-        });
-        
-        // Clear sessionStorage
-        sessionStorage.removeItem('supabase.auth.token');
-        sessionStorage.removeItem(`sb-${supabaseUrlPrefix}-auth-token`);
-        
-        console.log('✅ Cleared local storage auth tokens');
-      } catch (storageError) {
-        console.error('Error clearing storage:', storageError);
-      }
-      
-      // Force clear all cookies by resetting document.cookie
-      const cookies = document.cookie.split(';');
-      for (let i = 0; i < cookies.length; i++) {
-        const cookie = cookies[i];
-        const eqPos = cookie.indexOf('=');
-        const name = eqPos > -1 ? cookie.substring(0, eqPos).trim() : cookie.trim();
-        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;`;
-      }
-      
-      console.log('✅ Sign out process complete');
-      
-      // Reset Supabase client singleton to force re-instantiation
-      try {
-        // Use dynamic import to avoid bundling issues
-        const { resetSupabaseClient } = await import('@/lib/supabase-singleton');
-        resetSupabaseClient();
-        console.log('✅ Reset Supabase client singleton');
-      } catch (resetError) {
-        console.error('Error resetting Supabase client:', resetError);
-      }
-      
-      // Redirect to login page with a slight delay to allow for cleanup
-      setTimeout(() => {
-        window.location.href = '/login';
-      }, 100);
+      // Redirect to login page
+      window.location.href = '/login';
     } catch (error) {
-      console.error('❌ Error during sign out:', error);
+      console.error('Error during sign out:', error);
       
-      // If something fails, try a more aggressive cleanup approach
-      try {
-        // Force navigation to login page
-        window.location.href = '/login';
-      } catch (fallbackError) {
-        console.error('❌ Even fallback logout failed:', fallbackError);
-      }
+      // Even if there's an error, try to redirect
+      window.location.href = '/login';
     }
   };
 
