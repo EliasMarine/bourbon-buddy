@@ -181,26 +181,45 @@ export async function middleware(request: NextRequest) {
   log(debugId, `🔄 Middleware processing ${request.method} ${request.nextUrl.pathname}`)
   
   try {
-    // Create a response to modify later
-    let response = NextResponse.next({
-      request: {
-        headers: request.headers,
-      },
-    })
+    // Skip processing for WebSocket upgrade requests
+    if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      log(debugId, `🔌 WebSocket upgrade request detected`);
+      return NextResponse.next();
+    }
     
-    // Generate a random nonce for CSP using Web Crypto API
-    const randomBytes = crypto.getRandomValues(new Uint8Array(16))
-    const nonce = btoa(String.fromCharCode.apply(null, Array.from(randomBytes)))
+    // Skip processing for static assets to improve performance
+    const isStaticAsset = staticAssetPatterns.some(pattern => 
+      pattern.test(request.nextUrl.pathname)
+    );
+    
+    if (isStaticAsset) {
+      log(debugId, `📦 Static asset, skipping auth check: ${request.nextUrl.pathname}`);
+      return NextResponse.next();
+    }
+    
+    // Get the pathname for route checking
+    const pathname = request.nextUrl.pathname;
+    
+    // Check if this is an auth-related path (login, signup, auth callbacks)
+    const isAuthPath = pathname.startsWith('/login') || 
+                     pathname.startsWith('/signup') || 
+                     pathname.startsWith('/auth');
+    
+    // First, update the Supabase session using the dedicated function
+    // This ensures we have the most up-to-date auth state before any decision
+    const sessionResponse = await updateSession(request);
     
     // Add primary headers
-    response.headers.set('x-debug-id', debugId)
-    response.headers.set('x-nonce', nonce) // Pass nonce to layouts/pages
+    const randomBytes = crypto.getRandomValues(new Uint8Array(16));
+    const nonce = btoa(String.fromCharCode.apply(null, Array.from(randomBytes)));
+    sessionResponse.headers.set('x-debug-id', debugId);
+    sessionResponse.headers.set('x-nonce', nonce); // Pass nonce to layouts/pages
     
     // Security headers
-    response.headers.set('X-XSS-Protection', '1; mode=block')
-    response.headers.set('X-Content-Type-Options', 'nosniff')
-    response.headers.set('X-Frame-Options', 'DENY')
-    response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+    sessionResponse.headers.set('X-XSS-Protection', '1; mode=block');
+    sessionResponse.headers.set('X-Content-Type-Options', 'nosniff');
+    sessionResponse.headers.set('X-Frame-Options', 'DENY');
+    sessionResponse.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
     
     /**
      * Content Security Policy (CSP) Implementation
@@ -221,71 +240,112 @@ export async function middleware(request: NextRequest) {
       manifest-src 'self';
       media-src 'self';
       child-src 'self' blob:;
-    `
+    `;
     
     // Format the CSP header correctly
     const contentSecurityPolicyHeaderValue = cspHeader
       .replace(/\s{2,}/g, ' ')
-      .trim()
+      .trim();
     
     // Set the CSP header
-    response.headers.set('Content-Security-Policy', contentSecurityPolicyHeaderValue)
+    sessionResponse.headers.set('Content-Security-Policy', contentSecurityPolicyHeaderValue);
     
     // Add the correct Permissions-Policy header
-    response.headers.set('Permissions-Policy', 
+    sessionResponse.headers.set('Permissions-Policy', 
       "accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), payment=(), usb=()"
-    )
+    );
     
-    // Skip processing for static assets to improve performance
-    const isStaticAsset = staticAssetPatterns.some(pattern => 
-      pattern.test(request.nextUrl.pathname)
-    )
-    
-    if (isStaticAsset) {
-      log(debugId, `📦 Static asset, skipping auth check: ${request.nextUrl.pathname}`)
-      return response
-    }
-    
-    // Update the Supabase session which fixes the CSRF token issues
-    const sessionResponse = await updateSession(request)
-    
-    // Copy over the cookies from the session response
-    sessionResponse.cookies.getAll().forEach(cookie => {
-      response.cookies.set(cookie.name, cookie.value)
-    })
-    
-    // Skip WebSocket upgrade requests
-    if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-      log(debugId, `🔌 WebSocket upgrade request detected`);
-      return response
-    }
-    
-    // Get the base path for efficient route checking
-    const pathname = request.nextUrl.pathname;
-    const basePath = getBasePath(pathname);
-
     // Determine if this is a public path that doesn't need authentication
     const isPublicPath = publicRoutes.some(route => pathname.startsWith(route));
-
+    
     if (isPublicPath) {
-      log(debugId, `🔓 Public path, skipping auth check: ${pathname}`)
-      return response
+      log(debugId, `🔓 Public path, skipping auth check: ${pathname}`);
+      return sessionResponse;
     }
     
-    // Check if this is a protected route
+    // For protected routes, we need to check the auth state
     const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
     
-    // For API routes, we only need authentication, not full registration
-    const isApiRoute = pathname.startsWith('/api/');
-    
-    // Check if URL requires authentication
     if (isProtectedRoute) {
       log(debugId, `🔒 Protected route access: ${pathname}`);
-      // Additional auth logic can be implemented here if needed
+      
+      // Create a Supabase client to check the auth state
+      // We do this directly here (even though updateSession was already called)
+      // because we specifically need the user info to make auth decisions
+      const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            getAll() {
+              return request.cookies.getAll();
+            },
+            setAll(cookiesToSet) {
+              cookiesToSet.forEach(({ name, value, options }) => {
+                sessionResponse.cookies.set(name, value, options);
+              });
+            },
+          },
+        }
+      );
+      
+      // Get the user to check authentication status
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      
+      // If no user is found and this is a protected route, redirect to login
+      if (!user && isProtectedRoute) {
+        log(debugId, `🔒 No user found, redirecting to login`);
+        
+        // Remember the URL the user was trying to access for post-login redirect
+        const callbackUrl = encodeURIComponent(request.nextUrl.pathname);
+        const redirectUrl = new URL(`/login?callbackUrl=${callbackUrl}`, request.url);
+        
+        return NextResponse.redirect(redirectUrl);
+      }
+    }
+    
+    // Handle auth pages (login/signup) for already authenticated users
+    if (isAuthPath) {
+      log(debugId, `🔑 Auth page detected, checking if user is already authenticated`);
+      
+      // Create a new supabase client for this specific check
+      const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            getAll() {
+              return request.cookies.getAll();
+            },
+            setAll(cookiesToSet) {
+              cookiesToSet.forEach(({ name, value, options }) => {
+                sessionResponse.cookies.set(name, value, options);
+              });
+            },
+          },
+        }
+      );
+      
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      
+      // If user is already logged in and on an auth page, redirect to dashboard
+      if (user) {
+        log(debugId, `👤 User already authenticated, redirecting to dashboard`);
+        
+        // Get callback URL if present, otherwise default to dashboard
+        const callbackUrl = request.nextUrl.searchParams.get('callbackUrl');
+        const redirectUrl = callbackUrl ? decodeURIComponent(callbackUrl) : '/dashboard';
+        
+        return NextResponse.redirect(new URL(redirectUrl, request.url));
+      }
     }
     
     log(debugId, `✅ Middleware processing complete`);
-    return response;
+    return sessionResponse;
   } catch (error) {
     logError(debugId, `🔥 Critical middleware error:`, error);
     

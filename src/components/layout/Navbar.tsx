@@ -104,36 +104,27 @@ export default function Navbar() {
       setIsProfileOpen(false);
       setIsMobileMenuOpen(false);
       
-      // Clear browser storage
-      try {
-        localStorage.removeItem('supabase.auth.token');
-        sessionStorage.removeItem('supabase.auth.token');
-        console.log('✅ Cleared local storage auth tokens');
-      } catch (storageError) {
-        console.error('Error clearing storage:', storageError);
-      }
+      // Get Supabase URL prefix for localStorage keys
+      const supabaseUrlPrefix = process.env.NEXT_PUBLIC_SUPABASE_URL
+        ? process.env.NEXT_PUBLIC_SUPABASE_URL.split('//')[1]?.split('.')[0]
+        : '';
       
       // Use our server-side logout endpoint which handles everything
       console.log('🔄 Calling server logout endpoint');
       const logoutResponse = await fetch('/api/auth/logout', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': sessionStorage.getItem('csrfToken') || ''
         },
         credentials: 'include' // Important to include cookies
       });
       
       if (!logoutResponse.ok) {
-        console.error('❌ Server logout failed:', await logoutResponse.json());
+        console.error('❌ Server logout failed:', await logoutResponse.text());
       } else {
         console.log('✅ Server logout successful');
       }
-      
-      // Skip the direct Supabase call which causes CORS issues
-      // Instead, rely on our server endpoint which already handles it
-      
-      // Wait a moment for cleanup
-      await new Promise(resolve => setTimeout(resolve, 200));
       
       // Reset client-side auth state
       if (signOut) {
@@ -142,11 +133,30 @@ export default function Navbar() {
           await signOut();
         } catch (signOutError) {
           console.error('Error in client signOut:', signOutError);
-          // Continue with logout process even if this fails
         }
       }
       
-      console.log('✅ Sign out process complete');
+      // Clear browser storage - all possible Supabase auth storage items
+      try {
+        // Clear localStorage session and auth tokens
+        localStorage.removeItem('supabase.auth.token');
+        localStorage.removeItem(`sb-${supabaseUrlPrefix}-auth-token`);
+        
+        // Scan localStorage for any keys matching the pattern sb-*-auth-*
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith('sb-') && key.includes('-auth-')) {
+            localStorage.removeItem(key);
+          }
+        });
+        
+        // Clear sessionStorage
+        sessionStorage.removeItem('supabase.auth.token');
+        sessionStorage.removeItem(`sb-${supabaseUrlPrefix}-auth-token`);
+        
+        console.log('✅ Cleared local storage auth tokens');
+      } catch (storageError) {
+        console.error('Error clearing storage:', storageError);
+      }
       
       // Force clear all cookies by resetting document.cookie
       const cookies = document.cookie.split(';');
@@ -157,30 +167,31 @@ export default function Navbar() {
         document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;`;
       }
       
-      // Redirect to home page with a slight delay to allow for cleanup
+      console.log('✅ Sign out process complete');
+      
+      // Reset Supabase client singleton to force re-instantiation
+      try {
+        // Use dynamic import to avoid bundling issues
+        const { resetSupabaseClient } = await import('@/lib/supabase-singleton');
+        resetSupabaseClient();
+        console.log('✅ Reset Supabase client singleton');
+      } catch (resetError) {
+        console.error('Error resetting Supabase client:', resetError);
+      }
+      
+      // Redirect to login page with a slight delay to allow for cleanup
       setTimeout(() => {
-        window.location.href = '/';
+        window.location.href = '/login';
       }, 100);
     } catch (error) {
       console.error('❌ Error during sign out:', error);
       
       // If something fails, try a more aggressive cleanup approach
       try {
-        // Clear all cookies manually
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-          const cookie = cookies[i];
-          const eqPos = cookie.indexOf('=');
-          const name = eqPos > -1 ? cookie.substring(0, eqPos).trim() : cookie.trim();
-          document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;`;
-        }
-        
-        // Last resort: just redirect
-        window.location.href = '/';
+        // Force navigation to login page
+        window.location.href = '/login';
       } catch (fallbackError) {
         console.error('❌ Even fallback logout failed:', fallbackError);
-        // Force reload to homepage
-        window.location.href = '/';
       }
     }
   };
