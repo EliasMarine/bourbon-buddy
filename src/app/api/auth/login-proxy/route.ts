@@ -19,33 +19,54 @@ export async function POST(req: NextRequest) {
                            process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview'
     const isDevelopment = process.env.NODE_ENV === 'development'
     
+    // Debug CSRF token - always log these details
+    console.log('Login-proxy request details:', {
+      method: req.method,
+      url: req.url,
+      host: req.headers.get('host'),
+      origin: req.headers.get('origin'),
+      referer: req.headers.get('referer'),
+      csrfTokenHeader: req.headers.get('X-CSRF-Token') ? 
+        `${req.headers.get('X-CSRF-Token')?.substring(0, 5)}...` : 'missing',
+      hasCookie: !!req.headers.get('cookie'),
+      cookieNames: req.headers.get('cookie')?.split(';').map(c => c.trim().split('=')[0]).join(', '),
+    })
+    
     // Skip CSRF validation in development or provide detailed error in preview
     let csrfValidated = false
     if (isDevelopment && process.env.BYPASS_CSRF === 'true') {
       console.log('Skipping CSRF validation in development mode')
       csrfValidated = true
     } else {
+      // Attempt validation
       csrfValidated = validateCsrfToken(req)
       
       if (!csrfValidated) {
-        // Enhanced error information in preview environments to help debug
-        if (isVercelPreview) {
-          console.error('Login proxy CSRF validation failed', {
-            headers: Array.from(req.headers.entries())
-              .filter(([key]) => !key.toLowerCase().includes('authorization'))
-              .map(([key, value]) => `${key}: ${value.substring(0, 20)}${value.length > 20 ? '...' : ''}`)
-              .join(', '),
-            hasCookie: !!req.headers.get('cookie'),
-            hasOrigin: !!req.headers.get('origin'),
-            method: req.method,
-            url: req.url,
-          })
-          
+        // Enhanced error information in all environments to help debug
+        console.error('Login proxy CSRF validation failed', {
+          headers: Array.from(req.headers.entries())
+            .filter(([key]) => !key.toLowerCase().includes('authorization'))
+            .map(([key, value]) => `${key}: ${value.substring(0, 20)}${value.length > 20 ? '...' : ''}`)
+            .join(', '),
+          hasCookie: !!req.headers.get('cookie'),
+          cookieNames: req.headers.get('cookie')?.split(';').map(c => c.trim().split('=')[0]).join(', '),
+          hasOrigin: !!req.headers.get('origin'),
+          hasXCSRFToken: !!req.headers.get('X-CSRF-Token'),
+          xcsrfTokenLength: req.headers.get('X-CSRF-Token')?.length || 0,
+          method: req.method,
+          url: req.url,
+        })
+        
+        // Different error messages based on environment
+        if (isVercelPreview || isDevelopment) {
           return NextResponse.json(
             { 
               error: 'Invalid CSRF token',
               details: 'CSRF token validation failed. This is likely a cross-origin issue.',
-              help: 'Ensure cookies are being sent with your request and check browser console for CORS errors.'
+              help: 'Ensure cookies are being sent with your request and check browser console for CORS errors.',
+              hasToken: !!req.headers.get('X-CSRF-Token'),
+              hasCookie: !!req.headers.get('cookie'),
+              debug: true
             },
             { status: 403 }
           )

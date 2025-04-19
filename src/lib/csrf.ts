@@ -83,9 +83,9 @@ export function createCsrfCookie(secret: string, createdAt: number): string {
   // Get environment
   const isProduction = process.env.NODE_ENV === 'production';
   
-  // For Vercel deployments or cross-domain scenarios, 'None' with Secure may be needed
-  // For most cases, 'Lax' provides better cross-origin compatibility than 'Strict'
-  const sameSite = process.env.CSRF_SAME_SITE || (isProduction ? 'None' : 'Lax');
+  // Always use 'None' with Secure in production, regardless of CSRF_SAME_SITE env var
+  // For development, 'Lax' is fine
+  const sameSite = isProduction ? 'None' : 'Lax';
   
   // Debug mode
   const debug = process.env.DEBUG_CSRF === 'true';
@@ -197,18 +197,23 @@ export function validateCsrfToken(req: Request, csrfToken?: string) {
   const isProduction = process.env.NODE_ENV === 'production'
   const debug = process.env.DEBUG_CSRF === 'true' || isProduction
   
+  // Always log detailed information for CSRF errors in production
+  const enhancedDebug = true
+  
   // Enhanced debugging in production to help identify CSRF issues
-  if (debug) {
+  if (debug || enhancedDebug) {
     console.log('🔒 CSRF validation details:', {
       method: req.method,
       path: url.pathname,
       hasToken: !!csrfToken,
+      tokenStart: csrfToken ? `${csrfToken.substring(0, 5)}...` : undefined,
+      tokenLength: csrfToken?.length || 0,
       origin: req.headers.get('origin'),
       referer: req.headers.get('referer'),
       host: req.headers.get('host'),
       environment: process.env.NODE_ENV,
       cookieHeader: req.headers.get('cookie') ? 'present' : 'missing',
-      tokenLength: csrfToken?.length || 0,
+      headerNames: Array.from(req.headers.keys()).join(', '),
     })
   } else {
     console.log('Validating CSRF token for request:', {
@@ -220,10 +225,20 @@ export function validateCsrfToken(req: Request, csrfToken?: string) {
   
   // Extract CSRF token from header if not provided
   if (!csrfToken) {
-    csrfToken = req.headers.get('x-csrf-token') || 
-               req.headers.get('csrf-token') || 
-               req.headers.get('X-CSRF-Token') || 
-               undefined
+    // Try each header variant
+    const xCsrfToken = req.headers.get('x-csrf-token')
+    const csrfTokenHeader = req.headers.get('csrf-token')
+    const xCsrfTokenUpper = req.headers.get('X-CSRF-Token')
+    
+    if (enhancedDebug) {
+      console.log('🔍 CSRF token headers check:', {
+        'x-csrf-token': xCsrfToken ? `${xCsrfToken.substring(0, 5)}...` : undefined,
+        'csrf-token': csrfTokenHeader ? `${csrfTokenHeader.substring(0, 5)}...` : undefined,
+        'X-CSRF-Token': xCsrfTokenUpper ? `${xCsrfTokenUpper.substring(0, 5)}...` : undefined,
+      })
+    }
+    
+    csrfToken = xCsrfToken || csrfTokenHeader || xCsrfTokenUpper || undefined
     
     // For GET requests, CSRF validation isn't strictly necessary
     if (!csrfToken && req.method === 'GET') {

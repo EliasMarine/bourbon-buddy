@@ -44,9 +44,23 @@ export async function GET(req: NextRequest) {
       status: 'success'
     })
     
-    // Set the cookie with proper headers
-    const cookieHeader = createCsrfCookie(secret, createdAt)
-    response.headers.set('Set-Cookie', cookieHeader)
+    // In production, force SameSite=None and Secure attributes
+    if (isProduction) {
+      const cookieValue = `${secret}|${createdAt}`
+      response.cookies.set(cookieName, cookieValue, {
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        maxAge: 60 * 60 * 24 * 7, // 7 days
+      })
+      
+      console.log('🍪 CSRF cookie set with explicit SameSite=None and Secure attributes')
+    } else {
+      // In development, use the helper function
+      const cookieHeader = createCsrfCookie(secret, createdAt)
+      response.headers.set('Set-Cookie', cookieHeader)
+    }
     
     // Add Cache control headers to prevent caching
     response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
@@ -62,7 +76,7 @@ export async function GET(req: NextRequest) {
       console.log('✅ CSRF token generated successfully', {
         tokenLength: token.length,
         cookieName,
-        cookieSet: !!cookieHeader,
+        cookieSet: isProduction || !!response.headers.get('Set-Cookie'),
         corsHeaders: {
           'Access-Control-Allow-Origin': response.headers.get('Access-Control-Allow-Origin'),
           'Access-Control-Allow-Credentials': response.headers.get('Access-Control-Allow-Credentials'),

@@ -66,6 +66,16 @@ export function CsrfToken({
         throw new Error(`Failed to fetch CSRF token: ${response.statusText}`)
       }
       
+      // Debug response headers to check for Set-Cookie
+      const headers = Array.from(response.headers.entries())
+      console.log('CSRF API Response Headers:', {
+        status: response.status,
+        hasSetCookie: response.headers.has('set-cookie'),
+        contentType: response.headers.get('content-type'),
+        headers: headers.map(([key, value]) => 
+          `${key}: ${key.toLowerCase() === 'set-cookie' ? '[cookie-value]' : value.substring(0, 30)}${value.length > 30 ? '...' : ''}`)
+      })
+      
       const data = await response.json()
       
       if (!data.csrfToken || typeof data.csrfToken !== 'string') {
@@ -138,9 +148,8 @@ export function CsrfToken({
         console.log('Adding CSRF token to POST request to', typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url)
         modifiedInit.headers = {
           ...(modifiedInit.headers || {}),
-          'x-csrf-token': token,
-          'csrf-token': token,
-          'X-CSRF-Token': token,
+          // Use only the standard X-CSRF-Token header
+          'X-CSRF-Token': token
         }
       }
 
