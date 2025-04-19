@@ -185,6 +185,9 @@ export function extractCsrfSecret(cookies: Record<string, string>) {
   }
 }
 
+// Cache for recently validated tokens to avoid revalidation overhead
+const validatedTokensCache = new Map<string, boolean>();
+
 // Middleware helper to validate CSRF tokens
 export function validateCsrfToken(req: Request, csrfToken?: string) {
   // Skip validation in development if enabled
@@ -200,29 +203,12 @@ export function validateCsrfToken(req: Request, csrfToken?: string) {
   // Always log detailed information for CSRF errors in production
   const enhancedDebug = true
   
-  // Enhanced debugging in production to help identify CSRF issues
-  if (debug || enhancedDebug) {
-    console.log('🔒 CSRF validation details:', {
-      method: req.method,
-      path: url.pathname,
-      hasToken: !!csrfToken,
-      tokenStart: csrfToken ? `${csrfToken.substring(0, 5)}...` : undefined,
-      tokenLength: csrfToken?.length || 0,
-      origin: req.headers.get('origin'),
-      referer: req.headers.get('referer'),
-      host: req.headers.get('host'),
-      environment: process.env.NODE_ENV,
-      cookieHeader: req.headers.get('cookie') ? 'present' : 'missing',
-      headerNames: Array.from(req.headers.keys()).join(', '),
-    })
-  } else {
-    console.log('Validating CSRF token for request:', {
-      method: req.method,
-      path: url.pathname,
-      hasToken: !!csrfToken,
-    })
+  // For GET requests, CSRF validation isn't strictly necessary
+  if (req.method === 'GET') {
+    console.log('Skipping CSRF validation for GET request')
+    return true
   }
-  
+
   // Extract CSRF token from header if not provided
   if (!csrfToken) {
     // Try each header variant
@@ -230,21 +216,7 @@ export function validateCsrfToken(req: Request, csrfToken?: string) {
     const csrfTokenHeader = req.headers.get('csrf-token')
     const xCsrfTokenUpper = req.headers.get('X-CSRF-Token')
     
-    if (enhancedDebug) {
-      console.log('🔍 CSRF token headers check:', {
-        'x-csrf-token': xCsrfToken ? `${xCsrfToken.substring(0, 5)}...` : undefined,
-        'csrf-token': csrfTokenHeader ? `${csrfTokenHeader.substring(0, 5)}...` : undefined,
-        'X-CSRF-Token': xCsrfTokenUpper ? `${xCsrfTokenUpper.substring(0, 5)}...` : undefined,
-      })
-    }
-    
     csrfToken = xCsrfToken || csrfTokenHeader || xCsrfTokenUpper || undefined
-    
-    // For GET requests, CSRF validation isn't strictly necessary
-    if (!csrfToken && req.method === 'GET') {
-      console.log('Skipping CSRF validation for GET request')
-      return true
-    }
     
     if (!csrfToken) {
       console.warn('CSRF token missing from request headers', {
@@ -253,6 +225,12 @@ export function validateCsrfToken(req: Request, csrfToken?: string) {
       })
       return false
     }
+  }
+  
+  // Check cache first to avoid reprocessing the same token
+  const cacheKey = `${csrfToken}`
+  if (validatedTokensCache.has(cacheKey)) {
+    return validatedTokensCache.get(cacheKey) as boolean
   }
   
   // Get cookies from request
@@ -275,12 +253,6 @@ export function validateCsrfToken(req: Request, csrfToken?: string) {
       hasCsrfCookie: !!cookies[getCsrfCookieName()],
       csrfCookieName: getCsrfCookieName(),
       url: url.pathname,
-    })
-  } else {
-    console.log('Cookies found in request:', {
-      cookieCount: Object.keys(cookies).length,
-      cookieNames: Object.keys(cookies),
-      hasCsrfCookie: !!cookies[getCsrfCookieName()],
     })
   }
   
@@ -307,6 +279,10 @@ export function validateCsrfToken(req: Request, csrfToken?: string) {
       secret50: secretData.secret.substring(0, 5) + '...',
       token50: csrfToken.substring(0, 5) + '...',
     })
+    
+    // Cache the validation result (negative)
+    validatedTokensCache.set(cacheKey, false)
+    
     return false
   }
   
@@ -320,7 +296,20 @@ export function validateCsrfToken(req: Request, csrfToken?: string) {
       maxAge: '24 hours',
       url: url.pathname,
     })
+    
+    // Cache the validation result (negative)
+    validatedTokensCache.set(cacheKey, false)
+    
     return false
+  }
+  
+  // Cache the validation result (positive)
+  validatedTokensCache.set(cacheKey, true)
+  
+  // Clear old cache entries periodically (keep only recent entries)
+  if (validatedTokensCache.size > 100) {
+    const keysToDelete = Array.from(validatedTokensCache.keys()).slice(0, 50)
+    keysToDelete.forEach(key => validatedTokensCache.delete(key))
   }
   
   if (debug) {

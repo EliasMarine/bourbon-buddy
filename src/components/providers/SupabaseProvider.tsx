@@ -78,7 +78,7 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
   async function refreshSession() {
     const now = Date.now();
     
-    // Prevent refreshing too frequently
+    // Prevent refreshing too frequently - increase the minimum interval
     if (now - lastSuccessfulRefresh < MIN_REFRESH_INTERVAL) {
       console.log(`Session refresh skipped - last successful refresh was ${Math.round((now - lastSuccessfulRefresh) / 1000)}s ago`);
       setIsSessionStable(true);
@@ -121,18 +121,28 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
           
           // Mark successful refresh time
           lastSuccessfulRefresh = Date.now();
+          setIsSessionStable(true);
+          isRefreshingSessionRef.current = false;
+          globalRefreshingSession = false;
+          setIsLoading(false);
+          
+          // If session is valid for more than 10 minutes, skip further refresh
+          const expiresAt = sessionData.session.expires_at;
+          const expiresInMs = expiresAt ? (expiresAt * 1000) - Date.now() : 0;
+          
+          if (expiresInMs > 10 * 60 * 1000) {
+            console.log(`Session valid for ${Math.round(expiresInMs / 1000 / 60)} minutes, skipping refresh`);
+            return;
+          }
         }
-        
-        // Even though we got the session, still try to refresh it to extend its lifetime
       }
       
       // Only try to refresh if we don't already have a valid session
       const shouldTryRefresh = !sessionData?.session || 
                               (sessionData.session.expires_at && 
-                               sessionData.session.expires_at * 1000 < Date.now() + 30 * 60 * 1000); // 30 minutes
+                              sessionData.session.expires_at * 1000 < Date.now() + 60 * 60 * 1000); // 1 hour
       
       if (shouldTryRefresh) {
-        // Proceed with session refresh
         try {
           const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
           
@@ -142,17 +152,23 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
             // If we already have a session from getSession, we can continue with that
             if (sessionData?.session) {
               console.log('Continuing with existing session from cookies');
+              setIsSessionStable(true);
+              isRefreshingSessionRef.current = false;
+              globalRefreshingSession = false;
+              setIsLoading(false);
               return;
             }
             
-            // Otherwise try a custom endpoint that may handle cookies better
+            // Try custom endpoint with a single attempt
             try {
               const response = await fetch('/api/auth/token-refresh', {
                 method: 'POST',
                 headers: {
-                  'Content-Type': 'application/json'
+                  'Content-Type': 'application/json',
+                  'X-CSRF-Token': typeof window !== 'undefined' ? 
+                    window.sessionStorage.getItem('csrfToken') || '' : ''
                 },
-                body: JSON.stringify({}) // Send empty body, the endpoint will try to get token from cookies
+                credentials: 'include'
               });
               
               if (response.ok) {
@@ -179,142 +195,32 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
                 }
               } else {
                 console.error('Proxy token refresh failed:', await response.text());
-                
-                // Try manually recovering from localStorage as last resort
-                if (typeof window !== 'undefined') {
-                  try {
-                    const storedSession = localStorage.getItem('supabase.auth.token');
-                    if (storedSession) {
-                      console.log('Found stored session, attempting recovery');
-                      const parsedSession = JSON.parse(storedSession);
-                      
-                      if (parsedSession?.currentSession?.access_token) {
-                        console.log('Using locally stored session data as fallback');
-                        
-                        const localSession = parsedSession.currentSession;
-                        
-                        // Manually construct a session object
-                        const manualSession: Session = {
-                          access_token: localSession.access_token,
-                          refresh_token: localSession.refresh_token,
-                          expires_in: localSession.expires_in || 3600,
-                          expires_at: localSession.expires_at || Math.floor(Date.now() / 1000) + 3600,
-                          token_type: 'bearer',
-                          user: localSession.user
-                        };
-                        
-                        if (isMountedRef.current) {
-                          setSession(manualSession);
-                          setUser(manualSession.user);
-                          setError(null);
-                        }
-                        
-                        // Try using our server proxy to refresh with the refresh token
-                        if (manualSession.refresh_token) {
-                          try {
-                            const refreshResponse = await fetch('/api/auth/token-refresh', {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                              },
-                              body: JSON.stringify({
-                                refresh_token: manualSession.refresh_token
-                              })
-                            });
-                            
-                            if (refreshResponse.ok) {
-                              const result = await refreshResponse.json();
-                              console.log('Successfully refreshed session via proxy with explicit token');
-                              
-                              if (isMountedRef.current) {
-                                // Update the session with the refreshed data
-                                const updatedSession: Session = {
-                                  access_token: result.access_token,
-                                  refresh_token: result.refresh_token,
-                                  expires_in: result.expires_in || 3600,
-                                  expires_at: Math.floor(Date.now() / 1000) + (result.expires_in || 3600),
-                                  token_type: 'bearer',
-                                  user: result.user
-                                };
-                                
-                                setSession(updatedSession);
-                                setUser(updatedSession.user);
-                                
-                                // Mark successful refresh time
-                                lastSuccessfulRefresh = Date.now();
-                              }
-                            }
-                          } catch (proxyError) {
-                            console.error('Server proxy refresh with token failed:', proxyError);
-                          }
-                        }
-                      }
-                    }
-                  } catch (localStorageError) {
-                    console.error('Error parsing localStorage session:', localStorageError);
-                  }
-                }
+                // Continue without further fallback attempts
               }
             } catch (proxyError) {
-              console.error('Error calling token refresh proxy:', proxyError);
+              console.error('Error using token refresh proxy:', proxyError);
             }
-          } else {
-            // Successful refresh via normal method
-            console.log('Session refreshed successfully via standard method');
-            
+          } else if (refreshData?.session) {
+            console.log('Successfully refreshed session via Supabase client');
             if (isMountedRef.current) {
               setSession(refreshData.session);
-              setUser(refreshData.session?.user || null);
+              setUser(refreshData.session.user);
               setError(null);
-              
-              // Mark successful refresh time
               lastSuccessfulRefresh = Date.now();
             }
           }
-        } catch (refreshCatchError) {
-          console.error('Uncaught error in refreshSession:', refreshCatchError);
+        } catch (error) {
+          console.error('Unexpected error during session refresh:', error);
+          setError({ message: 'Failed to refresh session', status: 500 } as AuthError);
         }
-      } else {
-        console.log('Skipping refresh - current session is still valid');
-      }
-      
-      // Check for registration status in both app_metadata and user_metadata
-      const currentUser = sessionData?.session?.user || user;
-      if (currentUser && isMountedRef.current) {
-        const isRegistered = currentUser.app_metadata?.is_registered === true || 
-                            currentUser.user_metadata?.is_registered === true;
-                            
-        const hasLastSyncTime = !!currentUser.app_metadata?.last_synced_at || 
-                               !!currentUser.user_metadata?.last_synced_at;
-        
-        // Mark as synced if registered or if we have a last_synced_at timestamp
-        if (isRegistered || hasLastSyncTime) {
-          console.log('User has is_registered flag or last_synced_at timestamp');
-          setUserSynced(true);
-          globalUserSynced = true;
-        }
-      }
-    } catch (err) {
-      console.error('Error in refreshSession:', err);
-      if (isMountedRef.current) {
-        setError(err as AuthError);
-      }
-      
-      // Implement retry mechanism only if mounted
-      if (isMountedRef.current && typeof window !== 'undefined') {
-        console.log('Setting up retry for session refresh');
-        setTimeout(() => {
-          if (isMountedRef.current) refreshSession();
-        }, 5000); // Retry after 5 seconds (increased from 3)
       }
     } finally {
-      isRefreshingSessionRef.current = false;
-      globalRefreshingSession = false;
       if (isMountedRef.current) {
         setIsLoading(false);
-        // Mark session as stable once we've gone through the refresh process
         setIsSessionStable(true);
       }
+      isRefreshingSessionRef.current = false;
+      globalRefreshingSession = false;
     }
   }
   

@@ -53,22 +53,76 @@ export default function LoginPage() {
       }
 
       // Use our proxy endpoint instead of direct Supabase auth
+      console.log('Adding CSRF token to POST request to /api/auth/login-proxy');
+      
       const response = await fetch('/api/auth/login-proxy', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Send only the standard X-CSRF-Token header
           ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
         },
         body: JSON.stringify({ email, password }),
         credentials: 'include',
       });
       
-      if (response.status === 401) {
-        console.error('Login failed: Unauthorized (401)', { 
-          url: response.url,
-          statusText: response.statusText
-        });
+      if (!response.ok) {
+        if (response.status === 401) {
+          console.error('Login failed: Unauthorized (401)', { 
+            url: response.url,
+            statusText: response.statusText
+          });
+          setError('Invalid email or password. Please try again.');
+        } else if (response.status === 403) {
+          console.error('Login failed: CSRF failure (403)');
+          
+          // Refresh CSRF token and try again once
+          try {
+            const refreshResponse = await fetch('/api/csrf?_t=' + Date.now(), {
+              method: 'GET',
+              credentials: 'include'
+            });
+            
+            if (refreshResponse.ok) {
+              const refreshData = await refreshResponse.json();
+              if (refreshData.csrfToken) {
+                // Store new token
+                sessionStorage.setItem('csrfToken', refreshData.csrfToken);
+                console.log('Obtained new CSRF token, retrying login...');
+                
+                // Retry login with new token
+                const retryResponse = await fetch('/api/auth/login-proxy', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': refreshData.csrfToken
+                  },
+                  body: JSON.stringify({ email, password }),
+                  credentials: 'include',
+                });
+                
+                if (retryResponse.ok) {
+                  console.log('Login successful after CSRF refresh');
+                  const data = await retryResponse.json();
+                  router.push(callbackUrl || '/dashboard');
+                  return;
+                } else {
+                  console.error('Login retry failed after CSRF refresh:', retryResponse.status);
+                  setError('Login failed. Please try refreshing the page and try again.');
+                }
+              }
+            } else {
+              console.error('Failed to refresh CSRF token');
+              setError('Security token refresh failed. Please try refreshing the page.');
+            }
+          } catch (retryError) {
+            console.error('Error during login retry:', retryError);
+            setError('Login error. Please try refreshing the page.');
+          }
+        } else {
+          setError('Login failed. Please check your credentials and try again.');
+        }
+        setIsLoading(false);
+        return;
       }
       
       let data;
@@ -80,39 +134,19 @@ export default function LoginPage() {
         setIsLoading(false);
         return;
       }
-      
-      if (!response.ok) {
-        setError(data.error || 'Invalid email or password. Please try again.');
-        setIsLoading(false);
-        return;
-      }
 
       console.log('Login successful, setting session data');
-      
-      // Check if we have session data and manually set it
-      if (data.session && supabase?.auth) {
-        try {
-          // Set the auth state with the session data
-          await supabase.auth.setSession({
-            access_token: data.session.access_token,
-            refresh_token: data.session.refresh_token
-          });
-          
-          console.log('Session data set successfully');
-        } catch (sessionError) {
-          console.error('Error setting session:', sessionError);
-          // Continue anyway, the redirect should still work
+      router.push(callbackUrl || '/dashboard');
+    } catch (err) {
+      console.error('Login form error:', err);
+      setError('An unexpected error occurred. Please try again.');
+    } finally {
+      // Keep loading true during redirect
+      setTimeout(() => {
+        if (document.visibilityState !== 'hidden') {
+          setIsLoading(false);
         }
-      }
-
-      // On successful login, redirect to the callback URL
-      console.log('Redirecting to:', callbackUrl);
-      router.push(callbackUrl);
-      router.refresh();
-    } catch (error) {
-      console.error('Login error:', error);
-      setError('An authentication error occurred. Please try again later.');
-      setIsLoading(false);
+      }, 2000);
     }
   };
 
