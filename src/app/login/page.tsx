@@ -103,7 +103,24 @@ export default function LoginPage() {
                 if (retryResponse.ok) {
                   console.log('Login successful after CSRF refresh');
                   const data = await retryResponse.json();
-                  router.push(callbackUrl || '/dashboard');
+                  
+                  // Explicitly set the session in Supabase client
+                  if (data.session && supabase?.auth) {
+                    try {
+                      await supabase.auth.setSession({
+                        access_token: data.session.access_token,
+                        refresh_token: data.session.refresh_token
+                      });
+                      console.log('Session explicitly set after CSRF retry login');
+                    } catch (sessionError) {
+                      console.error('Error setting session after CSRF retry:', sessionError);
+                    }
+                  }
+                  
+                  // Wait a moment for session to be established
+                  setTimeout(() => {
+                    router.push(callbackUrl || '/dashboard');
+                  }, 500);
                   return;
                 } else {
                   console.error('Login retry failed after CSRF refresh:', retryResponse.status);
@@ -136,7 +153,34 @@ export default function LoginPage() {
       }
 
       console.log('Login successful, setting session data');
-      router.push(callbackUrl || '/dashboard');
+
+      // Explicitly set the session in Supabase client to ensure it's properly stored
+      if (data.session && supabase?.auth) {
+        try {
+          // Set the auth state with the session data
+          await supabase.auth.setSession({
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token
+          });
+          console.log('Session explicitly set in Supabase client');
+          
+          // Also store in localStorage as fallback mechanism
+          try {
+            localStorage.setItem('sb:session', JSON.stringify(data.session));
+            console.log('Session data also stored in localStorage');
+          } catch (storageError) {
+            console.warn('Unable to store session in localStorage:', storageError);
+          }
+        } catch (sessionError) {
+          console.error('Error setting session:', sessionError);
+          // We'll still try to navigate even if this fails
+        }
+      }
+      
+      // Wait a moment for session to be established
+      setTimeout(() => {
+        router.push(callbackUrl || '/dashboard');
+      }, 500);
     } catch (err) {
       console.error('Login form error:', err);
       setError('An unexpected error occurred. Please try again.');

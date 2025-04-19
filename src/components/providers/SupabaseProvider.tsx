@@ -338,6 +338,39 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     
     // Initialize session only if not already loading
     if (!isRefreshingSessionRef.current) {
+      // Check local storage for session data as a fallback
+      if (typeof window !== 'undefined') {
+        try {
+          // Check if we have a session in localStorage
+          const storedSession = localStorage.getItem('sb:session');
+          if (storedSession) {
+            try {
+              const parsedSession = JSON.parse(storedSession);
+              console.log('Found session data in localStorage, setting as fallback');
+              
+              // Only set if we have a valid session object with tokens
+              if (parsedSession?.access_token && parsedSession?.refresh_token) {
+                // Manually set the session to ensure we're authenticated
+                supabase.auth.setSession({
+                  access_token: parsedSession.access_token,
+                  refresh_token: parsedSession.refresh_token
+                }).then(({ data }) => {
+                  if (data.session) {
+                    console.log('Successfully restored session from localStorage');
+                  }
+                }).catch(err => {
+                  console.warn('Error restoring session from localStorage:', err);
+                });
+              }
+            } catch (parseError) {
+              console.warn('Error parsing stored session:', parseError);
+            }
+          }
+        } catch (storageError) {
+          console.warn('Error accessing localStorage:', storageError);
+        }
+      }
+      
       // Delay the initial session refresh to give cookies time to settle
       setTimeout(() => {
         if (isMountedRef.current) {
