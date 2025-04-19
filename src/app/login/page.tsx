@@ -57,11 +57,8 @@ export default function LoginPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(csrfToken ? {
-            'x-csrf-token': csrfToken,
-            'csrf-token': csrfToken,
-            'X-CSRF-Token': csrfToken,
-          } : {})
+          // Send only the standard X-CSRF-Token header
+          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
         },
         body: JSON.stringify({ email, password }),
         credentials: 'include',
