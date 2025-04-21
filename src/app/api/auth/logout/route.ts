@@ -24,10 +24,12 @@ export async function POST(req: NextRequest) {
       const isValid = validateCsrfToken(req)
       if (!isValid) {
         console.error('Invalid CSRF token for logout')
-        return NextResponse.json(
+        const response = NextResponse.json(
           { error: 'Invalid CSRF token' },
           { status: 403 }
         )
+        setCorsHeaders(req, response)
+        return response
       }
     } else {
       console.log('Skipping CSRF validation in development mode')
@@ -68,44 +70,43 @@ export async function POST(req: NextRequest) {
       ] : [])
     ]
     
-    // For each cookie, set an expired cookie with all possible path and domain combinations
-    authCookies.forEach(cookieName => {
-      // Default cookie (path=/)
+    // Clear each cookie with all possible paths
+    authCookies.forEach(name => {
       response.cookies.set({
-        name: cookieName,
+        name,
         value: '',
         expires: new Date(0),
         path: '/',
         sameSite: 'lax',
       })
       
-      // Also add a version with secure flag for HTTPS
-      if (process.env.NODE_ENV === 'production' || req.url.includes('https')) {
-        response.cookies.set({
-          name: cookieName,
-          value: '',
-          expires: new Date(0),
-          path: '/',
-          sameSite: 'lax',
-          secure: true
-        })
-      }
+      // Also try clearing with different path variations
+      response.cookies.set({
+        name,
+        value: '',
+        expires: new Date(0),
+        path: '',
+        sameSite: 'lax',
+      })
     })
     
-    // Add Cache-Control headers to prevent caching
-    response.headers.set('Cache-Control', 'no-store, max-age=0, must-revalidate')
-    response.headers.set('Pragma', 'no-cache')
-    response.headers.set('Expires', '0')
-    
+    // Set proper CORS headers before returning
     setCorsHeaders(req, response)
+    console.log('Logout endpoint successfully completed')
+    
     return response
   } catch (error) {
-    console.error('Logout error:', error)
+    console.error('Critical error in logout endpoint:', error)
+    
+    // Create error response with CORS headers
     const response = NextResponse.json(
-      { error: 'Internal Server Error' },
+      { error: 'An unexpected error occurred during logout' },
       { status: 500 }
     )
+    
+    // Ensure CORS headers are set even in error case
     setCorsHeaders(req, response)
+    
     return response
   }
 } 

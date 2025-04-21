@@ -1,25 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
-import { isOriginAllowed, setCorsHeaders, handleCorsPreflightRequest } from '@/lib/cors'
+import { setCorsHeaders, handleCorsPreflightRequest } from '@/lib/cors'
 
 /**
  * Handle OPTIONS requests (CORS preflight)
- * Safari needs a 200 response with proper CORS headers
  */
 export function OPTIONS(req: NextRequest) {
   return handleCorsPreflightRequest(req)
 }
 
 /**
- * Token endpoint for Supabase authentication
- * This route proxies password grant requests to avoid CORS issues with credentials
+ * Authentication token endpoint
+ * This endpoint handles authentication requests without CORS issues
  */
 export async function POST(req: NextRequest) {
   try {
+    console.log('Auth token endpoint called')
+    
+    // Parse the request body
     const body = await req.json()
     const { email, password } = body
     
     if (!email || !password) {
+      console.error('Invalid auth request: missing email or password')
       const response = NextResponse.json(
         { error: 'Email and password are required' },
         { status: 400 }
@@ -28,17 +31,19 @@ export async function POST(req: NextRequest) {
       return response
     }
     
-    // Create a direct Supabase client (no cookies)
+    // Create a server-side Supabase client
     const supabase = createSupabaseServerClient()
     
-    // Handle sign-in on the server side
+    // Attempt to sign in - this will create a session if successful
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
     })
     
     if (error) {
-      console.error('Auth token error:', error.message)
+      console.error('Auth error:', error.message)
+      
+      // Return descriptive error with proper CORS headers
       const response = NextResponse.json(
         { error: error.message },
         { status: 401 }
@@ -47,26 +52,43 @@ export async function POST(req: NextRequest) {
       return response
     }
     
-    // Log successful authentication
-    console.log(`Successful auth for ${email.substring(0, 3)}*** via token endpoint`)
+    if (!data.session) {
+      console.error('Auth error: No session returned')
+      const response = NextResponse.json(
+        { error: 'Authentication failed - no session' },
+        { status: 500 }
+      )
+      setCorsHeaders(req, response)
+      return response
+    }
     
-    // Return the session data with proper CORS headers, exactly matching Supabase's response format
+    console.log('Login successful, setting session data')
+    
+    // Return the session data in a format expected by the frontend
     const response = NextResponse.json({
       access_token: data.session.access_token,
-      token_type: 'bearer',
-      expires_in: 3600,
       refresh_token: data.session.refresh_token,
+      expires_in: 3600, // Default expiry time in seconds
+      token_type: 'bearer',
       user: data.user
     })
+    
+    // Set proper CORS headers and cookies
     setCorsHeaders(req, response)
+    
     return response
   } catch (error) {
-    console.error('Auth token error:', error)
+    console.error('Critical error in auth token endpoint:', error)
+    
+    // Create error response with CORS headers
     const response = NextResponse.json(
-      { error: 'Internal Server Error' },
+      { error: 'An unexpected error occurred during authentication' },
       { status: 500 }
     )
+    
+    // Ensure CORS headers are set even in error case
     setCorsHeaders(req, response)
+    
     return response
   }
 } 

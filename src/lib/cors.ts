@@ -20,10 +20,31 @@ const ALLOWED_ORIGINS = [
   'http://localhost:4000'
 ];
 
+/**
+ * Determines the appropriate Access-Control-Allow-Origin value
+ * based on the request's origin
+ */
+function determineAllowedOrigin(request?: NextRequest): string {
+  // In development, be permissive
+  if (process.env.NODE_ENV === 'development') {
+    return 'http://localhost:3000';
+  }
+  
+  const origin = request?.headers.get('origin') || '';
+  
+  // If the origin is in our allowed list, return it
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    return origin;
+  }
+  
+  // Default to the primary production origin
+  return 'https://bourbonbuddy.live';
+}
+
 // Default CORS settings
 export const DEFAULT_CORS_HEADERS = {
-  // For development, allow localhost with any port
-  'Access-Control-Allow-Origin': determineAllowedOrigin(),
+  // Use function to determine origin based on request
+  'Access-Control-Allow-Origin': 'https://bourbonbuddy.live', // This will be replaced in setCorsHeaders
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-csrf-token, csrf-token, X-CSRF-Token',
   'Access-Control-Allow-Credentials': 'true',
@@ -31,40 +52,17 @@ export const DEFAULT_CORS_HEADERS = {
 }
 
 /**
- * Determine the allowed origin based on the current environment and request
+ * Adds CORS headers to a response based on the request
  */
-function determineAllowedOrigin(req?: NextRequest): string {
-  const isProduction = process.env.NODE_ENV === 'production'
-  const isDevelopment = process.env.NODE_ENV === 'development'
+export function setCorsHeaders(req: NextRequest, res: NextResponse): NextResponse {
+  // Set the proper origin based on the request
+  res.headers.set('Access-Control-Allow-Origin', determineAllowedOrigin(req));
+  res.headers.set('Access-Control-Allow-Methods', DEFAULT_CORS_HEADERS['Access-Control-Allow-Methods']);
+  res.headers.set('Access-Control-Allow-Headers', DEFAULT_CORS_HEADERS['Access-Control-Allow-Headers']);
+  res.headers.set('Access-Control-Allow-Credentials', DEFAULT_CORS_HEADERS['Access-Control-Allow-Credentials']);
+  res.headers.set('Access-Control-Max-Age', DEFAULT_CORS_HEADERS['Access-Control-Max-Age']);
   
-  // In development, accept localhost requests
-  if (isDevelopment) {
-    return 'http://localhost:3000'
-  }
-  
-  // With an incoming request, we can be more specific
-  if (req) {
-    const origin = req.headers.get('origin')
-    if (!origin) return isProduction ? 'https://bourbonbuddy.com' : '*'
-
-    // Check against allowed patterns
-    if (
-      // Main domain
-      origin.match(/^https:\/\/(www\.)?bourbonbuddy\.com$/) ||
-      // Vercel preview environments 
-      origin.match(/^https:\/\/bourbon-buddy.*\.vercel\.app$/) ||
-      // Localhost for development
-      origin.match(/^http:\/\/localhost:\d+$/)
-    ) {
-      return origin
-    }
-    
-    // Default to our main domain in production, or any origin in non-production
-    return isProduction ? 'https://bourbonbuddy.com' : '*'
-  }
-  
-  // No request, default to more restrictive setting based on environment
-  return isProduction ? 'https://bourbonbuddy.com' : '*'
+  return res;
 }
 
 /**
@@ -93,32 +91,6 @@ export function isOriginAllowed(origin: string | null): boolean {
     
     return false;
   });
-}
-
-/**
- * Set CORS headers on a NextResponse
- */
-export function setCorsHeaders(req: NextRequest, res: NextResponse): void {
-  // Get allowed origin based on request
-  const allowedOrigin = determineAllowedOrigin(req)
-  
-  // Set default CORS headers
-  res.headers.set('Access-Control-Allow-Origin', allowedOrigin)
-  res.headers.set('Access-Control-Allow-Methods', DEFAULT_CORS_HEADERS['Access-Control-Allow-Methods'])
-  res.headers.set('Access-Control-Allow-Headers', DEFAULT_CORS_HEADERS['Access-Control-Allow-Headers'])
-  res.headers.set('Access-Control-Allow-Credentials', DEFAULT_CORS_HEADERS['Access-Control-Allow-Credentials'])
-  
-  // Debug output for CORS settings
-  const debug = process.env.DEBUG_CORS === 'true' || process.env.NODE_ENV === 'production'
-  if (debug) {
-    console.log('🌐 CORS headers set:', {
-      allowedOrigin,
-      requestOrigin: req.headers.get('origin'),
-      requestMethod: req.method,
-      url: req.url,
-      environment: process.env.NODE_ENV,
-    })
-  }
 }
 
 /**

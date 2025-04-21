@@ -108,8 +108,8 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
               
               // Handle auth-related requests to avoid CORS issues
               if (urlString.includes('/auth/v1/')) {
-                // For Firefox, use proxy for logout
-                if (isFirefox && urlString.includes('/auth/v1/logout')) {
+                // For ALL browsers, use proxy for logout (not just Firefox)
+                if (urlString.includes('/auth/v1/logout')) {
                   clearTimeout(timeoutId);
                   console.log('Intercepting logout request to use proxy');
                   
@@ -464,6 +464,9 @@ export async function signInWithProxyEndpoint(email: string, password: string) {
   try {
     console.log(`Attempting auth via token endpoint for ${email.substring(0, 3)}***`);
     
+    // Add a delay before attempting authentication to ensure any previous session is cleared
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     // Use our dedicated token endpoint for authentication, which properly handles CORS
     const response = await fetch('/api/auth/token', {
       method: 'POST',
@@ -513,9 +516,34 @@ export async function signInWithProxyEndpoint(email: string, password: string) {
         // Get the current instance to update its session
         console.log('Setting Supabase session from token endpoint data');
         
+        // Add a delay before session setup
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
         // Reset the client first to ensure a clean state
         resetSupabaseClient();
         const refreshedInstance = getSupabaseClient();
+        
+        // Store session data in local storage as a backup
+        try {
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+          const supabaseUrlPrefix = supabaseUrl.includes('.')
+            ? supabaseUrl.split('//')[1]?.split('.')[0]
+            : '';
+          
+          const storageKey = `sb-${supabaseUrlPrefix}-auth-token`;
+          
+          // Store session data in localStorage
+          localStorage.setItem(storageKey, JSON.stringify({
+            access_token: transformedResult.session.access_token,
+            refresh_token: transformedResult.session.refresh_token,
+            expires_at: Math.floor(Date.now() / 1000) + (transformedResult.session.expires_in || 3600),
+            user: transformedResult.user
+          }));
+          
+          console.log('Session data also stored in localStorage');
+        } catch (storageError) {
+          console.warn('Could not store session in localStorage:', storageError);
+        }
         
         // Manually set the auth state - this triggers the auth event listeners
         if (refreshedInstance.auth && typeof refreshedInstance.auth.setSession === 'function') {
@@ -523,6 +551,8 @@ export async function signInWithProxyEndpoint(email: string, password: string) {
             access_token: transformedResult.session.access_token,
             refresh_token: transformedResult.session.refresh_token
           });
+          
+          console.log('Session explicitly set in Supabase client');
           
           // After setting the session, explicitly trigger a state refresh
           // This helps ensure React components are properly updated
