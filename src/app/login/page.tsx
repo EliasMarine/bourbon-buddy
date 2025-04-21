@@ -112,16 +112,17 @@ export default function LoginPage() {
                         refresh_token: data.session.refresh_token
                       });
                       console.log('Session explicitly set after CSRF retry login');
+                      
+                      // Wait briefly for session to fully establish before redirecting
+                      await new Promise(resolve => setTimeout(resolve, 200));
+                      
+                      // Then redirect
+                      router.push(callbackUrl || '/dashboard');
+                      return;
                     } catch (sessionError) {
                       console.error('Error setting session after CSRF retry:', sessionError);
                     }
                   }
-                  
-                  // Wait a moment for session to be established
-                  setTimeout(() => {
-                    router.push(callbackUrl || '/dashboard');
-                  }, 500);
-                  return;
                 } else {
                   console.error('Login retry failed after CSRF refresh:', retryResponse.status);
                   setError('Login failed. Please try refreshing the page and try again.');
@@ -171,26 +172,24 @@ export default function LoginPage() {
           } catch (storageError) {
             console.warn('Unable to store session in localStorage:', storageError);
           }
+          
+          // Wait briefly for session to fully establish before redirecting
+          await new Promise(resolve => setTimeout(resolve, 200));
+          
+          // Then redirect to dashboard
+          router.push(callbackUrl || '/dashboard');
         } catch (sessionError) {
           console.error('Error setting session:', sessionError);
-          // We'll still try to navigate even if this fails
+          setIsLoading(false);
         }
-      }
-      
-      // Wait a moment for session to be established
-      setTimeout(() => {
+      } else {
+        // Redirect even if no session data (unusual case)
         router.push(callbackUrl || '/dashboard');
-      }, 500);
+      }
     } catch (err) {
       console.error('Login form error:', err);
       setError('An unexpected error occurred. Please try again.');
-    } finally {
-      // Keep loading true during redirect
-      setTimeout(() => {
-        if (document.visibilityState !== 'hidden') {
-          setIsLoading(false);
-        }
-      }, 2000);
+      setIsLoading(false);
     }
   };
 
