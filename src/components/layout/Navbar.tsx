@@ -15,7 +15,6 @@ import GlencairnGlass from '../ui/icons/GlencairnGlass';
 import { getProfileImageUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
 import SafeImage from '@/components/ui/SafeImage';
 import { useSupabase } from '@/components/providers/SupabaseProvider';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { toast } from 'react-hot-toast';
 
 export default function Navbar() {

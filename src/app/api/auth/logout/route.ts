@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
+import { createServerClient } from '@/lib/supabase-server'
 import { setCorsHeaders, handleCorsPreflightRequest } from '@/lib/cors'
 import { validateCsrfToken } from '@/lib/csrf'
 
@@ -18,8 +17,9 @@ export function OPTIONS(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     console.log('Logout endpoint called')
-    const cookieStore = cookies()
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
+    
+    // Create a server-side Supabase client
+    const supabase = createServerClient()
 
     // Get the Supabase URL and project ID for specific cookie patterns
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
