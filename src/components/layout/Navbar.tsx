@@ -100,40 +100,44 @@ export default function Navbar() {
     try {
       console.log('🚪 Starting sign out process');
       
-      // Clear UI state first
-      setIsProfileOpen(false);
-      setIsMobileMenuOpen(false);
-      
-      // Get Supabase URL prefix for localStorage keys
-      const supabaseUrlPrefix = process.env.NEXT_PUBLIC_SUPABASE_URL
-        ? process.env.NEXT_PUBLIC_SUPABASE_URL.split('//')[1]?.split('.')[0]
+      // Get Supabase URL prefix for cookie/storage cleanup
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+      const supabaseUrlPrefix = supabaseUrl.includes('.')
+        ? supabaseUrl.split('//')[1]?.split('.')[0]
         : '';
-      
-      // Use our server-side logout endpoint which handles everything
-      console.log('🔄 Calling server logout endpoint');
-      const logoutResponse = await fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': sessionStorage.getItem('csrfToken') || ''
-        },
-        credentials: 'include' // Important to include cookies
-      });
-      
-      if (!logoutResponse.ok) {
-        console.error('❌ Server logout failed:', await logoutResponse.text());
-      } else {
-        console.log('✅ Server logout successful');
+
+      // First try to call the server logout endpoint to properly invalidate the session
+      try {
+        const csrfToken = sessionStorage.getItem('supabase_csrf_token') || '';
+        console.log('🔄 Calling server logout endpoint');
+        
+        const response = await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+          },
+          credentials: 'include'
+        });
+        
+        if (response.ok) {
+          console.log('✅ Server logout successful');
+        } else {
+          // If server logout fails, log the error but continue with client-side cleanup
+          console.error('Server logout failed:', await response.text());
+        }
+      } catch (serverLogoutError) {
+        // Log but don't rethrow - we'll still try to logout client-side
+        console.error('Error calling server logout endpoint:', serverLogoutError);
       }
       
-      // Reset client-side auth state
-      if (signOut) {
-        try {
-          console.log('🔄 Resetting client auth state');
-          await signOut();
-        } catch (signOutError) {
-          console.error('Error in client signOut:', signOutError);
-        }
+      console.log('🔄 Resetting client auth state');
+      
+      // Next try the Supabase client signOut - catch errors but don't stop if it fails
+      try {
+        await signOut();
+      } catch (signOutError) {
+        console.error('Error signing out:', signOutError);
       }
       
       // Clear browser storage - all possible Supabase auth storage items
@@ -184,15 +188,13 @@ export default function Navbar() {
         window.location.href = '/login';
       }, 100);
     } catch (error) {
-      console.error('❌ Error during sign out:', error);
+      // Catch-all for any other errors
+      console.error('Critical error during sign out:', error);
       
-      // If something fails, try a more aggressive cleanup approach
-      try {
-        // Force navigation to login page
+      // Still redirect to login page even if sign out failed
+      setTimeout(() => {
         window.location.href = '/login';
-      } catch (fallbackError) {
-        console.error('❌ Even fallback logout failed:', fallbackError);
-      }
+      }, 100);
     }
   };
 

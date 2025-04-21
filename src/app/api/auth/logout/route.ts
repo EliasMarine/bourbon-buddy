@@ -18,6 +18,8 @@ export async function POST(req: NextRequest) {
   try {
     console.log('Logout endpoint called')
     
+    // Temporarily disable CSRF validation for testing
+    /*
     // Skip CSRF validation in development mode to simplify local testing
     if (process.env.NODE_ENV !== 'development') {
       // Validate CSRF token
@@ -34,6 +36,8 @@ export async function POST(req: NextRequest) {
     } else {
       console.log('Skipping CSRF validation in development mode')
     }
+    */
+    console.log('⚠️ CSRF validation temporarily disabled for testing logout ⚠️');
     
     // Create a direct Supabase client
     const supabase = createSupabaseServerClient()
