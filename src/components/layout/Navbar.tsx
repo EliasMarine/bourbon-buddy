@@ -142,20 +142,38 @@ export default function Navbar() {
       
       // Clear browser storage - all possible Supabase auth storage items
       try {
-        // Clear localStorage session and auth tokens
-        localStorage.removeItem('supabase.auth.token');
-        localStorage.removeItem(`sb-${supabaseUrlPrefix}-auth-token`);
+        console.log('🧹 Clearing browser storage...');
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+        const supabaseUrlPrefix = supabaseUrl.includes('.')
+          ? supabaseUrl.split('//')[1]?.split('.')[0]
+          : '';
+        const storageKey = `sb-${supabaseUrlPrefix}-auth-token`;
         
-        // Scan localStorage for any keys matching the pattern sb-*-auth-*
+        // Log keys before clearing
+        console.log(`Target localStorage key: ${storageKey}`);
+        console.log(`Existing localStorage keys: ${Object.keys(localStorage).join(', ')}`);
+        
+        // Clear specific Supabase key
+        localStorage.removeItem(storageKey);
+        console.log(`Removed ${storageKey} from localStorage.`);
+        
+        // Clear generic Supabase keys (if they exist)
+        localStorage.removeItem('supabase.auth.token');
+        console.log('Removed supabase.auth.token from localStorage.');
+        
+        // Scan and remove any other potential keys (more aggressive)
         Object.keys(localStorage).forEach(key => {
           if (key.startsWith('sb-') && key.includes('-auth-')) {
             localStorage.removeItem(key);
+            console.log(`Aggressively removed localStorage key: ${key}`);
           }
         });
         
-        // Clear sessionStorage
+        // Clear sessionStorage as well
+        sessionStorage.removeItem(storageKey);
         sessionStorage.removeItem('supabase.auth.token');
-        sessionStorage.removeItem(`sb-${supabaseUrlPrefix}-auth-token`);
+        sessionStorage.removeItem('supabase_csrf_token'); // Clear CSRF token too
+        console.log('Cleared relevant sessionStorage items.');
         
         console.log('✅ Cleared local storage auth tokens');
       } catch (storageError) {

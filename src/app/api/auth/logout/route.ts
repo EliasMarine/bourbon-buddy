@@ -58,47 +58,70 @@ export async function POST(req: NextRequest) {
     // Create response with proper CORS headers
     const response = NextResponse.json({
       message: 'Successfully logged out'
-    })
+    });
     
-    // Clear auth cookies directly from the response - including all possible pattern variations
+    // Define the domain based on environment
+    const cookieDomain = process.env.NODE_ENV === 'production' 
+      ? '.bourbonbuddy.live' // Use your main domain with a leading dot
+      : undefined; // Let the browser handle localhost
+
+    // Clear auth cookies directly from the response - more robustly
     const authCookies = [
       'sb-access-token',
       'sb-refresh-token',
+      'sb-provider-token', // Add any other potential provider tokens
+      'sb-provider-refresh-token',
       'supabase-auth-token',
-      '__session', // Next.js session cookies
-      'supabase-session',
-      '_supabase_session',
-      // Add domain-specific cookie patterns using project reference
+      // Include Supabase < P C K E > cookies if used
+      'sb-pkce-verifier',
+      // Add dynamic cookie name based on Supabase project ref
       ...(process.env.NEXT_PUBLIC_SUPABASE_URL ? [
         `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL.split('//')[1]?.split('.')[0]}-auth-token`
       ] : [])
-    ]
-    
-    // Clear each cookie with all possible paths
+    ];
+
+    console.log(`[Logout API] Attempting to clear cookies: ${authCookies.join(', ')} for domain: ${cookieDomain || 'default'}`);
+
     authCookies.forEach(name => {
+      // Clear cookie with path=/ and domain
       response.cookies.set({
         name,
         value: '',
         expires: new Date(0),
         path: '/',
-        sameSite: 'lax',
-      })
-      
-      // Also try clearing with different path variations
+        domain: cookieDomain,
+        httpOnly: true, // Match typical Supabase cookie settings
+        secure: process.env.NODE_ENV === 'production', // Match typical Supabase cookie settings
+        sameSite: 'lax' // Match typical Supabase cookie settings
+      });
+      // Clear cookie without path and domain (for localhost/simpler cases)
       response.cookies.set({
         name,
         value: '',
         expires: new Date(0),
-        path: '',
-        sameSite: 'lax',
-      })
-    })
-    
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax'
+      });
+    });
+
+    // Also try deleting directly (some browsers might respond better)
+    authCookies.forEach(name => {
+      // Delete with specific path and domain
+      response.cookies.delete({ 
+        name, 
+        path: '/', 
+        domain: cookieDomain 
+      });
+      // Delete without specific path/domain (for default/localhost)
+      response.cookies.delete({ name });
+    });
+
     // Set proper CORS headers before returning
-    setCorsHeaders(req, response)
-    console.log('Logout endpoint successfully completed')
+    setCorsHeaders(req, response);
+    console.log('Logout endpoint successfully completed, cookies cleared in response');
     
-    return response
+    return response;
   } catch (error) {
     console.error('Critical error in logout endpoint:', error)
     
