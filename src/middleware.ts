@@ -139,26 +139,71 @@ export async function middleware(request: NextRequest) {
   const debugId = generateDebugId()
   
   // Log middleware execution if verbose logging is enabled
-  if (isVerboseLogging()) {
-    console.log(`[${debugId}] Middleware executing for ${request.url}`)
-  }
-  
-  // Create a response from next 
-  const response = NextResponse.next()
+  log(debugId, `Middleware executing for ${request.url}`)
   
   try {
-    // Extract the domain from the request
-    const url = new URL(request.url)
-    const domain = url.hostname
+    // Create a response from next 
+    const response = NextResponse.next({
+      request: {
+        headers: request.headers,
+      },
+    })
     
-    // Only allow certain domains 
-    const allowedDomains = [
-      'localhost',
-      'local-ipv4',
-      'bourbon-buddy.vercel.app',
-      'bourbonbuddy.live',
-      'www.bourbonbuddy.live'
-    ]
+    // Create Supabase client for auth session handling
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll()
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+            cookiesToSet.forEach(({ name, value, options }) => 
+              response.cookies.set(name, value, options)
+            )
+          },
+        },
+      }
+    )
+    
+    // Do not run code between createServerClient and
+    // supabase.auth.getUser(). This could make debugging auth issues difficult
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    // Extract the URL from the request
+    const url = new URL(request.url)
+    const path = url.pathname
+    
+    // Is this a protected route?
+    const isProtectedRoute = protectedRoutesSet.has(path) || 
+                           protectedRoutes.some(route => path.startsWith(route))
+    
+    // Is this a public route? (that doesn't need auth)
+    const isPublicRoute = publicRoutesSet.has(path) || 
+                        publicRoutes.some(route => path.startsWith(route))
+    
+    // Is this a static asset? (images, css, etc.)
+    const isStaticAsset = staticAssetPatterns.some(pattern => pattern.test(path))
+    
+    // Skip auth checks for public routes and static assets
+    if (isPublicRoute || isStaticAsset) {
+      log(debugId, `Skipping auth check for public route or static asset: ${path}`)
+      return response
+    }
+    
+    // Protected route but no authenticated user - redirect to login
+    if (isProtectedRoute && !user) {
+      log(debugId, `Protected route access denied, redirecting to login: ${path}`)
+      const redirectUrl = new URL('/login', request.url)
+      // Add the original path as a redirect param
+      redirectUrl.searchParams.set('redirect', path)
+      return NextResponse.redirect(redirectUrl)
+    }
+    
+    // Extract the domain from the request
+    const domain = url.hostname
     
     // Set CORS headers for API routes
     if (url.pathname.startsWith('/api/')) {
@@ -167,9 +212,7 @@ export async function middleware(request: NextRequest) {
       response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token')
       response.headers.set('Access-Control-Allow-Credentials', 'true')
       
-      if (isVerboseLogging()) {
-        console.log(`[${debugId}] Set CORS headers for API route`)
-      }
+      log(debugId, `Set CORS headers for API route`)
     }
     
     // Add response headers for all requests
@@ -247,14 +290,12 @@ export async function middleware(request: NextRequest) {
       response.headers.set('Content-Security-Policy', cspHeader)
     }
     
-    if (isVerboseLogging()) {
-      console.log(`[${debugId}] Middleware complete`)
-    }
+    log(debugId, `Middleware complete`)
     
     return response
   } catch (e) {
     // Log the error but proceed with the request
-    console.error(`[${debugId}] Middleware error:`, e)
-    return response
+    logError(debugId, `Middleware error:`, e)
+    return NextResponse.next()
   }
 }

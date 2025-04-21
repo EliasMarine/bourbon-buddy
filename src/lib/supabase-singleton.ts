@@ -264,6 +264,19 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
                       }));
                     }
                     
+                    // If refresh token is invalid or missing, don't attempt the refresh
+                    // This prevents the 400 error that requires a second click
+                    if (!body.refresh_token || typeof body.refresh_token !== 'string' || body.refresh_token.length < 10) {
+                      console.log('Invalid or missing refresh token - skipping refresh attempt');
+                      return Promise.resolve(new Response(JSON.stringify({ 
+                        error: 'Invalid refresh token',
+                        error_description: 'Session expired or invalid'
+                      }), { 
+                        status: 401,
+                        headers: { 'Content-Type': 'application/json' }
+                      }));
+                    }
+                    
                     // Get CSRF token if available
                     let csrfToken = '';
                     try {
@@ -277,43 +290,6 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
                     // Extract refresh token from request
                     const refreshToken = body.refresh_token;
                     
-                    // Check if refresh token is valid
-                    if (!refreshToken || typeof refreshToken !== 'string' || refreshToken.length < 10) {
-                      console.warn('Invalid refresh token detected, attempting to get token from localStorage');
-                      
-                      // Try to get a refresh token from localStorage as fallback
-                      let storedToken = '';
-                      try {
-                        if (typeof window !== 'undefined' && window.localStorage) {
-                          // Look for Supabase refresh token in local storage
-                          const storageKey = 'sb-' + 
-                            (supabaseUrl?.split('//')[1]?.split('.')[0] || 'fallback') + 
-                            '-auth-token';
-                          
-                          const authData = window.localStorage.getItem(storageKey);
-                          if (authData) {
-                            try {
-                              const parsedData = JSON.parse(authData);
-                              if (parsedData?.refresh_token) {
-                                storedToken = parsedData.refresh_token;
-                                console.log('Found refresh token in localStorage, using as fallback');
-                              }
-                            } catch (parseError) {
-                              console.warn('Error parsing localStorage auth data:', parseError);
-                            }
-                          }
-                        }
-                      } catch (storageError) {
-                        console.warn('Error accessing localStorage:', storageError);
-                      }
-                      
-                      // Use the stored token if available
-                      if (storedToken) {
-                        console.log('Using fallback refresh token from localStorage');
-                        body.refresh_token = storedToken;
-                      }
-                    }
-                    
                     return fetch('/api/auth/token-refresh', {
                       method: 'POST',
                       headers: {
@@ -321,7 +297,7 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
                         ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
                       },
                       body: JSON.stringify({
-                        refresh_token: body.refresh_token
+                        refresh_token: refreshToken
                       }),
                       credentials: 'include',
                       mode: 'same-origin'
@@ -595,6 +571,41 @@ export async function signInWithProxyEndpoint(email: string, password: string) {
   } catch (error) {
     console.error('Authentication token endpoint error:', error);
     throw error;
+  }
+}
+
+/**
+ * Checks if there is a valid active session without refreshing it
+ * @returns Promise<boolean> True if a valid session exists
+ */
+export async function hasValidSession(): Promise<boolean> {
+  try {
+    // Get the current Supabase instance
+    const supabase = getSupabaseClient();
+    
+    // Check if there's an active session
+    const { data, error } = await supabase.auth.getSession();
+    
+    if (error) {
+      console.error('Error checking session:', error.message);
+      return false;
+    }
+    
+    // Verify session has access token and is not expired
+    if (data?.session?.access_token) {
+      // Check if expired
+      const expiresAt = data.session.expires_at;
+      if (expiresAt) {
+        const now = Math.floor(Date.now() / 1000);
+        return expiresAt > now;
+      }
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Error in hasValidSession:', error);
+    return false;
   }
 }
 

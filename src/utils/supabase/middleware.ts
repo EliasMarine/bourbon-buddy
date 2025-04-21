@@ -37,6 +37,18 @@ export async function updateSession(request: NextRequest) {
             return request.cookies.getAll()
           },
           setAll(cookiesToSet) {
+            // Create a new response to apply cookies
+            response = NextResponse.next({
+              request: {
+                headers: requestHeaders,
+              },
+            })
+            
+            // Add cache control headers again to the new response
+            response.headers.set('Cache-Control', 'no-store, max-age=0, must-revalidate')
+            response.headers.set('Pragma', 'no-cache')
+            response.headers.set('Expires', '0')
+            
             // Apply cookies to both request and response
             cookiesToSet.forEach(({ name, value, options }) => {
               // Apply to request (needed for current middleware execution)
@@ -54,6 +66,8 @@ export async function updateSession(request: NextRequest) {
                   : {})
               })
             })
+            
+            return response
           },
         },
       }

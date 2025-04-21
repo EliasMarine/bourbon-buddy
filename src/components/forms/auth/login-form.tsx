@@ -41,151 +41,91 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
       
       console.log('✅ Form validation passed, attempting authentication via proxy...')
       
-      // Try the new proxy endpoint first to avoid CORS issues
       try {
-        const data = await signInWithProxyEndpoint(email, password);
+        // Use the specialized proxy endpoint that avoids CORS issues
+        const response = await fetch('/api/auth/login-proxy', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...csrfHeaders
+          },
+          body: JSON.stringify({ email, password }),
+          credentials: 'include',
+          mode: 'same-origin'
+        })
         
-        console.log('✅ Login successful via token endpoint:', {
-          userId: data.user?.id,
-          email: data.user?.email?.substring(0, 3) + '***',
-          hasSession: !!data.session,
-          timestamp: new Date().toISOString()
-        });
+        const result = await response.json()
         
-        // Add a short delay before refreshing session to allow auth state to stabilize
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Refresh the session to ensure we have the latest state
-        await refreshSession();
-        
-        // Sync user with database - critical step to prevent auth/DB sync issues
-        try {
-          console.log('🔄 Syncing user with database...')
-          const syncResponse = await fetch('/api/auth/sync-user', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...csrfHeaders
-            }
-          })
+        if (!response.ok) {
+          let errorMessage = result.error || 'Login failed. Please check your credentials.'
+          console.error('Login error:', errorMessage, response.status)
+          setError(errorMessage)
           
-          if (!syncResponse.ok) {
-            console.warn('⚠️ User sync failed:', {
-              status: syncResponse.status,
-              statusText: syncResponse.statusText
+          // Add more debugging context in non-production environments
+          if (process.env.NODE_ENV !== 'production') {
+            setDebugInfo({
+              status: response.status,
+              statusText: response.statusText,
+              error: result.error,
+              details: result.details,
+              timestamp: new Date().toISOString()
             })
-            // Continue with redirection even if sync fails
-            // The middleware will handle future requests
-          } else {
-            console.log('✅ User sync successful')
           }
-        } catch (syncError) {
-          console.error('❌ User sync error:', syncError)
-          // Continue with redirection even if sync fails
+          return
         }
         
-        console.log('🔄 Redirecting to:', callbackUrl)
+        // Success - we have a session
+        console.log('Login successful, setting session data')
         
-        // Successful login, redirect
-        router.push(callbackUrl)
-        router.refresh()
-        return;
-      } catch (proxyError) {
-        console.warn('⚠️ Token login failed, falling back to direct Supabase auth:', proxyError);
-        // Fall back to direct authentication (below)
-      }
-      
-      // Fall back to direct Supabase authentication if proxy fails
-      const authResult = await supabase.auth.signInWithPassword({
-        email,
-        password
-      })
-      
-      // Log everything about the auth result for debugging
-      console.log('🔐 Supabase auth response:', JSON.stringify({
-        data: authResult.data,
-        error: authResult.error ? {
-          message: authResult.error.message,
-          name: authResult.error.name,
-          status: authResult.error.status,
-          code: authResult.error?.code
-        } : null
-      }, null, 2))
-      
-      const { data, error: signInError } = authResult
-      
-      if (signInError) {
-        const errorMsg = signInError.message || 'Failed to sign in'
-        
-        // Set detailed debug info
-        setDebugInfo({
-          errorCode: signInError.code,
-          errorName: signInError.name,
-          errorStatus: signInError.status,
-          errorMessage: signInError.message,
-          timestamp: new Date().toISOString()
-        })
-        
-        console.error('❌ Login error:', {
-          message: errorMsg,
-          code: signInError.code,
-          name: signInError.name,
-          status: signInError.status
-        })
-        
-        // Show more user-friendly error messages
-        if (errorMsg.includes('Invalid login credentials')) {
-          setError('Invalid email or password. Please try again or reset your password if you forgot it.')
-        } else if (errorMsg.includes('Email not confirmed')) {
-          setError('Please verify your email address before signing in. Check your inbox for a verification link.')
-        } else {
-          setError(errorMsg)
-        }
-        
-        return
-      }
-      
-      // Log user info on success (partial, for privacy)
-      if (data?.user) {
-        console.log('✅ Login successful:', {
-          userId: data.user.id,
-          email: data.user.email?.substring(0, 3) + '***',
-          hasSession: !!data.session,
-          timestamp: new Date().toISOString()
-        })
-        
-        // Sync user with database - critical step to prevent auth/DB sync issues
-        try {
-          console.log('🔄 Syncing user with database...')
-          const syncResponse = await fetch('/api/auth/sync-user', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...csrfHeaders
+        // Even with a successful authentication, explicitly set the session
+        if (result?.session) {
+          try {
+            // Explicitly set session in the Supabase client to ensure auth state is updated
+            await supabase.auth.setSession({
+              access_token: result.session.access_token,
+              refresh_token: result.session.refresh_token,
+            })
+            
+            // Store session data also in localStorage as a fallback
+            try {
+              const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+              const prefix = supabaseUrl.includes('.')
+                ? supabaseUrl.split('//')[1]?.split('.')[0]
+                : ''
+              
+              const storageKey = `sb-${prefix}-auth-token`
+              localStorage.setItem(storageKey, JSON.stringify({
+                access_token: result.session.access_token,
+                refresh_token: result.session.refresh_token,
+                expires_at: Math.floor(Date.now() / 1000) + (result.session.expires_in || 3600),
+                user: result.user
+              }))
+              
+              console.log('Session data also stored in localStorage')
+            } catch (storageError) {
+              console.warn('Could not store session in localStorage:', storageError)
             }
-          })
-          
-          if (!syncResponse.ok) {
-            console.warn('⚠️ User sync failed:', {
-              status: syncResponse.status,
-              statusText: syncResponse.statusText
-            })
-            // Continue with redirection even if sync fails
-            // The middleware will handle future requests
-          } else {
-            console.log('✅ User sync successful')
+          } catch (sessionError) {
+            console.error('Error setting session:', sessionError)
+            // Continue anyway as the auth cookie should still be set
           }
-        } catch (syncError) {
-          console.error('❌ User sync error:', syncError)
-          // Continue with redirection even if sync fails
         }
+        
+        // Refresh user session in context
+        refreshSession()
+                
+        // Sometimes the router.push doesn't work immediately after auth
+        // Set a small timeout to ensure auth state has propagated
+        setTimeout(() => {
+          router.push(callbackUrl)
+        }, 100)
+        
+      } catch (error) {
+        console.error('Login form error:', error)
+        setError('An unexpected error occurred. Please try again.')
+      } finally {
+        setLoading(false)
       }
-      
-      console.log('🔄 Redirecting to:', callbackUrl)
-      
-      // Successful login, redirect
-      router.push(callbackUrl)
-      router.refresh()
     } catch (err) {
       console.error('🔥 Unexpected login error:', err)
       setError('An unexpected error occurred. Please try again.')
@@ -193,8 +133,6 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
         unexpectedError: err instanceof Error ? err.message : String(err),
         timestamp: new Date().toISOString()
       })
-    } finally {
-      setLoading(false)
     }
   }
   

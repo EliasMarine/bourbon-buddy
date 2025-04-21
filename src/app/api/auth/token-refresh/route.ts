@@ -38,6 +38,14 @@ export async function POST(req: NextRequest) {
       return response;
     }
     
+    // Validate token format
+    if (typeof refresh_token !== 'string' || refresh_token.length < 10) {
+      console.error(`[${debugId}] Invalid refresh token format: ${typeof refresh_token}, length: ${refresh_token?.length || 0}`);
+      const response = NextResponse.json({ error: 'Invalid refresh token format' }, { status: 400 });
+      setCorsHeaders(req, response);
+      return response;
+    }
+    
     let supabase;
     try {
       console.log(`[${debugId}] Creating server-side Supabase client`);
@@ -58,7 +66,14 @@ export async function POST(req: NextRequest) {
     
     if (error) {
       console.error(`[${debugId}] Proxy token refresh failed:`, error);
-      const response = NextResponse.json({ error: error.message }, { status: error.status || 401 }); // Use error status if available
+      // Include more detailed error information for debugging
+      const errorDetails = {
+        error: error.message,
+        errorCode: error.code || 'unknown',
+        status: error.status || 401,
+        details: process.env.NODE_ENV !== 'production' ? error.details : undefined
+      };
+      const response = NextResponse.json(errorDetails, { status: error.status || 401 });
       setCorsHeaders(req, response);
       return response;
     }
