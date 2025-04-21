@@ -52,6 +52,9 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
           timestamp: new Date().toISOString()
         });
         
+        // Add a short delay before refreshing session to allow auth state to stabilize
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         // Refresh the session to ensure we have the latest state
         await refreshSession();
         

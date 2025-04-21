@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/lib/supabase-server'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 import { setCorsHeaders, handleCorsPreflightRequest } from '@/lib/cors'
 import { validateCsrfToken } from '@/lib/csrf'
 
@@ -17,121 +18,101 @@ export function OPTIONS(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     console.log('Logout endpoint called')
-    
-    // Temporarily disable CSRF validation for testing
-    /*
-    // Skip CSRF validation in development mode to simplify local testing
-    if (process.env.NODE_ENV !== 'development') {
-      // Validate CSRF token
-      const isValid = validateCsrfToken(req)
-      if (!isValid) {
-        console.error('Invalid CSRF token for logout')
-        const response = NextResponse.json(
-          { error: 'Invalid CSRF token' },
-          { status: 403 }
-        )
-        setCorsHeaders(req, response)
-        return response
-      }
-    } else {
-      console.log('Skipping CSRF validation in development mode')
-    }
-    */
-    console.log('⚠️ CSRF validation temporarily disabled for testing logout ⚠️');
-    
-    // Create a direct Supabase client
-    const supabase = createSupabaseServerClient()
-    
-    // Handle logout on the server side with global scope to invalidate all sessions
-    const { error } = await supabase.auth.signOut({ scope: 'global' })
-    
-    if (error) {
-      console.error('Logout error:', error.message)
-      const response = NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      )
-      setCorsHeaders(req, response)
-      return response
-    }
-    
-    // Create response with proper CORS headers
-    const response = NextResponse.json({
-      message: 'Successfully logged out'
-    });
-    
-    // Define the domain based on environment
-    const cookieDomain = process.env.NODE_ENV === 'production' 
-      ? '.bourbonbuddy.live' // Use your main domain with a leading dot
-      : undefined; // Let the browser handle localhost
+    const cookieStore = cookies()
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
 
-    // Clear auth cookies directly from the response - more robustly
-    const authCookies = [
+    // Get the Supabase URL and project ID for specific cookie patterns
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+    const projectId = supabaseUrl.split('//')[1]?.split('.')[0] || ''
+    
+    // First, perform Supabase signOut
+    await supabase.auth.signOut({ scope: 'global' })
+    console.log('Supabase auth.signOut called with global scope')
+    
+    // Prepare response with proper headers
+    const response = NextResponse.json(
+      { success: true, message: 'Logged out successfully' },
+      { status: 200 }
+    )
+    
+    // Set CORS headers using the utility function
+    setCorsHeaders(req, response)
+    
+    // Aggressively clear all possible Supabase-related cookies
+    const cookieNames = [
       'sb-access-token',
       'sb-refresh-token',
-      'sb-provider-token', // Add any other potential provider tokens
-      'sb-provider-refresh-token',
+      'sb-provider-token',
       'supabase-auth-token',
-      // Include Supabase < P C K E > cookies if used
+      '__session',
       'sb-pkce-verifier',
-      // Add dynamic cookie name based on Supabase project ref
-      ...(process.env.NEXT_PUBLIC_SUPABASE_URL ? [
-        `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL.split('//')[1]?.split('.')[0]}-auth-token`
-      ] : [])
-    ];
-
-    console.log(`[Logout API] Attempting to clear cookies: ${authCookies.join(', ')} for domain: ${cookieDomain || 'default'}`);
-
-    authCookies.forEach(name => {
-      // Clear cookie with path=/ and domain
-      response.cookies.set({
-        name,
-        value: '',
-        expires: new Date(0),
-        path: '/',
-        domain: cookieDomain,
-        httpOnly: true, // Match typical Supabase cookie settings
-        secure: process.env.NODE_ENV === 'production', // Match typical Supabase cookie settings
-        sameSite: 'lax' // Match typical Supabase cookie settings
-      });
-      // Clear cookie without path and domain (for localhost/simpler cases)
-      response.cookies.set({
-        name,
-        value: '',
-        expires: new Date(0),
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax'
-      });
-    });
-
-    // Also try deleting directly (some browsers might respond better)
-    authCookies.forEach(name => {
-      // Delete with specific path and domain
-      response.cookies.delete({ 
-        name, 
-        path: '/', 
-        domain: cookieDomain 
-      });
-      // Delete without specific path/domain (for default/localhost)
-      response.cookies.delete({ name });
-    });
-
-    // Set proper CORS headers before returning
-    setCorsHeaders(req, response);
-    console.log('Logout endpoint successfully completed, cookies cleared in response');
+      `sb-${projectId}-auth-token`,
+      'auth',
+      'token',
+      'session',
+      'sb:token',
+      'sb:session',
+      'auth-token',
+      'refresh-token',
+      // Add any other potential cookie names
+    ]
     
-    return response;
+    // Define potential domains based on environment
+    const domainsToTry = [
+      process.env.NODE_ENV === 'production' ? '.bourbonbuddy.live' : undefined, // Main domain with dot
+      process.env.NODE_ENV === 'production' ? 'bourbonbuddy.live' : undefined,  // Without dot
+      'localhost',
+      undefined // Let browser handle default
+    ].filter(Boolean) as string[];
+    
+    // Define potential paths
+    const pathsToTry = ['/', '/api', '/api/auth', ''];
+    
+    // Super aggressive cookie clearing - try all combinations
+    for (const name of cookieNames) {
+      for (const domain of domainsToTry) {
+        for (const path of pathsToTry) {
+          response.cookies.set({
+            name,
+            value: '',
+            expires: new Date(0),
+            path: path || '/',
+            ...(domain ? { domain } : {}),
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax'
+          });
+        }
+      }
+      
+      // Also try with the delete approach
+      for (const domain of domainsToTry) {
+        for (const path of pathsToTry) {
+          try {
+            response.cookies.delete({ 
+              name,
+              ...(path ? { path } : {}), 
+              ...(domain ? { domain } : {})
+            });
+          } catch (e) {
+            // Ignore errors from delete attempts, we're being aggressive
+          }
+        }
+      }
+    }
+    
+    console.log('Server-side logout successful')
+    return response
   } catch (error) {
-    console.error('Critical error in logout endpoint:', error)
+    console.error('Server-side logout error:', error)
     
-    // Create error response with CORS headers
+    // Create error response
     const response = NextResponse.json(
-      { error: 'An unexpected error occurred during logout' },
+      { success: false, error: 'Failed to log out' },
       { status: 500 }
     )
     
-    // Ensure CORS headers are set even in error case
+    // Set CORS headers on error response too
     setCorsHeaders(req, response)
     
     return response

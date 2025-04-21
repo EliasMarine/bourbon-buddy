@@ -244,6 +244,26 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
                     clearTimeout(timeoutId);
                     console.log('Intercepting refresh token request to use proxy');
                     
+                    // Check if we've been explicitly signed out
+                    let isSignedOut = false;
+                    try {
+                      isSignedOut = localStorage.getItem('auth_state') === 'SIGNED_OUT';
+                    } catch (e) {
+                      // Ignore storage errors
+                    }
+                    
+                    // Abort token refresh if user was signed out
+                    if (isSignedOut) {
+                      console.log('Aborting token refresh - user was explicitly signed out');
+                      return Promise.resolve(new Response(JSON.stringify({ 
+                        error: 'User is signed out',
+                        error_description: 'Authentication has been terminated'
+                      }), { 
+                        status: 401,
+                        headers: { 'Content-Type': 'application/json' }
+                      }));
+                    }
+                    
                     // Get CSRF token if available
                     let csrfToken = '';
                     try {

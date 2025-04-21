@@ -343,7 +343,11 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
         try {
           // Check if we have a session in localStorage
           const storedSession = localStorage.getItem('sb:session');
-          if (storedSession) {
+          
+          // Only restore if there's a stored session and we're not explicitly signed out
+          const isSignedOut = localStorage.getItem('auth_state') === 'SIGNED_OUT';
+          
+          if (storedSession && !isSignedOut) {
             try {
               const parsedSession = JSON.parse(storedSession);
               console.log('Found session data in localStorage, setting as fallback');
@@ -365,6 +369,8 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
             } catch (parseError) {
               console.warn('Error parsing stored session:', parseError);
             }
+          } else if (isSignedOut) {
+            console.log('Not restoring session from localStorage - user was explicitly signed out');
           }
         } catch (storageError) {
           console.warn('Error accessing localStorage:', storageError);
@@ -446,9 +452,16 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
             setUser(session?.user || null);
           }
         } 
-        // For SIGNED_OUT, don't redirect immediately - allow the last page render to complete
+        // Special handling for SIGNED_OUT events
         else if (event === 'SIGNED_OUT') {
           if (isMountedRef.current) {
+            // Mark explicitly signed out in localStorage to prevent auto-restore
+            try {
+              localStorage.setItem('auth_state', 'SIGNED_OUT');
+            } catch (e) {
+              // Ignore storage errors
+            }
+            
             // Small delay before clearing session to allow any in-flight renders to complete
             setTimeout(() => {
               if (isMountedRef.current) {

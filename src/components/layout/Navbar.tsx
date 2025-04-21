@@ -15,6 +15,8 @@ import GlencairnGlass from '../ui/icons/GlencairnGlass';
 import { getProfileImageUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
 import SafeImage from '@/components/ui/SafeImage';
 import { useSupabase } from '@/components/providers/SupabaseProvider';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { toast } from 'react-hot-toast';
 
 export default function Navbar() {
   const { data: session, status, signOut } = useSupabaseSession();
@@ -27,6 +29,7 @@ export default function Navbar() {
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const profileButtonRef = useRef<HTMLButtonElement>(null);
   const lastScrollY = useRef(0);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Handle scroll for navbar background and floating navigation
   useEffect(() => {
@@ -95,124 +98,86 @@ export default function Navbar() {
     return pathname.startsWith(path);
   };
 
-  // Enhanced sign out function that handles Supabase Auth
+  // Handle sign out with improved cleanup
   const handleSignOut = async () => {
     try {
-      console.log('🚪 Starting sign out process');
+      console.log('Starting logout process');
       
-      // Get Supabase URL prefix for cookie/storage cleanup
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-      const supabaseUrlPrefix = supabaseUrl.includes('.')
-        ? supabaseUrl.split('//')[1]?.split('.')[0]
-        : '';
+      // DEBUG: Log storage keys before logout
+      console.log("Keys before logout:", Object.keys(localStorage));
+      
+      // 1. Call the server-side logout endpoint
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
 
-      // First try to call the server logout endpoint to properly invalidate the session
-      try {
-        const csrfToken = sessionStorage.getItem('supabase_csrf_token') || '';
-        console.log('🔄 Calling server logout endpoint');
-        
-        const response = await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken,
-          },
-          credentials: 'include'
-        });
-        
-        if (response.ok) {
-          console.log('✅ Server logout successful');
-        } else {
-          // If server logout fails, log the error but continue with client-side cleanup
-          console.error('Server logout failed:', await response.text());
+      if (!response.ok) {
+        console.error('Server logout failed:', await response.text());
+      } else {
+        console.log('Server logout successful');
+      }
+
+      // 2. Aggressively clear all Supabase related localStorage items
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.startsWith('sb:') || key.includes('supabase'))) {
+          console.log(`Clearing localStorage key: ${key}`);
+          localStorage.removeItem(key);
         }
-      } catch (serverLogoutError) {
-        // Log but don't rethrow - we'll still try to logout client-side
-        console.error('Error calling server logout endpoint:', serverLogoutError);
       }
       
-      console.log('🔄 Resetting client auth state');
+      // Clear specific localStorage items we know about
+      localStorage.removeItem('sb:session');
+      localStorage.removeItem('supabaseSession');
+      localStorage.removeItem('supabase.auth.token');
       
-      // Next try the Supabase client signOut - catch errors but don't stop if it fails
-      try {
-        await signOut();
-      } catch (signOutError) {
-        console.error('Error signing out:', signOutError);
+      // Get the Supabase URL to handle project-specific keys
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+      const projectId = supabaseUrl.split('//')[1]?.split('.')[0] || '';
+      if (projectId) {
+        localStorage.removeItem(`sb-${projectId}-auth-token`);
       }
-      
-      // Clear browser storage - all possible Supabase auth storage items
-      try {
-        console.log('🧹 Clearing browser storage...');
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-        const supabaseUrlPrefix = supabaseUrl.includes('.')
-          ? supabaseUrl.split('//')[1]?.split('.')[0]
-          : '';
-        const storageKey = `sb-${supabaseUrlPrefix}-auth-token`;
-        
-        // Log keys before clearing
-        console.log(`Target localStorage key: ${storageKey}`);
-        console.log(`Existing localStorage keys: ${Object.keys(localStorage).join(', ')}`);
-        
-        // Clear specific Supabase key
-        localStorage.removeItem(storageKey);
-        console.log(`Removed ${storageKey} from localStorage.`);
-        
-        // Clear generic Supabase keys (if they exist)
-        localStorage.removeItem('supabase.auth.token');
-        console.log('Removed supabase.auth.token from localStorage.');
-        
-        // Scan and remove any other potential keys (more aggressive)
-        Object.keys(localStorage).forEach(key => {
-          if (key.startsWith('sb-') && key.includes('-auth-')) {
-            localStorage.removeItem(key);
-            console.log(`Aggressively removed localStorage key: ${key}`);
-          }
-        });
-        
-        // Clear sessionStorage as well
-        sessionStorage.removeItem(storageKey);
-        sessionStorage.removeItem('supabase.auth.token');
-        sessionStorage.removeItem('supabase_csrf_token'); // Clear CSRF token too
-        console.log('Cleared relevant sessionStorage items.');
-        
-        console.log('✅ Cleared local storage auth tokens');
-      } catch (storageError) {
-        console.error('Error clearing storage:', storageError);
+
+      // 3. Clear sessionStorage items
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.startsWith('sb:') || key.includes('supabase'))) {
+          console.log(`Clearing sessionStorage key: ${key}`);
+          sessionStorage.removeItem(key);
+        }
       }
-      
-      // Force clear all cookies by resetting document.cookie
-      const cookies = document.cookie.split(';');
-      for (let i = 0; i < cookies.length; i++) {
-        const cookie = cookies[i];
-        const eqPos = cookie.indexOf('=');
-        const name = eqPos > -1 ? cookie.substring(0, eqPos).trim() : cookie.trim();
-        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;`;
+
+      // 4. Use Supabase's signOut to clean up the client
+      const { error } = await supabase.auth.signOut({ scope: 'global' });
+      if (error) {
+        console.error('Supabase signOut error:', error.message);
+      } else {
+        console.log('Supabase signOut successful');
       }
+
+      // 5. Clear cookies by setting them to expired
+      const expires = new Date(0).toUTCString();
+      document.cookie = `sb-access-token=; expires=${expires}; path=/; domain=${window.location.hostname}; SameSite=Lax`;
+      document.cookie = `sb-refresh-token=; expires=${expires}; path=/; domain=${window.location.hostname}; SameSite=Lax`;
+      document.cookie = `supabase-auth-token=; expires=${expires}; path=/; domain=${window.location.hostname}; SameSite=Lax`;
       
-      console.log('✅ Sign out process complete');
-      
-      // Reset Supabase client singleton to force re-instantiation
-      try {
-        // Use dynamic import to avoid bundling issues
-        const { resetSupabaseClient } = await import('@/lib/supabase-singleton');
-        resetSupabaseClient();
-        console.log('✅ Reset Supabase client singleton');
-      } catch (resetError) {
-        console.error('Error resetting Supabase client:', resetError);
-      }
-      
-      // Redirect to login page with a slight delay to allow for cleanup
+      // DEBUG: Log storage keys after logout
+      console.log("Keys after logout:", Object.keys(localStorage));
+
+      // 6. Force a hard refresh to reset all client state
       setTimeout(() => {
-        window.location.href = '/login';
+        console.log('Redirecting to login page...');
+        // Use replace instead of href to prevent back navigation
+        window.location.replace('/login');
       }, 100);
     } catch (error) {
-      // Catch-all for any other errors
-      console.error('Critical error during sign out:', error);
-      
-      // Still redirect to login page even if sign out failed
-      setTimeout(() => {
-        window.location.href = '/login';
-      }, 100);
+      console.error('Error during sign out:', error);
+      // Fallback to direct redirect if there's an error
+      window.location.replace('/login');
     }
   };
 
