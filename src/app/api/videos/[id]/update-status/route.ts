@@ -11,14 +11,12 @@ export async function POST(
     const videoId = await Promise.resolve(params.id);
     
     // Use videoId instead of params.id for the rest of the function
-    const body = await request.json();
-    const { status } = body;
-    
-    if (!status) {
-      return NextResponse.json(
-        { error: 'Status is required' },
-        { status: 400 }
-      );
+    let body = {};
+    try {
+      body = await request.json();
+    } catch (error) {
+      console.warn('Invalid or missing request body, proceeding anyway');
+      // Continue with empty body - not necessarily an error
     }
     
     // Get the video from the database

@@ -32,10 +32,10 @@ interface VideoPageProps {
   }
 }
 
-async function getVideo(id: string) {
+async function getVideo(id: string): Promise<Video | null> {
   const video = await prisma.video.findUnique({
     where: { id }
-  })
+  }) as Video | null
   
   if (!video || !video.muxPlaybackId) {
     return null
@@ -51,9 +51,16 @@ async function getVideo(id: string) {
 }
 
 export default async function VideoPage({ params }: VideoPageProps) {
-  const video = await getVideo(params.id)
+  // Ensure params.id is fully resolved before using it
+  const videoId = await Promise.resolve(params.id);
   
-  if (!video) {
+  if (!videoId) {
+    notFound()
+  }
+  
+  const video = await getVideo(videoId);
+  
+  if (!video || !video.muxPlaybackId) {
     notFound()
   }
   
