@@ -25,13 +25,13 @@ export default function LoginPage() {
   const callbackUrl = searchParams?.get('callbackUrl') || '/dashboard';
   const registered = searchParams?.get('registered') === 'true';
 
-  // Redirect if already logged in
-  useEffect(() => {
-    if (status === 'authenticated' && session) {
-      console.log('User already authenticated, redirecting to dashboard');
-      router.push(callbackUrl);
-    }
-  }, [session, status, router, callbackUrl]);
+  // TEMPORARILY COMMENTED OUT: Redirect if already logged in
+  // useEffect(() => {
+  //   if (status === 'authenticated' && session) {
+  //     console.log('User already authenticated, redirecting to dashboard');
+  //     router.push(callbackUrl);
+  //   }
+  // }, [session, status, router, callbackUrl]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -113,9 +113,15 @@ export default function LoginPage() {
                       });
                       console.log('Session explicitly set after CSRF retry login');
                       
-                      // Redirect immediately
-                      router.push(callbackUrl || '/dashboard');
-                      return; // Stop execution after redirect
+                      // Redirect immediately, no need for timeout
+                      // router.push(callbackUrl || '/dashboard');
+                      // return; // Stop execution after redirect
+                      
+                      // Add a small delay to ensure state updates are complete before navigation
+                      setTimeout(() => {
+                        router.push(callbackUrl || '/dashboard');
+                      }, 100);
+                      return; // Stop execution after setting timeout
                     } catch (sessionError) {
                       console.error('Error setting session after CSRF retry:', sessionError);
                     }
@@ -171,15 +177,21 @@ export default function LoginPage() {
           }
           
           // Redirect immediately, no need for timeout
-          router.push(callbackUrl || '/dashboard');
-          return; // Stop execution after redirect
+          // router.push(callbackUrl || '/dashboard');
+          // return; // Stop execution after redirect
+          
+          // Add a small delay to ensure state updates are complete before navigation
+          setTimeout(() => {
+            router.push(callbackUrl || '/dashboard');
+          }, 100);
+          return; // Stop execution after setting timeout
         } catch (sessionError) {
           console.error('Error setting session:', sessionError);
           setIsLoading(false);
         }
       } else {
         // Redirect even if no session data (unusual case)
-        router.push(callbackUrl || '/dashboard');
+        // router.push(callbackUrl || '/dashboard');
       }
     } catch (err) {
       console.error('Login form error:', err);
