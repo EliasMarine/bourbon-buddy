@@ -7,7 +7,6 @@ import Link from 'next/link';
 import { useSupabase } from '@/components/providers/SupabaseProvider';
 import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { CsrfToken } from '@/components/CsrfToken';
-import { hasValidSession } from '@/lib/supabase-singleton';
 
 export default function LoginPage() {
   // 1. All hooks should be called at the top of the component and in the same order
@@ -33,53 +32,6 @@ export default function LoginPage() {
       router.push(callbackUrl);
     }
   }, [session, status, router, callbackUrl]);
-  
-  // Add a second useEffect to check for local storage session
-  useEffect(() => {
-    // Check if we have supabase session in localStorage even if the auth state hasn't updated yet
-    if (status !== 'authenticated' && typeof window !== 'undefined') {
-      try {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-        const prefix = supabaseUrl.includes('.')
-          ? supabaseUrl.split('//')[1]?.split('.')[0]
-          : '';
-        
-        const storageKey = `sb-${prefix}-auth-token`;
-        const storedData = localStorage.getItem(storageKey);
-        
-        if (storedData) {
-          try {
-            const parsedData = JSON.parse(storedData);
-            // Check if we have valid tokens
-            if (parsedData?.access_token && parsedData?.refresh_token) {
-              console.log('Found valid session data in localStorage, will redirect shortly');
-              // Set a short timeout to allow auth state to sync
-              setTimeout(() => {
-                router.push(callbackUrl);
-              }, 500);
-            }
-          } catch (parseError) {
-            console.warn('Error parsing stored auth data:', parseError);
-          }
-        }
-      } catch (e) {
-        // Ignore localStorage errors
-      }
-    }
-  }, [status, router, callbackUrl]);
-
-  // Add an immediate session check on mount
-  useEffect(() => {
-    // Quick check for valid session without waiting for auth state
-    hasValidSession().then(isValid => {
-      if (isValid) {
-        console.log('Found valid session on initial check, redirecting...');
-        router.push(callbackUrl);
-      }
-    }).catch(err => {
-      console.warn('Error checking initial session:', err);
-    });
-  }, [router, callbackUrl]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -161,12 +113,9 @@ export default function LoginPage() {
                       });
                       console.log('Session explicitly set after CSRF retry login');
                       
-                      // Wait briefly for session to fully establish before redirecting
-                      await new Promise(resolve => setTimeout(resolve, 200));
-                      
-                      // Then redirect
+                      // Redirect immediately
                       router.push(callbackUrl || '/dashboard');
-                      return;
+                      return; // Stop execution after redirect
                     } catch (sessionError) {
                       console.error('Error setting session after CSRF retry:', sessionError);
                     }
@@ -221,11 +170,9 @@ export default function LoginPage() {
             console.warn('Unable to store session in localStorage:', storageError);
           }
           
-          // Wait briefly for session to fully establish before redirecting
-          await new Promise(resolve => setTimeout(resolve, 200));
-          
-          // Then redirect to dashboard
+          // Redirect immediately, no need for timeout
           router.push(callbackUrl || '/dashboard');
+          return; // Stop execution after redirect
         } catch (sessionError) {
           console.error('Error setting session:', sessionError);
           setIsLoading(false);
