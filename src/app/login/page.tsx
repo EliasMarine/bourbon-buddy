@@ -113,10 +113,6 @@ export default function LoginPage() {
                       });
                       console.log('Session explicitly set after CSRF retry login');
                       
-                      // Redirect immediately, no need for timeout
-                      // router.push(callbackUrl || '/dashboard');
-                      // return; // Stop execution after redirect
-                      
                       // Add a small delay to ensure state updates are complete before navigation
                       setTimeout(() => {
                         router.push(callbackUrl || '/dashboard');
@@ -175,10 +171,6 @@ export default function LoginPage() {
           } catch (storageError) {
             console.warn('Unable to store session in localStorage:', storageError);
           }
-          
-          // Redirect immediately, no need for timeout
-          // router.push(callbackUrl || '/dashboard');
-          // return; // Stop execution after redirect
           
           // Add a small delay to ensure state updates are complete before navigation
           setTimeout(() => {
