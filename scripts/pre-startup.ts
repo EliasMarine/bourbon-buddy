@@ -2,6 +2,36 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
+import dotenv from 'dotenv';
+
+// Load environment variables explicitly for debugging
+// First load .env.local and ignore .env to prevent it from overriding values
+const envLocalPath = path.resolve(process.cwd(), '.env.local');
+dotenv.config({ path: envLocalPath });
+
+// Explicitly check for the DATABASE_URL in .env.local
+let envLocalContent = '';
+try {
+  envLocalContent = fs.readFileSync(envLocalPath, 'utf8');
+} catch (err) {
+  console.warn('⚠️ Could not read .env.local file:', err);
+}
+
+// Try to extract DATABASE_URL from .env.local
+let databaseUrlFromEnvLocal = '';
+const dbUrlMatch = envLocalContent.match(/DATABASE_URL=["']?(.*?)["']?$/m);
+if (dbUrlMatch && dbUrlMatch[1]) {
+  databaseUrlFromEnvLocal = dbUrlMatch[1];
+  console.log(`[pre-startup] Found DATABASE_URL in .env.local: ${databaseUrlFromEnvLocal.substring(0, 20)}...`);
+  
+  // Force set the DATABASE_URL env var
+  process.env.DATABASE_URL = databaseUrlFromEnvLocal;
+} else {
+  console.warn('⚠️ Could not find DATABASE_URL in .env.local');
+}
+
+// Log the DATABASE_URL being used
+console.log(`[pre-startup] Using DATABASE_URL: ${process.env.DATABASE_URL?.substring(0, 20)}...`);
 
 // Create a direct Prisma client instead of importing
 // Include better error handling for database connection issues
@@ -9,6 +39,11 @@ let prisma: PrismaClient;
 try {
   console.log('Creating Prisma client...');
   prisma = new PrismaClient({
+    datasources: { // Explicitly pass the URL
+      db: {
+        url: process.env.DATABASE_URL,
+      },
+    },
     log: ['error', 'warn', 'query'],
   });
   console.log('Prisma client created successfully');

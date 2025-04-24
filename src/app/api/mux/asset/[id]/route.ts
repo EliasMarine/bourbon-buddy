@@ -4,10 +4,8 @@ import { deleteMuxAssetById, updateMuxAssetMetadata, getAssetIdFromPlaybackId } 
 /**
  * GET - Retrieve MUX asset information using asset ID or playback ID
  */
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const id = params.id
     const { searchParams } = new URL(request.url)
@@ -16,7 +14,7 @@ export async function GET(
     // If this is a playback ID, we need to get the asset ID first
     let assetId = id
     if (isPlaybackId) {
-      assetId = await getAssetIdFromPlaybackId(id) || ''
+      assetId = (await getAssetIdFromPlaybackId(id)) || ''
       if (!assetId) {
         return NextResponse.json(
           { error: `Could not find asset ID for playback ID: ${id}` },
@@ -45,10 +43,8 @@ export async function GET(
 /**
  * PATCH - Update MUX asset metadata
  */
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const assetId = params.id
     const { metadata } = await request.json()
@@ -86,10 +82,8 @@ export async function PATCH(
 /**
  * DELETE - Delete a MUX asset
  */
-export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const assetId = params.id
     

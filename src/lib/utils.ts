@@ -155,4 +155,15 @@ export function sanitizeHtml(input: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#x27;')
     .replace(/\//g, '&#x2F;');
+}
+
+import { clsx, type ClassValue } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+/**
+ * Combines multiple class values into a single class string,
+ * with Tailwind CSS conflict resolution.
+ */
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
 } 

@@ -4,7 +4,7 @@ import clsx from 'clsx';
 export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'outline' | 'ghost';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  children: ReactNode;
+  children?: ReactNode;
   variant?: ButtonVariant;
   size?: 'sm' | 'md' | 'lg';
   isLoading?: boolean;
@@ -39,6 +39,15 @@ export default function Button({
   
   const widthStyles = fullWidth ? 'w-full' : '';
   
+  const content = isLoading ? (
+    <>
+      <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+      Loading...
+    </>
+  ) : (
+    children || 'Button'
+  );
+  
   return (
     <button
       className={clsx(
@@ -51,14 +60,7 @@ export default function Button({
       disabled={isLoading || disabled}
       {...props}
     >
-      {isLoading ? (
-        <>
-          <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-          Loading...
-        </>
-      ) : (
-        children
-      )}
+      {content}
     </button>
   );
 } 

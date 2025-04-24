@@ -4,10 +4,8 @@ generator client {
 }
 
 datasource db {
-  provider          = "postgresql"
-  url               = env("DATABASE_URL")
-  directUrl         = env("DIRECT_DATABASE_URL")
-  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -199,10 +197,12 @@ model Comment {
   content   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  reviewId  String
+  reviewId  String?
   userId    String
-  review    Review   @relation(fields: [reviewId], references: [id])
+  videoId   String?
+  review    Review?  @relation(fields: [reviewId], references: [id])
   user      User     @relation(fields: [userId], references: [id])
+  video     Video?   @relation(fields: [videoId], references: [id])
 }
 
 model StreamView {
@@ -240,4 +240,30 @@ model SecurityEvent {
   @@index([timestamp])
   @@index([ip])
   @@index([userId])
+}
+
+model Video {
+  id             String    @id @default(cuid())
+  title          String
+  description    String?
+  status         String    @default("uploading") // uploading, processing, ready, error
+  muxUploadId    String?   @unique
+  muxAssetId     String?   @unique
+  muxPlaybackId  String?
+  duration       Float?
+  aspectRatio    String?
+  thumbnailTime  Float?    @default(0)
+  userId         String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  publiclyListed Boolean   @default(true)
+  views          Int       @default(0)
+  comments       Comment[]
+  
+  // You can add relations when needed, for example:
+  // user           User?     @relation(fields: [userId], references: [id])
+
+  @@index([status])
+  @@index([userId])
+  @@index([createdAt])
 }

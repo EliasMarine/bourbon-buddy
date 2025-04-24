@@ -1,5 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { cookies, type UnsafeUnwrappedCookies } from 'next/headers';
 
 // Since we're handling TypeScript compatibility between different Next.js versions,
 // we need to define a generic interface that works across them
@@ -18,7 +18,7 @@ export async function createClient() {
     getAll: () => {
       try {
         // This pattern works with both synchronous and asynchronous cookies() implementation
-        const cookieStore = cookies() as any;
+        const cookieStore = (cookies() as unknown as UnsafeUnwrappedCookies) as any;
         // Handle both Promise and direct return values
         if (cookieStore instanceof Promise) {
           // If it's a promise (newer Next.js versions), we return a Promise result
@@ -36,7 +36,7 @@ export async function createClient() {
     set: (name, value, options) => {
       try {
         // Same pattern for setting - handle both Promise and direct implementations
-        const cookieStore = cookies() as any;
+        const cookieStore = (cookies() as unknown as UnsafeUnwrappedCookies) as any;
         if (cookieStore instanceof Promise) {
           cookieStore
             .then(store => store.set(name, value, options))

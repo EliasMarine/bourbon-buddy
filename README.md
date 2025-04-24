@@ -358,3 +358,213 @@ The application integrates with SerpApi to fetch accurate information about spir
 - Bottle information (price range, ratings, awards)
 - Tasting notes
 - Related articles and reviews
+
+# MUX Signed Video Implementation
+
+This project demonstrates how to implement secure video playback using MUX signed playback URLs with JWT tokens.
+
+## Overview
+
+[MUX](https://mux.com/) is a video API platform that provides video hosting, streaming, and playback services. 
+This implementation shows how to:
+
+1. Create MUX assets with the "signed" playback policy
+2. Generate JWT tokens for secure video access
+3. Create signed playback URLs that require valid tokens
+4. Display videos using these secure signed URLs
+5. Properly manage assets using both asset IDs and playback IDs
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js (v16 or higher)
+- MUX account with API credentials
+- MUX signing key for JWT token generation
+
+### Environment Variables
+
+Create a `.env.local` file in the root of your project with the following variables:
+
+```
+MUX_TOKEN_ID=your_mux_api_token_id
+MUX_TOKEN_SECRET=your_mux_api_token_secret
+MUX_SIGNING_KEY_ID=your_mux_signing_key_id
+MUX_PRIVATE_KEY=your_mux_private_key
+MUX_WEBHOOK_SECRET=your_mux_webhook_secret
+```
+
+### MUX Configuration Steps
+
+1. **Create a MUX Account**
+   - Sign up at [mux.com](https://mux.com/)
+   - Create an API access token (Token ID and Token Secret)
+   
+2. **Create a Signing Key**
+   - Go to the MUX dashboard > Settings > Signing Keys
+   - Create a new signing key
+   - Save both the Signing Key ID and the Private Key
+
+3. **Configure Playback Policies**
+   - When creating assets, use the "signed" playback policy for secured videos
+   - Public videos can still use the "public" playback policy
+
+## Implementation Details
+
+### Understanding Asset IDs vs Playback IDs
+
+For production use, it's important to understand the difference between asset IDs and playback IDs:
+
+- **Asset ID**: The main identifier for the video in MUX. Use this for:
+  - Deleting assets
+  - Updating asset metadata
+  - Adding new playback IDs
+  - Managing static renditions
+  - Any administrative operations
+
+- **Playback ID**: The identifier used for playback. Use this for:
+  - Creating signed playback URLs
+  - Displaying videos in players
+  - Creating thumbnail URLs
+
+**Best Practice**: Always store both IDs in your database when creating videos.
+
+### Server-Side Implementation
+
+The server-side implementation includes:
+
+- `src/lib/mux-token.ts`: Utility functions for generating JWT tokens and signed URLs
+- `src/lib/mux.ts`: Utility functions for working with MUX assets, including asset ID retrieval
+- `src/app/api/mux/signed-url/route.ts`: API endpoint to get a signed URL for a playback ID (now includes asset ID)
+- `src/app/api/mux/create-signed-asset/route.ts`: API endpoint to create a MUX asset with a signed playback policy
+- `src/app/api/mux/asset/[id]/route.ts`: API endpoints for asset management operations (GET, PATCH, DELETE)
+
+### Client-Side Implementation
+
+The client-side implementation includes:
+
+- `src/components/MuxSignedVideoPlayer.tsx`: Component for playing videos with signed URLs (now tracks asset ID)
+- `src/components/MuxSignedVideoUploader.tsx`: Component for creating MUX assets with signed playback
+- `src/app/mux-signed-demo/page.tsx`: Demo page showcasing the secure video implementation
+
+## Usage
+
+### Creating a Signed MUX Asset
+
+```tsx
+// Example API call to create a signed MUX asset
+const response = await fetch('/api/mux/create-signed-asset', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    url: 'https://example.com/video.mp4',
+    title: 'My Secure Video',
+  }),
+});
+
+const data = await response.json();
+// data contains assetId, playbackId, signedUrl, token
+
+// Save both IDs to your database for later use
+saveToDatabase({
+  assetId: data.assetId,
+  playbackId: data.playbackId,
+  title: 'My Secure Video'
+});
+```
+
+### Getting a Signed URL for an Existing Playback ID
+
+```tsx
+// Example API call to get a signed URL for a playback ID
+const response = await fetch('/api/mux/signed-url', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    playbackId: 'your_playback_id',
+  }),
+});
+
+const data = await response.json();
+// data contains url, token, playbackId, and assetId
+```
+
+### Playing a Video with a Signed URL
+
+```tsx
+// Use the MuxSignedVideoPlayer component
+import MuxSignedVideoPlayer from '@/components/MuxSignedVideoPlayer';
+
+function MyComponent() {
+  const handleVideoDataLoaded = (data) => {
+    console.log('Asset ID:', data.assetId);
+    // Store or use the asset ID as needed
+  };
+
+  return (
+    <MuxSignedVideoPlayer 
+      playbackId="your_playback_id"
+      onVideoDataLoaded={handleVideoDataLoaded}
+    />
+  );
+}
+```
+
+### Managing Videos with Asset ID
+
+```tsx
+// Example: Delete a video
+const deleteVideo = async (assetId) => {
+  const response = await fetch(`/api/mux/asset/${assetId}`, {
+    method: 'DELETE',
+  });
+  const data = await response.json();
+  if (data.success) {
+    // Video deleted successfully
+  }
+};
+
+// Example: Update video metadata
+const updateVideoMetadata = async (assetId, metadata) => {
+  const response = await fetch(`/api/mux/asset/${assetId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ metadata }),
+  });
+  const data = await response.json();
+  if (data.success) {
+    // Metadata updated successfully
+  }
+};
+```
+
+## Security Considerations
+
+- Store your MUX signing key securely - it should only be available server-side
+- Set appropriate token expiration times (default is 24 hours in this implementation)
+- Consider implementing additional security like user authentication before providing signed URLs
+- Remember that signed URLs with valid tokens will work for anyone who has them until they expire
+- Protect your asset management APIs with proper authentication to prevent unauthorized deletion/updates
+
+## Demo
+
+To see the demo:
+
+1. Clone this repository
+2. Install dependencies: `npm install`
+3. Set up your `.env.local` file with MUX credentials
+4. Run the development server: `npm run dev`
+5. Visit [http://localhost:3000/mux-signed-demo](http://localhost:3000/mux-signed-demo)
+
+## Resources
+
+- [MUX Documentation](https://docs.mux.com/)
+- [MUX Signed URLs Guide](https://docs.mux.com/guides/secure-video-playback)
+- [MUX Assets API Reference](https://docs.mux.com/api-reference/video/assets/create-asset)
+- [JWT.io](https://jwt.io/) - Useful for debugging JWT tokens

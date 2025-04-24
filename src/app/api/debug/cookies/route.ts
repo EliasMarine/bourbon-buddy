@@ -20,9 +20,6 @@ export async function GET(request: NextRequest) {
     const actualCsrfCookieName = getCsrfCookieName();
     const actualNextAuthCsrfCookieName = getNextAuthCsrfCookieName();
     
-    // Get NextAuth session
-    const nextAuthSession = await getServerSession(authOptions);
-    
     // Check all cookies in the request
     const cookieHeader = request.headers.get('cookie');
     const cookieList = request.cookies.getAll();
@@ -93,12 +90,8 @@ export async function GET(request: NextRequest) {
         cookieCount: cookieNames.length,
       },
       auth: {
-        isAuthenticated: !!nextAuthSession,
-        user: nextAuthSession?.user ? {
-          id: nextAuthSession.user.id,
-          email: nextAuthSession.user.email,
-          name: nextAuthSession.user.name,
-        } : null,
+        isAuthenticated: false,
+        user: null,
       },
     });
   } catch (error) {

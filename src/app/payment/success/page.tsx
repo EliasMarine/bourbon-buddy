@@ -8,11 +8,12 @@ export const metadata: Metadata = {
   description: 'Your subscription has been processed successfully',
 }
 
-export default function PaymentSuccessPage({
-  searchParams,
-}: {
-  searchParams: { session_id?: string }
-}) {
+export default async function PaymentSuccessPage(
+  props: {
+    searchParams: Promise<{ session_id?: string }>
+  }
+) {
+  const searchParams = await props.searchParams;
   const sessionId = searchParams.session_id
 
   return (

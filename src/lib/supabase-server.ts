@@ -24,7 +24,8 @@ export function createServerClient() {
   // We need to dynamically import cookies() to avoid breaking in Pages Router
   const getCookieStore = async () => {
     try {
-      const { cookies } = await import('next/headers');
+      const { cookies } = await /* @next-codemod-error The APIs under 'next/headers' are async now, need to be manually awaited. */
+      import('next/headers');
       return cookies();
     } catch (error) {
       console.error('Error importing cookies from next/headers:', error);

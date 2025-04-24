@@ -146,22 +146,6 @@ const nextConfig = {
     const isVercelPreview = process.env.VERCEL_ENV === 'preview' || 
                            process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview';
     
-    // In development or when explicitly configured, use relaxed CSP settings
-    if (cspMode === 'development') {
-      console.log('🔒 Using relaxed CSP for development/debugging mode');
-      return [
-        {
-          source: '/:path*',
-          headers: [
-            {
-              key: 'Content-Security-Policy',
-              value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; connect-src 'self' http://localhost:* https://localhost:* ws://localhost:* wss://localhost:* https://* wss://*;"
-            },
-          ],
-        },
-      ];
-    }
-    
     // Default security headers (from next-safe)
     const defaultHeaders = [
       {

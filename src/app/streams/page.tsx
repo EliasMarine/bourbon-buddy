@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useSupabaseSession, useSession } from '@/hooks/use-supabase-session';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -9,7 +9,7 @@ import {
   Star, Trash2, FileVideo, Video, PlayCircle, Tv, EyeIcon
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { MuxThumbnail } from '@/components/ui/mux-player';
+import { MuxThumbnail } from '@/components/ui/mux-thumbnail';
 import { useVideoStatus, VideoType } from '@/hooks/use-video-status';
 
 interface Stream {
@@ -574,7 +574,7 @@ export default function StreamsPage() {
                                   value={manualAssetId}
                                   onChange={(e) => setManualAssetId(e.target.value)}
                                   className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 mb-3"
-                                  placeholder="e.g. TF8002bRfe02BoyFDcgeG9kTro9f17OwNLd8m4SjgOZBY"
+                                  placeholder="e.g. TF8002bRfe02BoyFDcgeG9kTro9f1..."
                                 />
                                 <div className="flex justify-end gap-2">
                                   <button
@@ -607,22 +607,17 @@ export default function StreamsPage() {
                           )}
                           
                           {/* Use enhanced MuxThumbnail component */}
-                          {video.muxPlaybackId ? (
-                            <MuxThumbnail 
-                              playbackId={video.muxPlaybackId} 
-                              time={video.thumbnailTime || 0}
-                              status={hasJustBecomeReady(video.id, video.status) ? 'ready-new' : (videoStatuses[video.id] || video.status)}
-                              duration={video.duration}
-                              isCheckingStatus={isCheckingStatus[video.id]}
-                              onCheckStatus={() => checkVideoStatus(video.id, 'processing')}
-                              onManualAsset={() => setShowManualAssetInput(video.id)}
-                              isFeatured={video.featured}
-                            />
-                          ) : (
-                            <div className="aspect-video bg-gray-800/80 flex items-center justify-center">
-                              <Video className="w-16 h-16 text-gray-600" />
-                            </div>
-                          )}
+                          <MuxThumbnail 
+                            playbackId={video.muxPlaybackId} 
+                            time={video.thumbnailTime || 0}
+                            status={hasJustBecomeReady(video.id, video.status) ? 'ready-new' : (videoStatuses[video.id] || video.status)}
+                            duration={video.duration}
+                            isCheckingStatus={isCheckingStatus[video.id]}
+                            onCheckStatus={() => checkVideoStatus(video.id, 'processing')}
+                            onManualAsset={() => setShowManualAssetInput(video.id)}
+                            isFeatured={video.featured}
+                            uploadId={video.muxUploadId}
+                          />
                         </div>
                         
                         <div className="p-5 md:p-6">
@@ -637,15 +632,15 @@ export default function StreamsPage() {
                           {video.views > 100 && (
                             <div className="mb-4">
                               <span className="inline-flex items-center gap-1.5 bg-gray-800 px-3 py-1 rounded-full text-xs text-gray-300">
-                                <EyeIcon size={12} className="text-gray-400" />
+                                <EyeIcon size={12} className="text-gray-400 flex-shrink-0" />
                                 {video.views} views
                               </span>
                             </div>
                           )}
                           
-                          {/* User and date */}
+                          {/* User and date - updated to handle overflow better */}
                           <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-700/50">
-                            <div className="w-8 h-8 relative rounded-full overflow-hidden bg-gray-700 ring-1 ring-amber-500/20">
+                            <div className="w-8 h-8 relative rounded-full overflow-hidden bg-gray-700 ring-1 ring-amber-500/20 flex-shrink-0">
                               {video.user?.avatar ? (
                                 <Image
                                   src={video.user.avatar}
@@ -659,10 +654,10 @@ export default function StreamsPage() {
                                 </div>
                               )}
                             </div>
-                            <span className="text-sm text-gray-300 font-medium">
+                            <span className="text-sm text-gray-300 font-medium truncate max-w-[120px]">
                               {video.user?.name || 'Anonymous User'}
                             </span>
-                            <span className="text-xs text-gray-500 ml-auto">
+                            <span className="text-xs text-gray-500 ml-auto flex-shrink-0">
                               {new Date(video.createdAt).toLocaleDateString()}
                             </span>
                           </div>

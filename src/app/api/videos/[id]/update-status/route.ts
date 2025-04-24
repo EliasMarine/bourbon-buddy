@@ -1,19 +1,30 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { muxClient } from '@/lib/mux'
+// import { prisma } from '@/lib/prisma'
+// import { muxClient } from '@/lib/mux'
 
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
+  // Ensure params and params.id exist before using them
+  const videoId = params?.id;
+  if (!videoId) {
+    console.error('[update-status] Missing video ID in request parameters');
+    return NextResponse.json(
+      { error: 'Missing video ID in request' },
+      { status: 400 }
+    );
+  }
+
+  console.log(`[update-status] Simplified route handler. Received video ID: ${videoId}`);
+
+  // Immediately return the ID to test params access
+  return NextResponse.json({ receivedVideoId: videoId });
+
+  /*
   try {
-    // Ensure params.id is fully resolved before using it
-    const videoId = await Promise.resolve(params.id);
-    
-    // Use videoId instead of params.id for the rest of the function
-    let body = {};
+    // Parse request body (optional)
+    let requestBody = {};
     try {
-      body = await request.json();
+      requestBody = await request.json();
     } catch (error) {
       console.warn('Invalid or missing request body, proceeding anyway');
       // Continue with empty body - not necessarily an error
@@ -25,6 +36,7 @@ export async function POST(
     });
     
     if (!video) {
+      console.warn(`[update-status] Video not found for ID: ${videoId}`);
       return NextResponse.json(
         { error: 'Video not found' },
         { status: 404 }
@@ -33,6 +45,7 @@ export async function POST(
     
     // If there's no MUX upload ID, something is wrong with the video record
     if (!video.muxUploadId) {
+      console.warn(`[update-status] Video ${videoId} is missing muxUploadId`);
       return NextResponse.json(
         { error: 'Video record is incomplete - missing upload ID' },
         { status: 400 }
@@ -42,6 +55,7 @@ export async function POST(
     // If there's no MUX asset ID, we can't check status with MUX directly
     // but we can return the current status from our database
     if (!video.muxAssetId) {
+      console.log(`[update-status] Video ${videoId} has uploadId ${video.muxUploadId} but no muxAssetId yet.`);
       return NextResponse.json(
         { 
           error: 'Video does not have a MUX asset ID',
@@ -58,6 +72,7 @@ export async function POST(
       const asset = await muxClient.video.assets.retrieve(video.muxAssetId)
       
       // Update the video status in the database
+      console.log(`[update-status] MUX asset status for ${videoId} (${video.muxAssetId}): ${asset.status}`);
       const updatedVideo = await (prisma as any).video.update({
         where: { id: videoId },
         data: { 
@@ -78,7 +93,7 @@ export async function POST(
         playable: updatedVideo.status === 'ready' && updatedVideo.muxPlaybackId ? true : false
       })
     } catch (error) {
-      console.error('Error checking MUX asset status:', error)
+      console.error(`[update-status] Error checking MUX asset status for ${videoId}:`, error);
       return NextResponse.json(
         { 
           error: 'Failed to check video status with MUX',
@@ -89,10 +104,11 @@ export async function POST(
       )
     }
   } catch (error) {
-    console.error('Error updating video status:', error)
+    console.error(`[update-status] Error updating video status for ${videoId}:`, error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
     )
   }
+  */
 } 

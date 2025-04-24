@@ -236,10 +236,10 @@ export async function middleware(request: NextRequest) {
     if (isDevelopment) {
       // Apply a very relaxed CSP for development that essentially allows everything
       response.headers.set('Content-Security-Policy', 
-        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; connect-src 'self' http://localhost:* https://localhost:* ws://localhost:* wss://localhost:* https://* wss://*;"
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; connect-src 'self' http://localhost:* https://localhost:* ws://localhost:* wss://localhost:* https://* wss://*; media-src 'self' blob: https://stream.mux.com https://image.mux.com https://*.litix.io;"
       )
     } else {
-      // In production, use the strict CSP with nonce
+      // In production, use the strict CSP with nonce but also allow Mux domains for media
       const cspHeader = `
         default-src 'self';
         script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'strict-dynamic' 
@@ -253,7 +253,8 @@ export async function middleware(request: NextRequest) {
           https://js.stripe.com https://appleid.cdn-apple.com https://signin.apple.com 
           https://cdn.jsdelivr.net https://cdn.paddle.com https://apis.google.com 
           https://plausible.io https://*.clarity.ms https://c.bing.com 
-          https://cdn.vercel-insights.com https://va.vercel-scripts.com;
+          https://cdn.vercel-insights.com https://va.vercel-scripts.com 
+          https://www.gstatic.com https://*.mux.com;
         script-src-elem 'self' 'nonce-${nonce}' 'unsafe-eval' 'strict-dynamic' 
           'sha256-4A/MBGXVD2ITXEBraYCO7UPf5RGK8bHB21M+Rj9prPo=' 
           'sha256-Viyac4C8o6yViUPcgS2fKtVgTmcnCOZOVQWYxPyGl+c=' 
@@ -265,7 +266,8 @@ export async function middleware(request: NextRequest) {
           https://js.stripe.com https://appleid.cdn-apple.com https://signin.apple.com 
           https://cdn.jsdelivr.net https://cdn.paddle.com https://apis.google.com 
           https://plausible.io https://*.clarity.ms https://c.bing.com 
-          https://cdn.vercel-insights.com https://va.vercel-scripts.com;
+          https://cdn.vercel-insights.com https://va.vercel-scripts.com 
+          https://www.gstatic.com https://*.mux.com;
         style-src 'self' 'unsafe-inline';
         img-src 'self' data: blob: https: http:;
         font-src 'self' data: https://fonts.gstatic.com;
@@ -283,7 +285,7 @@ export async function middleware(request: NextRequest) {
         form-action 'self';
         frame-ancestors 'self';
         manifest-src 'self';
-        media-src 'self';
+        media-src 'self' blob: https://stream.mux.com https://image.mux.com https://*.litix.io;
         child-src 'self' blob:;
       `.replace(/\s{2,}/g, ' ').trim()
       

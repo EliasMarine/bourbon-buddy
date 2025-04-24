@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseBrowserClient } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/supabase-auth';
 import { cookies } from 'next/headers';
 import { RequestCookie } from 'next/dist/compiled/@edge-runtime/cookies';
@@ -27,7 +26,7 @@ export async function GET() {
     let cookieNames: string[] = [];
     
     try {
-      const cookieStore = cookies();
+      const cookieStore = await cookies();
       
       // Try alternative methods to get cookies since the API has changed in different Next.js versions
       // This handles both the older synchronous and newer Promise-based cookies API
@@ -54,10 +53,6 @@ export async function GET() {
       names: cookieNames
     });
     
-    // Check NextAuth
-    console.log(`[${debugId}] 🔐 Checking NextAuth session`);
-    const nextAuthSession = await getServerSession();
-    
     // Prepare the response with safe data
     const response = {
       status: 'ok',
@@ -69,9 +64,7 @@ export async function GET() {
         hasNextAuth: cookieNames.some(name => name.startsWith('next-auth'))
       },
       auth: {
-        nextAuthSession: nextAuthSession ? 'present' : 'not found',
         // Only include user ID in development
-        nextAuthUser: isProd ? undefined : nextAuthSession?.user?.id
       }
     };
     

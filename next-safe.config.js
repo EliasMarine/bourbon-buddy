@@ -98,7 +98,7 @@ module.exports = {
     'form-action': ["'self'"],
     'frame-ancestors': ["'self'"],
     'manifest-src': ["'self'"],
-    'media-src': ["'self'"],
+    'media-src': ["'self'", "blob:", "https://stream.mux.com", "https://image.mux.com"],
     'child-src': ["'self'", "blob:"]
   },
   frameOptions: 'SAMEORIGIN',

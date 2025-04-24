@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { setMuxAssetIdAndCreatePlaybackId } from '@/lib/mux'
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     // Ensure params is fully resolved
     const videoId = await Promise.resolve(params.id)

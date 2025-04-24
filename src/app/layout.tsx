@@ -7,11 +7,11 @@ import Footer from '../components/layout/Footer'
 import ClientLayout from '../components/providers/ClientLayout'
 import SupabaseProvider from '../components/providers/SupabaseProvider'
 import AuthWrapper from '../components/auth/AuthWrapper'
-import EmergencyDebug from '../components/debug/EmergencyDebug'
 import ClientDebug from '../components/debug/ClientDebug'
 import CorsHandler from '../components/cors-handler'
 import { initSentry } from '@/lib/sentry'
 import React from 'react'
+import Script from 'next/script'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -41,8 +41,16 @@ export default async function RootLayout({
 }) {
   // Read nonce from headers during server rendering
   const headersList = await headers() // Await the headers
-  const nonce = headersList.get('x-csp-nonce') || (process.env.NODE_ENV !== 'production' ? 'development-nonce' : undefined)
-  
+  let nonce: string | undefined = headersList.get('x-nonce') ?? undefined; // Get header value or undefined if missing
+
+  // Ensure a valid nonce string exists in development
+  if (process.env.NODE_ENV !== 'production') {
+    if (!nonce) { // Checks for null, undefined, AND empty string ""
+      nonce = 'development-nonce'; // Assign fallback if header is missing or empty
+    }
+  }
+  // In production, nonce will be the header value (can be "" if header is explicitly empty) or undefined if missing.
+
   return (
     <html lang="en" className="dark" id="app-root">
       <head>
@@ -57,13 +65,6 @@ export default async function RootLayout({
           <>
             <link 
               rel="preload" 
-              href="/debug-script.js" 
-              as="script"
-              nonce={nonce}
-              crossOrigin="anonymous"
-            />
-            <link 
-              rel="preload" 
               href="/client-debug-script.js" 
               as="script"
               nonce={nonce}
@@ -76,7 +77,6 @@ export default async function RootLayout({
         {/* Only include debug components in development */}
         {process.env.NODE_ENV !== 'production' && (
           <>
-            <EmergencyDebug />
             <ClientDebug />
           </>
         )}

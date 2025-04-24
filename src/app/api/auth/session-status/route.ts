@@ -5,9 +5,6 @@ import { createServerClient } from '@/lib/supabase-server';
 
 export async function GET() {
   try {
-    // Get NextAuth session
-    const nextAuthSession = await getServerSession(authOptions);
-    
     // Get Supabase session
     const supabase = createServerClient();
     const { data: { session: supabaseSession }, error } = await supabase.auth.getSession();
@@ -33,11 +30,6 @@ export async function GET() {
     
     // Return both session statuses for debugging
     return NextResponse.json({
-      nextAuth: {
-        authenticated: !!nextAuthSession,
-        email: nextAuthSession?.user?.email || null,
-        name: nextAuthSession?.user?.name || null,
-      },
       supabase: {
         authenticated: !!supabaseSession,
         session: supabaseSession ? {
@@ -47,8 +39,8 @@ export async function GET() {
         user: supabaseUser,
       },
       status: {
-        synced: !!nextAuthSession && !!supabaseSession && 
-               nextAuthSession.user?.email === supabaseUser?.email,
+        synced: !!supabaseSession && !!supabaseUser && 
+               supabaseSession.user?.email === supabaseUser?.email,
         timestamp: new Date().toISOString(),
       }
     });

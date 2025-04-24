@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/supabase-auth';
-// Removed authOptions import - not needed with Supabase Auth;
-import { prisma } from '@/lib/prisma'; // Use shared prisma instance
+// Use safePrismaQuery and the fixed prisma instance
+import { safePrismaQuery, prisma } from '@/lib/prisma-fix'; 
 import { z } from 'zod';
 
 const CreateStreamSchema = z.object({
@@ -18,7 +18,8 @@ export async function GET() {
     // Calculate the stale threshold (1 hour ago)
     const staleThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
 
-    const streams = await prisma.stream.findMany({
+    // Use safePrismaQuery for the database call
+    const streams = await safePrismaQuery(() => prisma.stream.findMany({
       where: {
         isLive: true,
         // Only show streams that started within the last hour
@@ -44,9 +45,18 @@ export async function GET() {
       orderBy: {
         startedAt: 'desc',
       },
-    });
+    }));
 
-    return NextResponse.json({ streams });
+    // Create response with cache headers
+    const response = NextResponse.json({ streams });
+    
+    // Add caching headers to prevent frequent re-fetching
+    // Cache for 30 seconds - a bit less than videos since streams may change more often
+    response.headers.set('Cache-Control', 'public, max-age=30, s-maxage=30');
+    response.headers.set('CDN-Cache-Control', 'public, max-age=30');
+    response.headers.set('Vercel-CDN-Cache-Control', 'public, max-age=30');
+    
+    return response;
   } catch (error) {
     console.error('Streams GET error:', error);
     return NextResponse.json(
@@ -135,7 +145,6 @@ export async function POST(request: Request) {
 
       // Return the full stream object with explicit ID field
       return NextResponse.json({
-        id: stream.id,
         ...stream
       });
     } catch (validationError) {

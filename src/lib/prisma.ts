@@ -73,6 +73,26 @@ function createPrismaClient(): PrismaClient {
     log: isDev ? ['query', 'error', 'warn'] : ['error'],
   });
 
+  // Clear existing prepared statements on connection to prevent conflicts
+  if (typeof window === 'undefined') {
+    prismaClient.$use(async (params, next) => {
+      if (params.action === 'findFirst' && 
+          params.model === 'User' && 
+          Object.keys(params.args || {}).length === 0) {
+        // This is likely a connection test, let's handle it directly
+        try {
+          // Use raw query to deallocate prepared statements to prevent 42P05 errors
+          await prismaClient.$executeRaw`DEALLOCATE ALL`;
+          console.log('🧹 Cleared existing prepared statements');
+        } catch (deallocError) {
+          // Ignore errors during deallocate, this is just a preemptive cleanup
+          console.log('Note: Could not clear prepared statements (this is normal for first connection)');
+        }
+      }
+      return next(params);
+    });
+  }
+
   // Create connection validator interval
   let isCheckingConnection = false; 
   const connectionCheckInterval = isDev ? 30000 : 120000; // 30s in dev, 2min in prod
@@ -120,6 +140,7 @@ function createPrismaClient(): PrismaClient {
         const isPreparedStatementError = 
           error?.message?.includes('prepared statement') || 
           error?.code === '42P05' || 
+          error?.message?.includes('statement \"s0\" already exists') ||
           error?.code === '26000';
         
         const isConnectionError = 
@@ -134,6 +155,16 @@ function createPrismaClient(): PrismaClient {
           isRecoveringConnection = true;
           
           console.log('Attempting database reconnection...');
+          
+          // First try to deallocate all prepared statements if this is a prepared statement error
+          if (isPreparedStatementError) {
+            try {
+              await prismaClient.$executeRaw`DEALLOCATE ALL`;
+              console.log('Successfully deallocated prepared statements');
+            } catch (deallocError) {
+              console.warn('Could not deallocate prepared statements, continuing with reconnection');
+            }
+          }
           
           // Perform clean disconnection and reconnection
           await prismaClient.$disconnect();

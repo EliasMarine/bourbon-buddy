@@ -156,50 +156,15 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
               isRefreshingSessionRef.current = false;
               globalRefreshingSession = false;
               setIsLoading(false);
-              return;
+              return; // Exit here, don't attempt proxy fallback
             }
-            
-            // Try custom endpoint with a single attempt
-            try {
-              const response = await fetch('/api/auth/token-refresh', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'X-CSRF-Token': typeof window !== 'undefined' ? 
-                    window.sessionStorage.getItem('csrfToken') || '' : ''
-                },
-                credentials: 'include'
-              });
-              
-              if (response.ok) {
-                const data = await response.json();
-                console.log('Successfully refreshed session via proxy API');
-                
-                if (isMountedRef.current) {
-                  // Manually construct a session object from the response
-                  const manualSession: Session = {
-                    access_token: data.access_token,
-                    refresh_token: data.refresh_token,
-                    expires_in: data.expires_in || 3600,
-                    expires_at: Math.floor(Date.now() / 1000) + (data.expires_in || 3600),
-                    token_type: data.token_type || 'bearer',
-                    user: data.user
-                  };
-                  
-                  setSession(manualSession);
-                  setUser(manualSession.user);
-                  setError(null);
-                  
-                  // Mark successful refresh time
-                  lastSuccessfulRefresh = Date.now();
-                }
-              } else {
-                console.error('Proxy token refresh failed:', await response.text());
-                // Continue without further fallback attempts
-              }
-            } catch (proxyError) {
-              console.error('Error using token refresh proxy:', proxyError);
+
+            console.error('Supabase refreshSession failed and no initial cookie session found. Cannot refresh.', refreshError);
+            // Set error state if refresh fails completely
+            if (isMountedRef.current) {
+              setError(refreshError);
             }
+
           } else if (refreshData?.session) {
             console.log('Successfully refreshed session via Supabase client');
             if (isMountedRef.current) {

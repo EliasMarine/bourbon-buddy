@@ -15,7 +15,7 @@ const ALLOW_IN_PROD = process.env.DEBUG_AUTH === 'true';
  */
 async function getCookies(debugId: string) {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     let allCookies: { name: string; value: string }[] = [];
     
     // Try alternative methods to get cookies since the API has changed in different Next.js versions
@@ -89,22 +89,6 @@ export async function GET(req: NextRequest) {
     
     console.log(`[${debugId}] 🍪 Cookie info:`, authCookies);
 
-    // Check NextAuth session
-    console.log(`[${debugId}] 🔐 Checking NextAuth session`);
-    const nextAuthStartTime = Date.now();
-    const nextAuthSession = await getServerSession();
-    const nextAuthTime = Date.now() - nextAuthStartTime;
-    
-    console.log(`[${debugId}] ⏱️ NextAuth session check took ${nextAuthTime}ms`);
-    console.log(`[${debugId}] 🔑 NextAuth session:`, nextAuthSession ? "Found" : "Not found");
-    
-    const nextAuthInfo = {
-      hasSession: !!nextAuthSession,
-      sessionTime: nextAuthTime,
-      // Only include user ID in non-prod for privacy
-      userId: isProd ? undefined : nextAuthSession?.user?.id
-    };
-
     // Check Supabase client
     console.log(`[${debugId}] 🔨 Creating Supabase SSR client`);
     const supabaseClientStartTime = Date.now();
@@ -172,7 +156,7 @@ export async function GET(req: NextRequest) {
         hasError: !!supabaseClientError,
         errorMessage: supabaseClientError,
         // Only include in non-prod for privacy
-        userId: isProd && sessionData.session ? undefined : sessionData.user.id
+        userId: isProd && sessionData.session && sessionData.session.user ? undefined : sessionData.session?.user?.id
       };
       
       const response = {
@@ -180,7 +164,6 @@ export async function GET(req: NextRequest) {
         timestamp: new Date().toISOString(),
         environment: envInfo,
         cookies: authCookies,
-        nextAuth: nextAuthInfo,
         supabase: supabaseInfo,
         allCookies: isProd ? undefined : cookieDetails
       };
@@ -203,7 +186,6 @@ export async function GET(req: NextRequest) {
         timestamp: new Date().toISOString(),
         environment: envInfo,
         cookies: authCookies,
-        nextAuth: nextAuthInfo,
         supabase: {
           clientCreateTime: supabaseClientCreateTime,
           hasError: true,

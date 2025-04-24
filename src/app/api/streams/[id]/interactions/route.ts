@@ -4,10 +4,8 @@ import { getCurrentUser } from '@/lib/supabase-auth';
 import { prisma } from '@/lib/prisma';
 
 // Proper way to extract ID in Next.js App Router
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const { id: streamId } = params;
     console.log('Interactions API called for stream:', streamId);

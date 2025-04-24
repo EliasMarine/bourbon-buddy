@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Component, ReactNode } from 'react';
+import React from 'react';
 import * as Sentry from '@sentry/nextjs';
 import AuthProvider from './AuthProvider';
 import { CsrfToken } from '@/components/CsrfToken';
@@ -9,19 +9,12 @@ interface ClientLayoutProps {
   children: React.ReactNode;
 }
 
-// Error boundary component
-interface ErrorBoundaryProps {
-  children: ReactNode;
-  fallback: ReactNode;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: Error | null;
-}
-
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
+// Simple error boundary component
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode; fallback: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode; fallback: React.ReactNode }) {
     super(props);
     this.state = { hasError: false, error: null };
   }
@@ -30,19 +23,11 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    // Report to Sentry
+  componentDidCatch(error: Error, errorInfo: any) {
     Sentry.captureException(error, {
-      contexts: {
-        react: {
-          componentStack: errorInfo.componentStack
-        }
-      },
-      tags: {
-        source: 'error_boundary'
-      }
+      contexts: { react: { componentStack: errorInfo.componentStack } },
+      tags: { source: 'error_boundary' }
     });
-    
     console.error("Error caught by boundary:", error, errorInfo);
   }
 
@@ -50,12 +35,10 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     if (this.state.hasError) {
       return this.props.fallback;
     }
-
     return this.props.children;
   }
 }
 
-// Simple error boundary fallback
 function ErrorFallback({ error }: { error: Error }) {
   return (
     <div className="bg-red-50 border-l-4 border-red-500 p-4 m-2 rounded shadow-sm">
@@ -67,12 +50,13 @@ function ErrorFallback({ error }: { error: Error }) {
 
 export default function ClientLayout({ children }: ClientLayoutProps) {
   return (
-    <ErrorBoundary fallback={<ErrorFallback error={new Error("Client component failed to render")} />}>
-      <AuthProvider>
-        <CsrfToken>
-          {children}
-        </CsrfToken>
-      </AuthProvider>
-    </ErrorBoundary>
+    <ErrorBoundary
+      children={
+        <AuthProvider children={
+          <CsrfToken children={children} />
+        } />
+      }
+      fallback={<ErrorFallback error={new Error("Client component failed to render")} />}
+    />
   );
 } 

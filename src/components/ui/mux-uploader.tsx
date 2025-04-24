@@ -2,6 +2,7 @@
 
 import { useState, useRef, ChangeEvent, FormEvent } from 'react'
 import { createVideoUpload, markUploadComplete } from '@/app/api/mux/upload/action'
+import { Video, Upload, AlertCircle } from 'lucide-react'
 
 interface MuxUploaderProps {
   onUploadComplete?: (uploadId: string) => void
@@ -162,11 +163,11 @@ export function MuxUploader({
   }
   
   return (
-    <div className={`p-4 border rounded-lg ${className || ''}`}>
-      <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
+    <div className={`${className || ''}`}>
+      <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-            Title
+          <label htmlFor="title" className="block text-sm font-medium text-gray-200 mb-1">
+            Title*
           </label>
           <input
             type="text"
@@ -174,21 +175,25 @@ export function MuxUploader({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-black"
+            className="mt-1 block w-full rounded-lg bg-gray-700 border-gray-600 text-white shadow-sm 
+                      focus:border-amber-500 focus:ring-amber-500 placeholder:text-gray-400 p-3"
+            placeholder="What are you sharing today?"
             disabled={isUploading}
           />
         </div>
         
         <div>
-          <label htmlFor="description" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="description" className="block text-sm font-medium text-gray-200 mb-1">
             Description
           </label>
           <textarea
             id="description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm text-black"
+            rows={4}
+            className="mt-1 block w-full rounded-lg bg-gray-700 border-gray-600 text-white shadow-sm 
+                      focus:border-amber-500 focus:ring-amber-500 placeholder:text-gray-400 p-3"
+            placeholder="Tell others about your bourbon experience..."
             disabled={isUploading}
           />
         </div>
@@ -205,46 +210,49 @@ export function MuxUploader({
           
           <div 
             onClick={!isUploading ? triggerFileInput : undefined}
-            className={`mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md cursor-pointer ${isUploading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+            className={`mt-1 flex justify-center px-6 pt-5 pb-6 border-2 ${file ? 'border-amber-500/50' : 'border-gray-600'} 
+                       border-dashed rounded-lg cursor-pointer ${isUploading ? 'opacity-50 cursor-not-allowed' : 'hover:border-amber-500 hover:bg-gray-800/50'}`}
           >
-            <div className="space-y-1 text-center">
-              <svg
-                className="mx-auto h-12 w-12 text-gray-400"
-                stroke="currentColor"
-                fill="none"
-                viewBox="0 0 48 48"
-                aria-hidden="true"
-              >
-                <path
-                  d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <div className="flex text-sm text-gray-600">
-                <span className="relative font-medium text-blue-600 hover:text-blue-500">
+            <div className="space-y-2 text-center">
+              {file ? (
+                <Video className="mx-auto h-10 w-10 text-amber-500" />
+              ) : (
+                <Upload className="mx-auto h-10 w-10 text-gray-400" />
+              )}
+              
+              <div className="flex flex-col text-sm">
+                <span className="relative font-medium text-amber-500">
                   {file ? file.name : 'Select a video file'}
                 </span>
+                {file && (
+                  <span className="text-xs text-gray-400 mt-1">
+                    {(file.size / (1024 * 1024)).toFixed(2)} MB
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-gray-500">
-                {allowedFileTypes.join(', ')} up to {maxSizeMB}MB
+              <p className="text-xs text-gray-400">
+                {allowedFileTypes.map(type => type.split('/')[1]).join(', ')} up to {maxSizeMB}MB
               </p>
             </div>
           </div>
         </div>
         
         {error && (
-          <div className="text-red-500 text-sm mt-2">{error}</div>
+          <div className="flex items-center gap-2 text-red-400 text-sm p-2 bg-red-900/20 border border-red-900/30 rounded-md">
+            <AlertCircle size={16} />
+            <span>{error}</span>
+          </div>
         )}
         
         {isUploading && (
-          <div className="w-full bg-gray-200 rounded-full h-2.5">
-            <div 
-              className="bg-blue-600 h-2.5 rounded-full" 
-              style={{ width: `${uploadProgress}%` }}
-            ></div>
-            <p className="text-xs text-gray-500 mt-1">Uploading: {uploadProgress}%</p>
+          <div className="mt-4">
+            <div className="w-full bg-gray-700 rounded-full h-2.5">
+              <div 
+                className="bg-amber-600 h-2.5 rounded-full transition-all duration-300" 
+                style={{ width: `${uploadProgress}%` }}
+              ></div>
+            </div>
+            <p className="text-xs text-gray-400 mt-2 text-center">Uploading: {uploadProgress}%</p>
           </div>
         )}
         
@@ -252,10 +260,13 @@ export function MuxUploader({
           <button
             type="submit"
             disabled={isUploading || !file}
-            className={`w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 
-              ${isUploading || !file ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'}`}
+            className={`w-full py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2
+              ${isUploading || !file 
+                ? 'bg-gray-700 text-gray-400 cursor-not-allowed' 
+                : 'bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 transition-colors'}`}
           >
-            {isUploading ? 'Uploading...' : 'Upload Video'}
+            <Video size={18} />
+            {isUploading ? 'Uploading...' : file ? 'Upload Video' : 'Select a video first'}
           </button>
         </div>
       </form>

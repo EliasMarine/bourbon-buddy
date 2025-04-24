@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/supabase-auth';
+// Removed runTransaction import as we'll execute sequentially
+// import { runTransaction } from '@/lib/prisma-transaction-fix';
 // Removed authOptions import - not needed with Supabase Auth;
 
 // Constants for stream cleanup
@@ -32,36 +34,58 @@ export async function POST(request: Request) {
     const staleThreshold = new Date(now.getTime() - CLEANUP_PERIODS.STALE_LIVE);
     const inactiveThreshold = new Date(now.getTime() - CLEANUP_PERIODS.INACTIVE);
 
-    // 1. Mark stale live streams as not live
-    const staleLiveStreams = await prisma.stream.updateMany({
-      where: {
-        isLive: true,
-        startedAt: {
-          lt: staleThreshold
-        }
-      },
-      data: {
-        isLive: false
-      }
-    });
+    let staleLiveCount = 0;
+    let deletedCount = 0;
 
-    // 2. Delete old inactive streams
-    const deletedStreams = await prisma.stream.deleteMany({
-      where: {
-        isLive: false,
-        startedAt: {
-          lt: inactiveThreshold
+    try {
+      // Operation 1: Mark stale live streams as not live (outside transaction)
+      console.log(`[cleanup] Marking streams started before ${staleThreshold.toISOString()} as not live.`);
+      const staleLiveResult = await prisma.stream.updateMany({
+        where: {
+          isLive: true,
+          startedAt: {
+            lt: staleThreshold
+          }
+        },
+        data: {
+          isLive: false
         }
-      }
-    });
+      });
+      staleLiveCount = staleLiveResult.count;
+      console.log(`[cleanup] Marked ${staleLiveCount} streams as not live.`);
+
+    } catch (updateError) {
+      console.error('[cleanup] Error updating stale live streams:', updateError);
+      // Decide if we should continue or stop - let's continue for now
+    }
+    
+    try {
+      // Operation 2: Delete old inactive streams (outside transaction)
+      console.log(`[cleanup] Deleting inactive streams started before ${inactiveThreshold.toISOString()}.`);
+      const deletedResult = await prisma.stream.deleteMany({
+        where: {
+          isLive: false,
+          startedAt: {
+            lt: inactiveThreshold
+          }
+        }
+      });
+      deletedCount = deletedResult.count;
+      console.log(`[cleanup] Deleted ${deletedCount} old inactive streams.`);
+      
+    } catch (deleteError) {
+      console.error('[cleanup] Error deleting old inactive streams:', deleteError);
+      // Log error but don't fail the entire request if only deletion failed
+    }
 
     return NextResponse.json({
       success: true,
-      staleLiveCount: staleLiveStreams.count,
-      deletedCount: deletedStreams.count,
-      message: `Cleaned up ${staleLiveStreams.count} stale live streams and deleted ${deletedStreams.count} old streams`
+      staleLiveCount: staleLiveCount,
+      deletedCount: deletedCount,
+      message: `Cleaned up ${staleLiveCount} stale live streams and deleted ${deletedCount} old streams`
     });
   } catch (error) {
+    // General catch block for errors outside the specific operations
     console.error('Stream cleanup error:', error);
     return NextResponse.json(
       { 

@@ -2,7 +2,9 @@ import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import { MuxPlayer } from '@/components/ui/mux-player'
 import { Skeleton } from '@/components/ui/skeleton'
-import { prisma } from '@/lib/prisma'
+import { safePrismaQuery, prisma } from '@/lib/prisma-fix'
+import VideoComments from '@/components/video-comments'
+import { ErrorBoundary } from 'react-error-boundary'
 
 // Revalidate the page every 60 seconds
 export const revalidate = 60
@@ -26,52 +28,106 @@ interface Video {
   views: number
 }
 
-interface VideoPageProps {
-  params: {
-    id: string
+// Define the Comment interface
+interface Comment {
+  id: string
+  content: string
+  userId: string
+  videoId: string
+  createdAt: Date
+  user: {
+    name: string | null
+    image: string | null
   }
 }
 
+// Separate the database access to its own function
 async function getVideo(id: string): Promise<Video | null> {
-  const video = await prisma.video.findUnique({
-    where: { id }
-  }) as Video | null
-  
-  if (!video || !video.muxPlaybackId) {
+  try {
+    // Use safePrismaQuery to handle prepared statement errors
+    const video = await safePrismaQuery(() => 
+      prisma.video.findUnique({
+        where: { id }
+      }) as Promise<Video | null>
+    )
+    
+    if (!video || !video.muxPlaybackId) {
+      return null
+    }
+    
+    // Use safePrismaQuery for the update as well
+    await safePrismaQuery(() =>
+      prisma.video.update({
+        where: { id },
+        data: { views: { increment: 1 } }
+      })
+    )
+    
+    return video
+  } catch (error) {
+    console.error(`Error fetching video with ID ${id}:`, error)
     return null
   }
-  
-  // Increment view count
-  await prisma.video.update({
-    where: { id },
-    data: { views: { increment: 1 } }
-  })
-  
-  return video
 }
 
-export default async function VideoPage({ params }: VideoPageProps) {
-  // Ensure params.id is fully resolved before using it
-  const videoId = await Promise.resolve(params.id);
+// Get video comments
+async function getVideoComments(videoId: string): Promise<Comment[]> {
+  try {
+    // Direct Prisma query for production-ready implementation
+    return await safePrismaQuery(() => 
+      prisma.comment.findMany({
+        where: { videoId },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              name: true,
+              image: true
+            }
+          }
+        }
+      }) as Promise<Comment[]>
+    );
+  } catch (error) {
+    console.error(`Error fetching comments for video ${videoId}:`, error);
+    return [];
+  }
+}
+
+// Fixed VideoPage component to properly handle async params
+export default async function VideoPage(props: { 
+  params: Promise<{ id: string }> 
+}) {
+  // Await the entire params object first before accessing properties
+  const params = await props.params;
+  const id = params.id;
   
-  if (!videoId) {
-    notFound()
+  console.log('Starting VideoPage component');
+  console.log(`Resolved ID: ${id}`);
+  
+  if (!id) {
+    console.error('[watch] Missing video ID in page parameters');
+    return notFound();
   }
   
-  const video = await getVideo(videoId);
+  // Fetch video data
+  const video = await getVideo(id);
   
   if (!video || !video.muxPlaybackId) {
-    notFound()
+    console.warn(`[watch/${id}] Video not found or missing playbackId`);
+    return notFound();
   }
+
+  // Fetch comments
+  const comments = await getVideoComments(id);
   
   // Format the date for display
   const formattedDate = new Date(video.createdAt).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric'
-  })
+  });
   
-  // Show video
   return (
     <div className="container mx-auto py-8">
       <h1 className="text-2xl font-bold mb-4">{video.title}</h1>
@@ -98,9 +154,27 @@ export default async function VideoPage({ params }: VideoPageProps) {
             <p className="text-gray-700 whitespace-pre-wrap">{video.description}</p>
           </>
         )}
+        
+        {/* Comments Section */}
+        <div className="mt-8">
+          <h2 className="text-xl font-semibold mb-4">Comments</h2>
+          <ErrorBoundary
+            fallback={
+              <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-md">
+                <p className="text-amber-700">Comments could not be loaded.</p>
+                <p className="text-amber-600 text-sm">Sign in to view and post comments.</p>
+                {process.env.NODE_ENV !== 'production' && (
+                  <p className="text-red-600 text-xs mt-2">Error loading comments.</p>
+                )}
+              </div>
+            }
+          >
+            <VideoComments videoId={id} initialComments={comments} />
+          </ErrorBoundary>
+        </div>
       </div>
     </div>
-  )
+  );
 }
 
 // Add a loading state component
@@ -115,5 +189,5 @@ export function Loading() {
         <Skeleton className="w-full h-48" />
       </div>
     </div>
-  )
+  );
 } 
