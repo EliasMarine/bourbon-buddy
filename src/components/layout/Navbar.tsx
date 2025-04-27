@@ -9,7 +9,7 @@ import {
   Menu, X, User, LogOut, Home, BookOpen, 
   Tv, ChevronDown, Camera, Key, Settings,
   Shield, UserCircle, Edit, RefreshCw, Palette,
-  Globe, DollarSign, HelpCircle
+  Globe, DollarSign, HelpCircle, PlayCircle
 } from 'lucide-react';
 import GlencairnGlass from '../ui/icons/GlencairnGlass';
 import { getProfileImageUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
@@ -87,6 +87,7 @@ export default function Navbar() {
     { name: 'My Collection', href: '/collection', icon: <User size={18} /> },
     { name: 'Explore', href: '/explore', icon: <Globe size={18} /> },
     { name: 'Live Tastings', href: '/streams', icon: <Tv size={18} /> },
+    { name: 'Past Tastings', href: '/past-tastings', icon: <PlayCircle size={18} /> },
     { name: 'Pricing', href: '/pricing', icon: <DollarSign size={18} /> },
     { name: 'About', href: '/about', icon: <BookOpen size={18} /> },
   ];
