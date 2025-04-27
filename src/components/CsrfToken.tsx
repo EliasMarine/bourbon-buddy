@@ -141,14 +141,17 @@ export function CsrfToken({
         return originalFetch(input, modifiedInit)
       }
 
-      // Add CSRF token to headers if not present and token is available
+      // Only add CSRF token for same-origin or API requests (not third-party analytics)
+      let url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const isSameOrigin = url.startsWith('/') || url.startsWith(window.location.origin)
+      const isApiRequest = url.includes('/api/')
+      const isAnalytics = url.includes('inferred.litix.io')
+
       const token = sessionStorage.getItem('csrfToken')
-      
-      if (token) {
-        console.log('Adding CSRF token to POST request to', typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url)
+      if (token && (isSameOrigin || isApiRequest) && !isAnalytics) {
+        console.log('Adding CSRF token to POST request to', url)
         modifiedInit.headers = {
           ...(modifiedInit.headers || {}),
-          // Use only the standard X-CSRF-Token header
           'X-CSRF-Token': token
         }
       }

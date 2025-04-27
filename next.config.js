@@ -1,24 +1,13 @@
 /** @type {import('next').NextConfig} */
-const nextSafeConfig = require('./next-safe.config');
-const nextSafe = require('next-safe');
-const { withSentryConfig } = require("@sentry/nextjs");
+const { createSecureHeaders } = require('next-secure-headers')
 
 // Determine if we're in development mode
 const isDevelopment = process.env.NODE_ENV !== 'production';
 const cspMode = process.env.NEXT_PUBLIC_CSP_MODE || (isDevelopment ? 'development' : 'production');
 
-// Generate security headers from next-safe with nonce generation enabled
-const securityHeaders = nextSafe({
-  ...nextSafeConfig,
-  contentSecurityPolicy: {
-    ...nextSafeConfig.contentSecurityPolicy,
-    // Enable nonce generation for scripts
-    useNonce: true
-  }
-});
-
 // Define Next.js config
 const nextConfig = {
+  poweredByHeader: false, // Remove X-Powered-By for security
   reactStrictMode: true,
   // Disable TypeScript type checking for development
   typescript: {
@@ -31,10 +20,7 @@ const nextConfig = {
   experimental: {
     serverActions: {
       allowedOrigins: [process.env.NEXTAUTH_URL || 'http://localhost:3000']
-    },
-    allowedDevOrigins: process.env.ALLOWED_DEV_ORIGINS 
-      ? process.env.ALLOWED_DEV_ORIGINS.split(',') 
-      : []
+    }
   },
   // Updated for modern Next.js standards
   serverExternalPackages: ['argon2'],
@@ -150,7 +136,104 @@ const nextConfig = {
     const defaultHeaders = [
       {
         source: '/:path*',
-        headers: securityHeaders,
+        headers: createSecureHeaders({
+          contentSecurityPolicy: {
+            directives: isDevelopment
+              ? {
+                  defaultSrc: ["'self'"],
+                  scriptSrc: [
+                    "'self'",
+                    "'unsafe-inline'",
+                    "'unsafe-eval'",
+                    'https://www.gstatic.com', // Chromecast support (added)
+                    'https://assets.mux.com', // Mux Player scripts
+                  ],
+                  styleSrc: [
+                    "'self'",
+                    "'unsafe-inline'",
+                  ],
+                  imgSrc: [
+                    "'self'",
+                    'data:',
+                    'https://image.mux.com', // Mux thumbnails
+                  ],
+                  mediaSrc: [
+                    "'self'",
+                    'blob:', // HLS playback
+                    'https://stream.mux.com', // Mux video playback
+                    'https://assets.mux.com', // Mux Player media
+                    'https://image.mux.com', // Mux thumbnails/storyboards
+                    'https://*.mux.com', // Mux manifests/segments (wildcard for all mux CDNs)
+                    'https://*.fastly.mux.com', // Mux CDN
+                    'https://*.cloudflare.mux.com', // Mux CDN
+                  ],
+                  connectSrc: [
+                    "'self'",
+                    'ws://localhost:*',
+                    'http://localhost:*',
+                    'https://hjodvataujilredguzig.supabase.co',
+                    'wss://hjodvataujilredguzig.supabase.co',
+                    'https://api.mux.com', // Mux analytics
+                    'https://inferred.litix.io', // Mux analytics
+                    'https://stream.mux.com', // HLS manifest
+                    'https://assets.mux.com', // Mux Player analytics
+                    'https://*.mux.com', // Mux manifests/segments (wildcard for all mux CDNs)
+                    'https://*.fastly.mux.com', // Mux CDN
+                    'https://*.cloudflare.mux.com', // Mux CDN
+                  ],
+                  frameSrc: [
+                    "'self'",
+                  ],
+                }
+              : {
+                  defaultSrc: ["'self'"],
+                  scriptSrc: [
+                    "'self'",
+                    'https://www.gstatic.com', // Chromecast support (added)
+                    'https://assets.mux.com', // Mux Player scripts
+                  ],
+                  styleSrc: [
+                    "'self'",
+                    "'unsafe-inline'", // Only if needed for styled-jsx/emotion
+                  ],
+                  imgSrc: [
+                    "'self'",
+                    'data:',
+                    'https://image.mux.com', // Mux thumbnails
+                  ],
+                  mediaSrc: [
+                    "'self'",
+                    'blob:', // HLS playback
+                    'https://stream.mux.com', // Mux video playback
+                    'https://assets.mux.com', // Mux Player media
+                    'https://image.mux.com', // Mux thumbnails/storyboards
+                    'https://*.mux.com', // Mux manifests/segments (wildcard for all mux CDNs)
+                    'https://*.fastly.mux.com', // Mux CDN
+                    'https://*.cloudflare.mux.com', // Mux CDN
+                  ],
+                  connectSrc: [
+                    "'self'",
+                    'https://hjodvataujilredguzig.supabase.co',
+                    'wss://hjodvataujilredguzig.supabase.co',
+                    'https://api.mux.com', // Mux analytics
+                    'https://inferred.litix.io', // Mux analytics
+                    'https://stream.mux.com', // HLS manifest
+                    'https://assets.mux.com', // Mux Player analytics
+                    'https://*.mux.com', // Mux manifests/segments (wildcard for all mux CDNs)
+                    'https://*.fastly.mux.com', // Mux CDN
+                    'https://*.cloudflare.mux.com', // Mux CDN
+                  ],
+                  frameSrc: [
+                    "'self'",
+                  ],
+                }
+          },
+          forceHTTPSRedirect: [true, { maxAge: 60 * 60 * 24 * 4, includeSubDomains: true }],
+          referrerPolicy: 'same-origin',
+          nosniff: 'nosniff',
+          xssProtection: 'sanitize',
+          frameGuard: 'deny',
+        }),
       },
     ];
     
@@ -199,27 +282,4 @@ const nextConfig = {
 };
 
 // Make sure adding Sentry options is the last code to run before exporting
-module.exports = withSentryConfig(nextConfig, {
-  org: process.env.SENTRY_ORG || "bourbon-buddy",
-  project: process.env.SENTRY_PROJECT || "bourbon-buddy",
-  
-  // Only print logs for uploading source maps in CI
-  silent: !process.env.CI,
-  
-  // Automatically tree-shake Sentry logger statements to reduce bundle size
-  disableLogger: true,
-
-  // Enable debug ID injection - IMPORTANT for source maps
-  injectDebugIds: true,
-  
-  // Upload source maps during build
-  sourcemaps: {
-    // Include source maps for both client and server bundles
-    assets: ['.next/static/chunks/**.js', '.next/server/chunks/**.js'],
-    // Only upload source maps related to the app, not node_modules
-    ignore: ['node_modules'],
-  },
-  
-  // Enable debug to troubleshoot source map issues
-  debug: true,
-});
+module.exports = nextConfig;

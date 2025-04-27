@@ -208,52 +208,7 @@ export async function middleware(request: NextRequest) {
     // First, update the Supabase session using the dedicated function
     // This ensures we have the most up-to-date auth state before any decision
     const sessionResponse = await updateSession(request);
-    
-    // Add primary headers
-    const randomBytes = crypto.getRandomValues(new Uint8Array(16));
-    const nonce = btoa(String.fromCharCode.apply(null, Array.from(randomBytes)));
     sessionResponse.headers.set('x-debug-id', debugId);
-    sessionResponse.headers.set('x-nonce', nonce); // Pass nonce to layouts/pages
-    
-    // Security headers
-    sessionResponse.headers.set('X-XSS-Protection', '1; mode=block');
-    sessionResponse.headers.set('X-Content-Type-Options', 'nosniff');
-    sessionResponse.headers.set('X-Frame-Options', 'DENY');
-    sessionResponse.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-    
-    /**
-     * Content Security Policy (CSP) Implementation
-     */
-    const cspHeader = `
-      default-src 'self';
-      script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'unsafe-inline' https://vercel.live https://vercel.com https://*.clarity.ms https://c.bing.com cdn.vercel-insights.com va.vercel-scripts.com;
-      connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co https://api.openai.com https://vercel.live https://vercel.com https://*.pusher.com wss://*.pusher.com https://vitals.vercel-insights.com https: http:;
-      style-src 'self' 'unsafe-inline';
-      img-src 'self' https://vercel.live https://vercel.com data: blob: https: http:;
-      font-src 'self' data:;
-      frame-src 'self' https://vercel.live https://vercel.com;
-      object-src 'none';
-      base-uri 'self';
-      form-action 'self';
-      frame-ancestors 'self';
-      worker-src 'self' blob:;
-      manifest-src 'self';
-      media-src 'self';
-      child-src 'self' blob:;
-    `;
-    
-    // Format the CSP header correctly
-    const contentSecurityPolicyHeaderValue = cspHeader
-      .replace(/\s{2,}/g, ' ')
-      .trim();
-    
-    // Set the CSP header
-    sessionResponse.headers.set('Content-Security-Policy', contentSecurityPolicyHeaderValue);
-    
-    // Add the correct Permissions-Policy header
-    sessionResponse.headers.set('Permissions-Policy', 
-      "accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), payment=(), usb=()"
-    );
     
     // Determine if this is a public path that doesn't need authentication
     const isPublicPath = publicRoutes.some(route => pathname.startsWith(route));
@@ -270,8 +225,6 @@ export async function middleware(request: NextRequest) {
       log(debugId, `🔒 Protected route access: ${pathname}`);
       
       // Create a Supabase client to check the auth state
-      // We do this directly here (even though updateSession was already called)
-      // because we specifically need the user info to make auth decisions
       const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

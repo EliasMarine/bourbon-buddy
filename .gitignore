@@ -84,3 +84,5 @@ node
 .dev-build-backups/route.ts.signup.auth
 .dev-build-backups/route.ts.stripe.webhooks
 .dev-build-backups/route.ts.sync-user.auth
+
+files_do_not_upload/

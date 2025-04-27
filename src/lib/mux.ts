@@ -2,9 +2,7 @@ import Mux from '@mux/mux-node'
 import { z } from 'zod'
 import fs from 'fs'
 import path from 'path'
-import { PrismaClient } from '@prisma/client'
-
-const prisma = new PrismaClient()
+import { prisma } from './prisma'
 
 // Try to directly load MUX credentials from .env.local
 let muxTokenId = process.env.MUX_TOKEN_ID || ''

@@ -11,6 +11,8 @@ import {
 import { toast } from 'react-hot-toast';
 import { MuxThumbnail } from '@/components/ui/mux-thumbnail';
 import { useVideoStatus, VideoType } from '@/hooks/use-video-status';
+import { deleteVideoAction } from '@/app/watch/[id]/delete-video-action'
+import { VideoCardWithDelete } from '@/components/ui/video-card-with-delete'
 
 interface Stream {
   id: string;
@@ -67,6 +69,7 @@ export default function StreamsPage() {
   const cleanupRef = useRef(false);
   const [cleanupCompleted, setCleanupCompleted] = useState(false);
   const firstLoadRef = useRef(true);
+  const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null)
   
   // Use our custom hook to manage video status
   const {
@@ -279,6 +282,26 @@ export default function StreamsPage() {
       setIsCleaningUp(false);
     }
   };
+
+  async function handleDeleteVideo(videoId: string) {
+    if (!window.confirm('Are you sure you want to delete this video? This action cannot be undone.')) return
+    setDeletingVideoId(videoId)
+    try {
+      const formData = new FormData()
+      formData.append('id', videoId)
+      const result = await deleteVideoAction(formData)
+      if (result?.success) {
+        toast.success('Video deleted successfully')
+        fetchVideos()
+      } else {
+        toast.error(result?.error || 'Failed to delete video')
+      }
+    } catch (err) {
+      toast.error('An error occurred while deleting the video')
+    } finally {
+      setDeletingVideoId(null)
+    }
+  }
 
   return (
     <div className="min-h-[calc(100vh-180px)]">
@@ -551,119 +574,17 @@ export default function StreamsPage() {
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
                   {videos.map((video) => (
-                    <div
+                    <VideoCardWithDelete
                       key={video.id}
-                      className="bg-gradient-to-b from-gray-800/90 to-gray-900/90 rounded-2xl overflow-hidden hover:shadow-xl transition-all duration-300 border border-gray-700 hover:border-amber-500/40 backdrop-blur-sm group"
-                    >
-                      <Link href={`/watch/${video.id}`} className="block">
-                        <div className="relative">
-                          {/* Manual asset ID input - shown when the user wants to manually set the MUX asset ID */}
-                          {showManualAssetInput === video.id && (
-                            <div 
-                              className="absolute inset-0 z-30 bg-black/80 backdrop-blur flex items-center justify-center p-4"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                              }}
-                            >
-                              <div className="bg-gray-800 p-4 rounded-lg w-full max-w-sm">
-                                <h3 className="text-white font-medium mb-2">Set MUX Asset ID</h3>
-                                <p className="text-gray-300 text-sm mb-3">Enter the MUX asset ID to link to this video:</p>
-                                <input
-                                  type="text"
-                                  value={manualAssetId}
-                                  onChange={(e) => setManualAssetId(e.target.value)}
-                                  className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 mb-3"
-                                  placeholder="e.g. TF8002bRfe02BoyFDcgeG9kTro9f1..."
-                                />
-                                <div className="flex justify-end gap-2">
-                                  <button
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      setShowManualAssetInput(null);
-                                    }}
-                                    className="px-3 py-1 bg-gray-700 text-white rounded hover:bg-gray-600"
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      setMuxAssetId(video.id, manualAssetId);
-                                      setShowManualAssetInput(null);
-                                      setManualAssetId("");
-                                      // Trigger a fetch to update the videos list
-                                      setTimeout(() => fetchVideos(), 1000);
-                                    }}
-                                    className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                                  >
-                                    Save
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                          
-                          {/* Use enhanced MuxThumbnail component */}
-                          <MuxThumbnail 
-                            playbackId={video.muxPlaybackId} 
-                            time={video.thumbnailTime || 0}
-                            status={hasJustBecomeReady(video.id, video.status) ? 'ready-new' : (videoStatuses[video.id] || video.status)}
-                            duration={video.duration}
-                            isCheckingStatus={isCheckingStatus[video.id]}
-                            onCheckStatus={() => checkVideoStatus(video.id, 'processing')}
-                            onManualAsset={() => setShowManualAssetInput(video.id)}
-                            isFeatured={video.featured}
-                            uploadId={video.muxUploadId}
-                          />
-                        </div>
-                        
-                        <div className="p-5 md:p-6">
-                          {/* Title and description */}
-                          <h3 className="font-semibold text-white text-lg md:text-xl mb-2 group-hover:text-amber-500 transition-colors line-clamp-1">{video.title}</h3>
-                          
-                          {video.description && (
-                            <p className="text-gray-400 text-sm mb-4 line-clamp-2">{video.description}</p>
-                          )}
-                          
-                          {/* Views badge - if applicable */}
-                          {video.views > 100 && (
-                            <div className="mb-4">
-                              <span className="inline-flex items-center gap-1.5 bg-gray-800 px-3 py-1 rounded-full text-xs text-gray-300">
-                                <EyeIcon size={12} className="text-gray-400 flex-shrink-0" />
-                                {video.views} views
-                              </span>
-                            </div>
-                          )}
-                          
-                          {/* User and date - updated to handle overflow better */}
-                          <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-700/50">
-                            <div className="w-8 h-8 relative rounded-full overflow-hidden bg-gray-700 ring-1 ring-amber-500/20 flex-shrink-0">
-                              {video.user?.avatar ? (
-                                <Image
-                                  src={video.user.avatar}
-                                  alt={video.user.name || 'User'}
-                                  fill
-                                  className="object-cover"
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center bg-amber-600 text-white font-medium">
-                                  {video.user?.name?.[0] || '?'}
-                                </div>
-                              )}
-                            </div>
-                            <span className="text-sm text-gray-300 font-medium truncate max-w-[120px]">
-                              {video.user?.name || 'Anonymous User'}
-                            </span>
-                            <span className="text-xs text-gray-500 ml-auto flex-shrink-0">
-                              {new Date(video.createdAt).toLocaleDateString()}
-                            </span>
-                          </div>
-                        </div>
-                      </Link>
-                    </div>
+                      video={video}
+                      currentUserId={session?.user?.id}
+                      isCheckingStatus={isCheckingStatus[video.id]}
+                      videoStatus={videoStatuses[video.id]}
+                      hasJustBecomeReady={hasJustBecomeReady(video.id, video.status)}
+                      onCheckStatus={() => checkVideoStatus(video.id, 'processing')}
+                      onManualAsset={() => setShowManualAssetInput(video.id)}
+                      onDeleted={fetchVideos}
+                    />
                   ))}
                 </div>
               </>

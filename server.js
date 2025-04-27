@@ -1,7 +1,9 @@
-const { createServer } = require('http');
+const { createServer } = require('https');
+const { createServer: createHttpServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
 const { Server } = require('socket.io');
+const fs = require('fs');
 
 // Add security verification (this will dynamically require our TS files)
 const securityCheck = async () => {
@@ -30,18 +32,33 @@ const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
+const httpsOptions = {
+  key: fs.readFileSync('./localhost-key.pem'),
+  cert: fs.readFileSync('./localhost.pem'),
+};
+
 app.prepare().then(() => {
-  const httpServer = createServer((req, res) => {
+  // HTTP server to redirect to HTTPS
+  createHttpServer((req, res) => {
+    const host = req.headers.host.replace(/:\d+$/, ':3000'); // force HTTPS port
+    res.writeHead(301, { Location: `https://${host}${req.url}` });
+    res.end();
+  }).listen(3080, () => {
+    console.log('> HTTP server listening on http://localhost:3080 and redirecting to HTTPS');
+  });
+
+  // Main HTTPS server
+  const httpsServer = createServer(httpsOptions, (req, res) => {
     const parsedUrl = parse(req.url, true);
     handle(req, res, parsedUrl);
   });
 
-  // Initialize Socket.IO
-  const io = new Server(httpServer, {
+  // Attach Socket.IO to the HTTPS server
+  const io = new Server(httpsServer, {
     path: '/api/socketio',
     transports: ['polling', 'websocket'],
     cors: {
-      origin: process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : '*',
+      origin: process.env.NODE_ENV === 'development' ? 'https://localhost:3000' : '*',
       methods: ['GET', 'POST'],
       credentials: true
     },
@@ -528,10 +545,8 @@ app.prepare().then(() => {
     return true;
   }
 
-  // Start the server
-  const PORT = process.env.PORT || 3000;
-  httpServer.listen(PORT, (err) => {
+  httpsServer.listen(3000, err => {
     if (err) throw err;
-    console.log(`> Ready on http://localhost:${PORT}`);
+    console.log('> Ready on https://localhost:3000');
   });
 }); 

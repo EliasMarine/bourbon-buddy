@@ -58,7 +58,14 @@ export async function GET() {
     
     return response;
   } catch (error) {
-    console.error('Streams GET error:', error);
+    console.error('Streams GET error:', error)
+    if (error instanceof Error) {
+      console.error('Error message:', error.message)
+      console.error('Error stack:', error.stack)
+      // Prisma error fields
+      if ('code' in error) console.error('Prisma error code:', (error as any).code)
+      if ('meta' in error) console.error('Prisma error meta:', (error as any).meta)
+    }
     return NextResponse.json(
       { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

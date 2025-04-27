@@ -3,6 +3,13 @@
 import { useState, useEffect } from 'react'
 import MuxPlayerElement from '@mux/mux-player-react'
 
+// MuxPlayer requires the following CSP settings:
+//   img-src: https://image.mux.com
+//   media-src: https://stream.mux.com blob:
+//   connect-src: https://api.mux.com https://inferred.litix.io https://stream.mux.com
+//   script-src: https://www.gstatic.com (for Chromecast)
+// Ensure these are present in your Content Security Policy for playback and analytics to work.
+
 interface MuxPlayerProps {
   playbackId: string
   metadataVideoTitle?: string
@@ -82,6 +89,7 @@ export function MuxPlayer({
         className={className}
         onError={handleError}
         onPlaying={handlePlaying}
+        style={{ '--cast-button': 'none' } as React.CSSProperties}
       />
     </div>
   )

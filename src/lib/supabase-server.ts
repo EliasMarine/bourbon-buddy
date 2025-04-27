@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import { createServerClient as createSsrServerClient } from '@supabase/ssr';
+import { createServerClient as createSupabaseSsrClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 
 // Helper function to safely check if we're on the server side
@@ -15,54 +16,29 @@ const isValidSupabaseConfig = (url?: string, key?: string) => {
   );
 };
 
+interface SupabaseCookie {
+  name: string
+  value: string
+  options?: Record<string, any>
+}
+
 /**
- * Creates a Supabase client for server component usage
- * Note: This function is only compatible with Next.js App Router
- * DO NOT use in pages/ directory or client components
+ * Creates a Supabase client for SSR server component usage (App Router only)
  */
-export function createServerClient() {
-  // We need to dynamically import cookies() to avoid breaking in Pages Router
-  const getCookieStore = async () => {
-    try {
-      const { cookies } = await /* @next-codemod-error The APIs under 'next/headers' are async now, need to be manually awaited. */
-      import('next/headers');
-      return cookies();
-    } catch (error) {
-      console.error('Error importing cookies from next/headers:', error);
-      return {
-        getAll: () => [],
-      };
-    }
-  };
-  
-  return createSsrServerClient(
+export async function createSupabaseServerClient() {
+  const cookieStore = await cookies();
+  return createSupabaseSsrClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        async getAll() {
-          try {
-            const cookieStore = await getCookieStore();
+        getAll() {
             return cookieStore.getAll();
-          } catch (error) {
-            console.error('Error getting cookies:', error);
-            return [];
-          }
         },
-        async setAll(cookiesToSet) {
-          try {
-            // Server components can't set cookies directly
-            // This is handled by middleware
-            const cookieStore = await getCookieStore();
-            
-            // Skip setting cookies in server components - this will be handled by middleware
-            // We just need to fulfill the interface contract without throwing errors
-            if (process.env.NODE_ENV !== 'production') {
-              console.log('Skipping cookie setting in server component (expected behavior)');
-            }
-          } catch (error) {
-            // Ignore errors in server components
-          }
+        setAll(cookiesToSet: SupabaseCookie[]) {
+          cookiesToSet.forEach(({ name, value, options }: SupabaseCookie) =>
+            cookieStore.set(name, value, options)
+          );
         },
       },
     }
@@ -79,7 +55,7 @@ export function createMiddlewareClient(request: NextRequest) {
     },
   });
   
-  const supabase = createSsrServerClient(
+  const supabase = createSupabaseSsrClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -87,9 +63,8 @@ export function createMiddlewareClient(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            // Set on both request and response
+        setAll(cookiesToSet: SupabaseCookie[]) {
+          cookiesToSet.forEach(({ name, value, options }: SupabaseCookie) => {
             request.cookies.set(name, value);
             response.cookies.set(name, value, options);
           });
@@ -101,39 +76,6 @@ export function createMiddlewareClient(request: NextRequest) {
   return { supabase, response };
 }
 
-// Supabase client for server usage (with service key)
-export const createSupabaseServerClient = () => {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  // Use SUPABASE_SERVICE_ROLE_KEY as primary, with SUPABASE_SERVICE_KEY as fallback
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
-
-  if (!isValidSupabaseConfig(supabaseUrl, supabaseKey)) {
-    console.error('Invalid or missing Supabase environment variables');
-    // Return a mock client that returns empty data for all operations
-    return {
-      from: () => ({
-        select: () => ({ data: [], count: 0, error: null }),
-        insert: () => ({ data: null, error: null }),
-        update: () => ({ data: null, error: null }),
-        delete: () => ({ data: null, error: null }),
-        eq: () => ({ data: [], count: 0, error: null, select: () => ({ data: [], count: 0, error: null }) }),
-      }),
-      storage: {
-        from: () => ({
-          upload: () => ({ data: null, error: null }),
-          download: () => ({ data: null, error: null }),
-          getPublicUrl: () => ({ data: { publicUrl: '' } }),
-        }),
-      },
-      auth: {
-        getSession: () => Promise.resolve({ data: { session: null }, error: null }),
-      }
-    } as any;
-  }
-
-  return createClient(supabaseUrl!, supabaseKey!);
-};
-
 /**
  * Creates a Supabase client with admin privileges
  * Only use this on the server side
@@ -143,7 +85,6 @@ export function createAdminClient() {
     console.error('Admin client should only be used on the server side');
     return null;
   }
-  
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -152,18 +93,13 @@ export function createAdminClient() {
 
 // Admin client - only use on server-side
 export const supabaseAdmin = (() => {
-  // Only initialize on the server side
   if (!isServer()) {
-    // Return a mock client for client side
     return null as any;
   }
-
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
-  
   if (!isValidSupabaseConfig(supabaseUrl, serviceKey)) {
     console.error('Invalid or missing Supabase admin environment variables');
-    // Return a mock admin client
     return {
       from: () => ({
         select: () => ({ data: [], error: null }),
@@ -185,17 +121,14 @@ export const supabaseAdmin = (() => {
       }
     } as any;
   }
-  
   return createClient(supabaseUrl!, serviceKey!);
 })();
 
-// Safe wrapper for using the admin client
 export const withSupabaseAdmin = async <T>(
   callback: (admin: ReturnType<typeof createClient>) => Promise<T>
 ): Promise<T> => {
   if (!isServer()) {
     throw new Error('supabaseAdmin can only be used on the server side');
   }
-  
   return callback(supabaseAdmin);
 }; 

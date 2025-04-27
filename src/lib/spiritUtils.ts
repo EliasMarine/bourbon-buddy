@@ -1,4 +1,3 @@
-import { PrismaClient } from '@prisma/client';
 import { prisma } from './prisma';
 
 /**
@@ -90,7 +89,7 @@ export async function dynamicImageSearch(spiritName: string, brand?: string): Pr
         }
       }
     } catch (searchError) {
-      if (searchError.name === 'AbortError') {
+      if (searchError instanceof Error && searchError.name === 'AbortError') {
         console.warn('[IMAGE] Web search timed out');
       } else {
         console.error('[IMAGE] Error searching web API:', searchError);
@@ -120,7 +119,7 @@ export async function dynamicImageSearch(spiritName: string, brand?: string): Pr
         }
       }
     } catch (imageSearchError) {
-      if (imageSearchError.name === 'AbortError') {
+      if (imageSearchError instanceof Error && imageSearchError.name === 'AbortError') {
         console.warn('[IMAGE] Dedicated image search timed out');
       } else {
         console.error('[IMAGE] Error using dedicated image search:', imageSearchError);
