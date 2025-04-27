@@ -25,13 +25,11 @@ export default function LoginPage() {
   const callbackUrl = searchParams?.get('callbackUrl') || '/dashboard';
   const registered = searchParams?.get('registered') === 'true';
 
-  // TEMPORARILY COMMENTED OUT: Redirect if already logged in
-  // useEffect(() => {
-  //   if (status === 'authenticated' && session) {
-  //     console.log('User already authenticated, redirecting to dashboard');
-  //     router.push(callbackUrl);
-  //   }
-  // }, [session, status, router, callbackUrl]);
+  useEffect(() => {
+    if (status === 'authenticated' && session) {
+      router.replace(callbackUrl);
+    }
+  }, [session, status, router, callbackUrl]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -240,11 +238,11 @@ export default function LoginPage() {
     }
   };
 
-  // If already authenticated, show loading spinner
   if (status === 'loading') {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-500"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500" />
+        <span className="ml-4 text-lg text-gray-500">Loading...</span>
       </div>
     );
   }

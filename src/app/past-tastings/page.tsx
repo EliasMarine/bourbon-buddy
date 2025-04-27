@@ -1,9 +1,12 @@
+'use client'
+
 import React, { useEffect, useState } from 'react'
 import { useSession } from '@/hooks/use-supabase-session'
-import { VideoCardWithDelete } from '@/components/ui/video-card-with-delete'
-import { FileVideo, PlusCircle } from 'lucide-react'
+import { FileVideo, PlusCircle, UserCircle, Eye, CalendarDays } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'react-hot-toast'
+import { cn } from '@/lib/utils'
+import SafeImage from '@/components/ui/SafeImage'
 
 interface Video {
   id: string
@@ -17,8 +20,8 @@ interface Video {
   aspectRatio: string | null
   thumbnailTime: number | null
   userId: string | null
-  createdAt: Date
-  updatedAt: Date
+  createdAt: string
+  updatedAt: string
   publiclyListed: boolean
   views: number
   featured?: boolean
@@ -28,12 +31,133 @@ interface Video {
   }
 }
 
+function formatDuration(seconds: number | null) {
+  if (!seconds || isNaN(seconds)) return ''
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function formatDate(date: string) {
+  if (!date) return ''
+  return new Date(date).toLocaleDateString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric'
+  })
+}
+
+function VideoCard({ video, currentUserId, onDeleted }: {
+  video: Video
+  currentUserId?: string
+  onDeleted: () => void
+}) {
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const thumbnailUrl = video.muxPlaybackId
+    ? `https://image.mux.com/${video.muxPlaybackId}/thumbnail.jpg?time=1`
+    : undefined
+
+  async function handleDelete() {
+    if (!window.confirm('Are you sure you want to delete this video? This cannot be undone.')) return
+    setIsDeleting(true)
+    setError(null)
+    try {
+      const formData = new FormData()
+      formData.append('id', video.id)
+      const res = await fetch('/watch/[id]/delete-video-action', {
+        method: 'POST',
+        body: formData
+      })
+      const result = await res.json()
+      if (result?.success) {
+        toast.success('Video deleted')
+        onDeleted()
+      } else {
+        setError(result?.error || 'Failed to delete video.')
+      }
+    } catch (err) {
+      setError('An error occurred while deleting the video.')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  return (
+    <div className={cn(
+      'group relative flex flex-col bg-gray-900 border border-gray-800 rounded-xl shadow-lg overflow-hidden transition-all hover:shadow-amber-900/10',
+      video.featured && 'ring-2 ring-amber-500/30'
+    )}>
+      <Link
+        href={`/watch/${video.id}`}
+        className="block aspect-video bg-gray-800 relative overflow-hidden"
+        aria-label={`Watch ${video.title}`}
+      >
+        {thumbnailUrl ? (
+          <SafeImage
+            src={thumbnailUrl}
+            alt={video.title}
+            width={640}
+            height={360}
+            className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-300"
+            fallback={<div className="flex items-center justify-center w-full h-full bg-gray-700 text-gray-400"><FileVideo size={48} /></div>}
+          />
+        ) : (
+          <div className="flex items-center justify-center w-full h-full bg-gray-700 text-gray-400"><FileVideo size={48} /></div>
+        )}
+        {video.duration && (
+          <span className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-2 py-0.5 rounded">
+            {formatDuration(video.duration)}
+          </span>
+        )}
+      </Link>
+      <div className="flex-1 flex flex-col p-4">
+        <div className="flex items-center gap-2 mb-2">
+          {video.user?.avatar ? (
+            <SafeImage
+              src={video.user.avatar}
+              alt={video.user.name || 'Uploader'}
+              width={32}
+              height={32}
+              className="rounded-full w-8 h-8 object-cover border border-gray-700"
+              fallback={<UserCircle className="w-8 h-8 text-gray-400" />}
+            />
+          ) : (
+            <UserCircle className="w-8 h-8 text-gray-400" />
+          )}
+          <span className="text-sm text-gray-200 font-medium truncate max-w-[120px]" title={video.user?.name || 'Uploader'}>
+            {video.user?.name || 'Uploader'}
+          </span>
+        </div>
+        <h3 className="font-semibold text-lg text-white mb-1 truncate" title={video.title}>{video.title}</h3>
+        <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+          <CalendarDays className="w-4 h-4" />
+          <span>{formatDate(video.createdAt)}</span>
+          <Eye className="w-4 h-4 ml-2" />
+          <span>{video.views ?? 0} views</span>
+        </div>
+        {video.description && (
+          <p className="text-gray-400 text-xs line-clamp-2 mb-2">{video.description}</p>
+        )}
+        {currentUserId && video.userId === currentUserId && (
+          <button
+            onClick={handleDelete}
+            disabled={isDeleting}
+            className="mt-auto px-3 py-1.5 rounded bg-red-600 text-white text-xs font-medium hover:bg-red-700 transition disabled:opacity-50"
+            aria-label="Delete video"
+          >
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </button>
+        )}
+        {error && <div className="text-xs text-red-500 mt-1">{error}</div>}
+      </div>
+    </div>
+  )
+}
+
 export default function PastTastingsPage() {
   const { data: session } = useSession()
   const [videos, setVideos] = useState<Video[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [isCheckingStatus, setIsCheckingStatus] = useState<Record<string, boolean>>({})
-  const [videoStatuses, setVideoStatuses] = useState<Record<string, string>>({})
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     fetchVideos()
@@ -41,13 +165,14 @@ export default function PastTastingsPage() {
 
   async function fetchVideos() {
     setIsLoading(true)
+    setError(null)
     try {
       const response = await fetch('/api/videos')
       if (!response.ok) throw new Error('Failed to fetch videos')
       const data = await response.json()
       setVideos(data.videos || [])
     } catch (err) {
-      toast.error('Failed to load videos')
+      setError('Failed to load videos')
       setVideos([])
     } finally {
       setIsLoading(false)
@@ -56,12 +181,14 @@ export default function PastTastingsPage() {
 
   return (
     <div className="min-h-[calc(100vh-180px)]">
-      <div className="container mx-auto px-4 py-8 max-w-7xl mt-16">
-        <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2">
-          <span className="bg-gradient-to-r from-amber-500 to-amber-600 bg-clip-text text-transparent">Past Tastings</span>
-        </h1>
-        <p className="text-gray-300 max-w-2xl text-sm md:text-base mb-8">Browse pre-recorded bourbon tasting sessions from the community. Watch, learn, and enjoy!</p>
-        <div className="mb-8 flex justify-end">
+      <div className="container mx-auto px-2 sm:px-4 py-8 max-w-7xl mt-16">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 flex items-center gap-2">
+              <span className="bg-gradient-to-r from-amber-500 to-amber-600 bg-clip-text text-transparent">Past Tastings</span>
+            </h1>
+            <p className="text-gray-300 max-w-2xl text-sm md:text-base">Browse pre-recorded bourbon tasting sessions from the community. Watch, learn, and enjoy!</p>
+          </div>
           {session && (
             <Link
               href="/upload"
@@ -72,8 +199,11 @@ export default function PastTastingsPage() {
             </Link>
           )}
         </div>
+        {error && (
+          <div className="bg-red-100 text-red-700 rounded p-4 mb-6 text-center font-medium">{error}</div>
+        )}
         {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
             {[...Array(6)].map((_, i) => (
               <div key={i} className="bg-gradient-to-b from-gray-800/90 to-gray-900/90 rounded-xl overflow-hidden border border-gray-700 backdrop-blur-sm animate-pulse h-72" />
             ))}
@@ -99,17 +229,12 @@ export default function PastTastingsPage() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
             {videos.map((video) => (
-              <VideoCardWithDelete
+              <VideoCard
                 key={video.id}
                 video={video}
                 currentUserId={session?.user?.id}
-                isCheckingStatus={isCheckingStatus[video.id]}
-                videoStatus={videoStatuses[video.id]}
-                hasJustBecomeReady={false}
-                onCheckStatus={() => {}}
-                onManualAsset={() => {}}
                 onDeleted={fetchVideos}
               />
             ))}
