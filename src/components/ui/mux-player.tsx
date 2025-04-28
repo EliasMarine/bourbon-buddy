@@ -31,12 +31,25 @@ export function MuxPlayer({
 }: MuxPlayerProps) {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [fallbackMode, setFallbackMode] = useState(false)
 
   useEffect(() => {
     // Reset state when playback ID changes
     setError(null)
     setIsLoading(true)
-  }, [playbackId])
+    setFallbackMode(false)
+    
+    // Log the playback ID for debugging
+    console.log(`MuxPlayer: Using playbackId="${playbackId}"`);
+    
+    // Check if the playback ID looks valid
+    if (!playbackId || playbackId.startsWith('placeholder-')) {
+      console.warn(`MuxPlayer: Invalid playbackId: "${playbackId}"`);
+      setError('Invalid playback ID');
+      setIsLoading(false);
+      if (onError) onError(new Error('Invalid playback ID'));
+    }
+  }, [playbackId, onError])
 
   const handleError = (err: any) => {
     console.error('MUX player error:', err)
@@ -46,25 +59,65 @@ export function MuxPlayer({
   }
 
   const handlePlaying = () => {
+    console.log('MuxPlayer: Video is now playing');
     setIsLoading(false)
     if (onPlaying) onPlaying()
+  }
+  
+  const toggleFallbackMode = () => {
+    setFallbackMode(prev => !prev);
+    setError(null);
   }
 
   if (error) {
     return (
-      <div className={`bg-gray-100 flex items-center justify-center ${className}`} style={{ aspectRatio: '16/9' }}>
+      <div className={`bg-gray-100 flex flex-col items-center justify-center ${className}`} style={{ aspectRatio: '16/9' }}>
         <div className="text-center p-6">
           <p className="text-red-500 font-medium mb-2">{error}</p>
-          <button 
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-            onClick={() => {
-              setError(null)
-              setIsLoading(true)
-            }}
-          >
-            Try Again
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2 justify-center">
+            <button 
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+              onClick={() => {
+                setError(null)
+                setIsLoading(true)
+                setFallbackMode(false)
+              }}
+            >
+              Try Again
+            </button>
+            <button 
+              className="px-4 py-2 bg-amber-500 text-white rounded hover:bg-amber-600 transition-colors"
+              onClick={toggleFallbackMode}
+            >
+              Try Direct HLS
+            </button>
+          </div>
         </div>
+      </div>
+    )
+  }
+  
+  if (fallbackMode) {
+    return (
+      <div className={`relative ${className}`} style={{ aspectRatio: '16/9' }}>
+        <p className="absolute top-0 left-0 right-0 bg-amber-600 text-white text-xs p-1 text-center">Fallback Mode</p>
+        <video 
+          controls
+          src={`https://stream.mux.com/${playbackId}.m3u8`}
+          className="w-full h-full" 
+          style={{ aspectRatio: '16/9' }}
+          onError={handleError}
+          onPlaying={handlePlaying}
+          autoPlay
+          muted
+          playsInline
+        />
+        <button 
+          className="absolute bottom-2 left-2 px-2 py-1 bg-black/70 text-white text-xs rounded"
+          onClick={toggleFallbackMode}
+        >
+          Switch to Player
+        </button>
       </div>
     )
   }
@@ -90,7 +143,15 @@ export function MuxPlayer({
         onError={handleError}
         onPlaying={handlePlaying}
         style={{ '--cast-button': 'none' } as React.CSSProperties}
+        autoPlay
+        muted
       />
+      <button 
+        className="absolute bottom-2 right-2 px-2 py-1 bg-black/70 text-white text-xs rounded opacity-50 hover:opacity-100"
+        onClick={toggleFallbackMode}
+      >
+        Try Fallback
+      </button>
     </div>
   )
 }
