@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { createMuxUpload } from '@/lib/mux'
 
 export default function MuxTestPage() {
   const [uploadUrl, setUploadUrl] = useState<string | null>(null)
@@ -15,15 +14,28 @@ export default function MuxTestPage() {
       setError(null)
       setStatus('Creating Mux upload URL...')
       
-      // Direct call to createMuxUpload from lib/mux
-      const upload = await createMuxUpload({})
+      // Call the API route instead of the direct function
+      const response = await fetch('/api/mux/create-upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      })
       
-      if (!upload || !upload.url) {
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to create upload URL')
+      }
+      
+      const data = await response.json()
+      
+      if (!data || !data.url) {
         throw new Error('Failed to create upload URL')
       }
       
-      setUploadUrl(upload.url)
-      setStatus(`Upload created with ID: ${upload.id}`)
+      setUploadUrl(data.url)
+      setStatus(`Upload created with ID: ${data.id}`)
     } catch (err) {
       console.error('Error creating MUX upload:', err)
       setError(err instanceof Error ? err.message : 'An unknown error occurred')
