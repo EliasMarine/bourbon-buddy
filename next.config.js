@@ -180,6 +180,7 @@ const nextConfig = {
                     'https://*.mux.com', // Mux manifests/segments (wildcard for all mux CDNs)
                     'https://*.fastly.mux.com', // Mux CDN
                     'https://*.cloudflare.mux.com', // Mux CDN
+                    'https://storage.googleapis.com', // Google Cloud Storage for Mux uploads
                   ],
                   frameSrc: [
                     "'self'",
@@ -222,6 +223,7 @@ const nextConfig = {
                     'https://*.mux.com', // Mux manifests/segments (wildcard for all mux CDNs)
                     'https://*.fastly.mux.com', // Mux CDN
                     'https://*.cloudflare.mux.com', // Mux CDN
+                    'https://storage.googleapis.com', // Google Cloud Storage for Mux uploads
                   ],
                   frameSrc: [
                     "'self'",

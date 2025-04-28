@@ -2,13 +2,15 @@ import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import { MuxPlayer } from '@/components/ui/mux-player'
 import { Skeleton } from '@/components/ui/skeleton'
-import { safePrismaQuery, prisma } from '@/lib/prisma-fix'
+import { supabaseAdmin, safeSupabaseQuery } from '@/lib/supabase-server'
 import VideoComments from '@/components/video-comments'
 import { ErrorBoundary } from 'react-error-boundary'
 import { useTransition, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { deleteVideoAction } from './delete-video-action'
 import DeleteVideoButton from './DeleteVideoButton'
+import VideoPlaybackPage from './video-playback-page'
+import Mux from '@mux/mux-node'
 
 // Define the Video interface to match the database schema
 interface Video {
@@ -42,56 +44,188 @@ interface Comment {
   }
 }
 
+/**
+ * Checks if a video playback ID is a placeholder
+ */
+function isPlaceholderId(playbackId: string | null): boolean {
+  return !!playbackId && playbackId.startsWith('placeholder-')
+}
+
 // Separate the database access to its own function
 async function getVideo(id: string): Promise<Video | null> {
   try {
-    // Use safePrismaQuery to handle prepared statement errors
-    const video = await safePrismaQuery(() => 
-      prisma.video.findUnique({
-        where: { id }
-      }) as Promise<Video | null>
-    )
+    // Query video with Supabase - use Video with capital V, no quotes
+    const { data: video, error } = await safeSupabaseQuery(async () => {
+      const { data, error } = await supabaseAdmin
+        .from('Video') // Table name is Video (capital V, no quotes)
+        .select('*')
+        .eq('id', id)
+        .single();
+      
+      return { data, error };
+    });
     
-    if (!video || !video.muxPlaybackId) {
-      return null
+    if (error || !video || !video.muxPlaybackId || video.status !== 'ready') {
+      console.error(`Error finding video or video not ready: ${error?.message}`);
+      return null;
     }
     
-    // Use safePrismaQuery for the update as well
-    await safePrismaQuery(() =>
-      prisma.video.update({
-        where: { id },
-        data: { views: { increment: 1 } }
-      })
-    )
+    // Increment view count
+    const { error: updateError } = await safeSupabaseQuery(async () => {
+      // Use an atomic increment operation
+      const { error } = await supabaseAdmin
+        .from('Video') // Table name is Video (capital V, no quotes)
+        .update({ views: (video.views || 0) + 1 })
+        .eq('id', id);
+      
+      return { error };
+    });
     
-    return video
+    if (updateError) {
+      console.error(`Error incrementing view count: ${updateError.message}`);
+      // Continue even if view count update fails
+    }
+    
+    return video;
   } catch (error) {
-    console.error(`Error fetching video with ID ${id}:`, error)
-    return null
+    console.error(`Error fetching video with ID ${id}:`, error);
+    return null;
   }
 }
 
 // Get video comments
 async function getVideoComments(videoId: string): Promise<Comment[]> {
   try {
-    // Direct Prisma query for production-ready implementation
-    return await safePrismaQuery(() => 
-      prisma.comment.findMany({
-        where: { videoId },
-        orderBy: { createdAt: 'desc' },
-        include: {
-          user: {
-            select: {
-              name: true,
-              image: true
-            }
-          }
-        }
-      }) as Promise<Comment[]>
-    );
+    // Query comments with Supabase
+    const { data: comments, error } = await safeSupabaseQuery(async () => {
+      // Join with user table to get user info
+      const { data, error } = await supabaseAdmin
+        .from('comment')
+        .select(`
+          *,
+          user:userId (
+            name,
+            image
+          )
+        `)
+        .eq('videoId', videoId)
+        .order('createdAt', { ascending: false });
+      
+      return { data, error };
+    });
+    
+    if (error) {
+      console.error(`Error fetching comments: ${error.message}`);
+      return [];
+    }
+    
+    return comments || [];
   } catch (error) {
     console.error(`Error fetching comments for video ${videoId}:`, error);
     return [];
+  }
+}
+
+// Add this function before the generateMetadata or other exports
+async function syncVideoStatus(videoId: string) {
+  // Skip in development if needed
+  if (process.env.SKIP_VIDEO_SYNC === 'true') return;
+  
+  try {
+    // Determine the base URL (supporting both HTTP and HTTPS)
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.NODE_ENV === 'development' 
+      ? 'http://localhost:3000' 
+      : 'https://localhost:3000');
+    
+    // Construct the API URL
+    const syncUrl = new URL(`${baseUrl}/api/videos/sync-status`);
+    syncUrl.searchParams.append('videoId', videoId);
+    
+    // Use direct Supabase update instead of fetch for server components
+    const { data: video, error } = await supabaseAdmin
+      .from('Video')
+      .select('*')
+      .eq('id', videoId)
+      .single();
+      
+    if (error || !video) {
+      console.log(`No video found with ID ${videoId} to sync`);
+      return;
+    }
+    
+    const assetId = video.muxAssetId;
+    if (!assetId) {
+      console.log(`Video ${videoId} has no Mux asset ID, skipping sync`);
+      return;
+    }
+    
+    try {
+      // Check asset status with Mux API directly
+      const muxClient = new Mux({
+        tokenId: process.env.MUX_TOKEN_ID || '',
+        tokenSecret: process.env.MUX_TOKEN_SECRET || '',
+      });
+      
+      const asset = await muxClient.video.assets.retrieve(assetId);
+      const assetStatus = asset.status;
+      let needsUpdate = false;
+      
+      // Prepare update object
+      const updateData: Record<string, any> = {};
+      
+      // Update status if it doesn't match
+      if (video.status !== assetStatus) {
+        updateData.status = assetStatus;
+        needsUpdate = true;
+      }
+      
+      // Handle playback ID - always prefer using real Mux playback IDs
+      if (assetStatus === 'ready') {
+        const hasPlaceholder = video.muxPlaybackId?.startsWith('placeholder-') || false;
+        
+        // Update playback ID if it's a placeholder or missing
+        if (hasPlaceholder || !video.muxPlaybackId) {
+          let actualPlaybackId;
+          
+          // Use existing playback ID from the asset if available
+          if (asset.playback_ids && asset.playback_ids.length > 0) {
+            actualPlaybackId = asset.playback_ids[0].id;
+          } else {
+            // Create a new playback ID if none exists
+            const playbackResponse = await muxClient.video.assets.createPlaybackId(assetId, {
+              policy: 'public'
+            });
+            actualPlaybackId = playbackResponse.id;
+          }
+          
+          updateData.muxPlaybackId = actualPlaybackId;
+          needsUpdate = true;
+        }
+        
+        // Always update video metadata if the asset is ready
+        updateData.duration = asset.duration || video.duration;
+        updateData.aspectRatio = asset.aspect_ratio || video.aspectRatio;
+      }
+      
+      // Only update if needed
+      if (needsUpdate) {
+        const { error: updateError } = await supabaseAdmin
+          .from('Video')
+          .update(updateData)
+          .eq('id', videoId);
+
+        if (updateError) {
+          throw updateError;
+        }
+        
+        console.log(`Updated video ${videoId}: ${JSON.stringify(updateData)}`);
+      }
+    } catch (muxError) {
+      console.error(`Error checking Mux status for video ${videoId}:`, muxError);
+    }
+  } catch (error) {
+    console.error(`Error syncing video status for ${videoId}:`, error);
+    // Don't throw - this shouldn't block page rendering
   }
 }
 
@@ -111,16 +245,66 @@ export default async function VideoPage(props: {
     return notFound();
   }
   
-  // Fetch video data
-  const video = await getVideo(id);
+  // First, try to update the video status
+  await syncVideoStatus(id);
   
-  if (!video || !video.muxPlaybackId) {
-    console.warn(`[watch/${id}] Video not found or missing playbackId`);
+  // Fetch video data using Supabase with correct table name 'Video' (capital V, no quotes)
+  const { data: video, error } = await supabaseAdmin
+    .from('Video') // Table name is Video (capital V, no quotes)
+    .select('*')
+    .eq('id', id)
+    .single();
+  
+  // If video is missing, not ready, or missing playbackId, show appropriate UI
+  if (error || !video) {
+    console.warn(`[watch/${id}] Video not found: ${error?.message}`);
     return notFound();
   }
+  
+  // If video is not ready, has a placeholder ID, or missing playbackId, show processing state
+  const hasPlaceholder = isPlaceholderId(video.muxPlaybackId);
+  if (video.status !== 'ready' || !video.muxPlaybackId || hasPlaceholder) {
+    // Show a processing state if the video is not ready
+    return (
+      <div className="container mx-auto py-16 flex flex-col items-center justify-center min-h-[60vh]">
+        <div className="w-24 h-24 rounded-full bg-blue-900/20 flex items-center justify-center mb-6 animate-pulse">
+          <svg className="w-12 h-12 text-blue-500 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold text-blue-200 mb-2">Processing Video...</h2>
+        <p className="text-blue-100 text-center max-w-md mb-4">
+          {hasPlaceholder ? 
+            "This video has metadata but no playable content yet. The real video content may still need to be uploaded or processed." : 
+            "This video is still being processed. Please check back soon!"}
+        </p>
+        <a href="/past-tastings" className="mt-4 px-6 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg font-medium transition-colors">Go Back to Past Tastings</a>
+      </div>
+    )
+  }
+  
+  // Increment view count (fire and forget)
+  supabaseAdmin
+    .from('Video') // Table name is Video (capital V, no quotes)
+    .update({ views: (video.views || 0) + 1 })
+    .eq('id', id)
+    .then(({ error }) => {
+      if (error) console.error(`Error incrementing view count: ${error.message}`);
+    });
 
   // Fetch comments
-  const comments = await getVideoComments(id);
+  const { data: comments } = await supabaseAdmin
+    .from('comment')
+    .select(`
+      *,
+      user:userId (
+        name,
+        image
+      )
+    `)
+    .eq('videoId', id)
+    .order('createdAt', { ascending: false });
   
   // Format the date for display
   const formattedDate = new Date(video.createdAt).toLocaleDateString('en-US', {
@@ -129,50 +313,8 @@ export default async function VideoPage(props: {
     day: 'numeric'
   });
 
-  return (
-    <div className="container mx-auto py-8">
-      <DeleteVideoButton id={id} />
-      <h1 className="text-2xl font-bold mb-4">{video.title}</h1>
-      <div className="w-full max-w-4xl mx-auto">
-        <Suspense fallback={<div className="w-full aspect-video bg-gray-200 animate-pulse rounded-md"></div>}>
-          <MuxPlayer 
-            playbackId={video.muxPlaybackId}
-            accentColor="#3b82f6"
-            metadataVideoTitle={video.title}
-          />
-        </Suspense>
-      </div>
-      <div className="mt-6 max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-4">
-          <time className="text-gray-500">{formattedDate}</time>
-          <span className="text-gray-500">{video.views || 0} views</span>
-        </div>
-        {video.description && (
-          <>
-            <h2 className="text-xl font-semibold mb-2">Description</h2>
-            <p className="text-gray-700 whitespace-pre-wrap">{video.description}</p>
-          </>
-        )}
-        {/* Comments Section */}
-        <div className="mt-8">
-          <h2 className="text-xl font-semibold mb-4">Comments</h2>
-          <ErrorBoundary
-            fallback={
-              <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-md">
-                <p className="text-amber-700">Comments could not be loaded.</p>
-                <p className="text-amber-600 text-sm">Sign in to view and post comments.</p>
-                {process.env.NODE_ENV !== 'production' && (
-                  <p className="text-red-600 text-xs mt-2">Error loading comments.</p>
-                )}
-              </div>
-            }
-          >
-            <VideoComments videoId={id} initialComments={comments} />
-          </ErrorBoundary>
-        </div>
-      </div>
-    </div>
-  );
+  // Use the server component wrapper for client components
+  return <VideoWrapper video={video} comments={comments || []} formattedDate={formattedDate} />
 }
 
 // Add a loading state component
@@ -188,4 +330,35 @@ export function Loading() {
       </div>
     </div>
   );
+}
+
+// Simple DeleteVideoButton component
+function DeleteVideoButton({ id }: { id: string }) {
+  return (
+    <form action={deleteVideoAction}>
+      <input type="hidden" name="id" value={id} />
+      <button 
+        type="submit"
+        className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm mb-4"
+      >
+        Delete Video
+      </button>
+    </form>
+  );
+}
+
+// Use a server component to import and load the client component
+async function VideoWrapper({ video, comments, formattedDate }: { 
+  video: Video; 
+  comments: Comment[];
+  formattedDate: string;
+}) {
+  // Dynamic import for client component
+  const VideoPlaybackPage = (await import('./video-playback-page')).default;
+  
+  return <VideoPlaybackPage 
+    video={video} 
+    comments={comments} 
+    formattedDate={formattedDate} 
+  />;
 } 

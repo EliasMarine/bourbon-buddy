@@ -2,7 +2,7 @@ import Mux from '@mux/mux-node'
 import { z } from 'zod'
 import fs from 'fs'
 import path from 'path'
-import { prisma } from './prisma'
+import { supabaseAdmin } from './supabase-server'
 
 // Try to directly load MUX credentials from .env.local
 let muxTokenId = process.env.MUX_TOKEN_ID || ''
@@ -161,17 +161,23 @@ export async function setMuxAssetIdAndCreatePlaybackId(videoId: string, muxAsset
       console.log(`Using existing playback ID: ${playbackId} for asset ${muxAssetId}`);
     }
     
-    // Update the video record in the database with the asset ID and playback ID
-    const updatedVideo = await (prisma as any).video.update({
-      where: { id: videoId },
-      data: {
+    // Update the video record in Supabase with the asset ID and playback ID
+    const { data: updatedVideo, error } = await supabaseAdmin
+      .from('video')
+      .update({
         muxAssetId,
         muxPlaybackId: playbackId,
         status: asset.status || 'ready',
         duration: asset.duration,
         aspectRatio: asset.aspect_ratio
-      }
-    });
+      })
+      .eq('id', videoId)
+      .select()
+      .single();
+    
+    if (error) {
+      throw error;
+    }
     
     return {
       success: true,

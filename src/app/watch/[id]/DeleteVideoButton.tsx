@@ -1,4 +1,5 @@
-'use client'
+"use client"
+
 import { useTransition, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { deleteVideoAction } from './delete-video-action'
@@ -7,6 +8,9 @@ interface DeleteVideoButtonProps {
   id: string
 }
 
+/**
+ * Button component for deleting videos with confirmation
+ */
 export default function DeleteVideoButton({ id }: DeleteVideoButtonProps) {
   const [isDeleting, startDelete] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -19,7 +23,7 @@ export default function DeleteVideoButton({ id }: DeleteVideoButtonProps) {
       formData.append('id', id)
       const result = await deleteVideoAction(formData)
       if (result?.success) {
-        router.push('/streams')
+        router.push('/past-tastings')
       } else {
         setError(result?.error || 'Failed to delete video.')
       }

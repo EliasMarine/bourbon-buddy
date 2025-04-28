@@ -238,4 +238,6 @@ if (isDev && typeof window === 'undefined') {
   
   // Start health check after a delay to ensure initial setup is complete
   setTimeout(setupHealthCheck, 30000);
-} 
+}
+
+export default prisma 

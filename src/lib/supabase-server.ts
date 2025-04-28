@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createServerClient as createSupabaseSsrClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 // Helper function to safely check if we're on the server side
 export const isServer = () => typeof window === 'undefined';
@@ -77,58 +78,110 @@ export function createMiddlewareClient(request: NextRequest) {
 }
 
 /**
- * Creates a Supabase client with admin privileges
- * Only use this on the server side
+ * Server-side Supabase client with admin privileges
+ * - Uses service role key for direct table access
+ * - Only use in server-side code (API routes, Server Components, etc.)
+ * - Never expose this client to the browser
  */
-export function createAdminClient() {
-  if (typeof window !== 'undefined') {
-    console.error('Admin client should only be used on the server side');
-    return null;
+export const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
   }
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+);
+
+/**
+ * Safe query wrapper for Supabase
+ * Similar to safePrismaQuery, but for Supabase
+ * Provides error handling and retries for common issues
+ */
+export async function safeSupabaseQuery<T>(
+  queryFn: () => Promise<T>,
+  maxAttempts = 3
+): Promise<T> {
+  let attempts = 0
+  
+  while (attempts < maxAttempts) {
+    try {
+      return await queryFn()
+    } catch (error) {
+      attempts++
+      
+      // Log the error for debugging
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error(`Supabase query error (attempt ${attempts}/${maxAttempts}):`, errorMessage)
+      
+      // Check for connection-related errors
+      const isConnectionError = 
+        errorMessage.includes('network error') || 
+        errorMessage.includes('connection') ||
+        errorMessage.includes('timeout')
+      
+      if (isConnectionError && attempts < maxAttempts) {
+        // Wait before retry (exponential backoff)
+        const delay = Math.min(100 * Math.pow(2, attempts), 3000)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        continue
+      }
+      
+      throw error
+    }
+  }
+  
+  throw new Error(`Failed to execute Supabase query after ${maxAttempts} attempts`)
 }
 
-// Admin client - only use on server-side
-export const supabaseAdmin = (() => {
-  if (!isServer()) {
-    return null as any;
+/**
+ * Handles Supabase database errors safely for API responses
+ * Prevents sensitive information from being exposed to clients
+ * Returns appropriate status codes and messages
+ */
+export function handleSupabaseError(error: unknown, context = 'operation') {
+  // Log the full error internally for debugging
+  console.error(`Supabase error in ${context}:`, error)
+  
+  // Handle PostgreSQL error codes
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = String(error.code)
+    
+    // Common Postgres error codes
+    switch (code) {
+      case '23505': // unique_violation
+        return { status: 400, message: 'Resource already exists with these details' }
+      case '23503': // foreign_key_violation
+        return { status: 400, message: 'Referenced resource does not exist' }
+      case '42P01': // undefined_table
+        return { status: 500, message: 'Database configuration error' }
+      case '22P02': // invalid_text_representation
+        return { status: 400, message: 'Invalid data format' }
+    }
   }
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
-  if (!isValidSupabaseConfig(supabaseUrl, serviceKey)) {
-    console.error('Invalid or missing Supabase admin environment variables');
-    return {
-      from: () => ({
-        select: () => ({ data: [], error: null }),
-        insert: () => ({ data: null, error: null }),
-        update: () => ({ data: null, error: null }),
-        delete: () => ({ data: null, error: null }),
-      }),
-      storage: {
-        from: () => ({
-          upload: () => ({ data: null, error: null }),
-          download: () => ({ data: null, error: null }),
-          getPublicUrl: () => ({ data: { publicUrl: '' } }),
-        }),
-      },
-      auth: {
-        admin: { 
-          listUsers: () => Promise.resolve({ data: [], error: null }) 
-        },
-      }
-    } as any;
-  }
-  return createClient(supabaseUrl!, serviceKey!);
-})();
+  
+  // Default error response
+  return { status: 500, message: 'Database operation failed. Please try again later.' }
+}
 
-export const withSupabaseAdmin = async <T>(
-  callback: (admin: ReturnType<typeof createClient>) => Promise<T>
-): Promise<T> => {
-  if (!isServer()) {
-    throw new Error('supabaseAdmin can only be used on the server side');
+/**
+ * Check if Supabase is available and connected
+ * Useful for health checks and startup verification
+ */
+export async function checkSupabaseConnection(): Promise<boolean> {
+  try {
+    // Simple query to test connection
+    const { data, error } = await supabaseAdmin
+      .from('video')
+      .select('count(*)', { count: 'exact', head: true })
+    
+    return !error
+  } catch (err) {
+    console.error('Supabase connection check failed:', err)
+    return false
   }
-  return callback(supabaseAdmin);
-}; 
+}
+
+// Export the typed client as default
+export default supabaseAdmin; 

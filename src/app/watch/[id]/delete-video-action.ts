@@ -1,41 +1,59 @@
 "use server"
 
-import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
-import Mux from '@mux/mux-node'
-
-const mux = new Mux({
-  tokenId: process.env.MUX_TOKEN_ID!,
-  tokenSecret: process.env.MUX_TOKEN_SECRET!,
-})
-
-const DeleteVideoSchema = z.object({
-  id: z.string().min(1),
-})
+import { revalidatePath } from "next/cache"
+import { getMuxAsset, deleteMuxAsset } from "@/lib/mux"
+import { supabaseAdmin } from '@/lib/supabase-server'
 
 export async function deleteVideoAction(formData: FormData) {
-  const { id } = DeleteVideoSchema.parse({
-    id: formData.get('id'),
-  })
+  const id = formData.get('id') as string
 
-  // Fetch video from DB
-  const video = await prisma.video.findUnique({ where: { id } })
-  if (!video) {
-    return { error: 'Video not found.' }
+  if (!id) {
+    return { error: 'Video ID is required' }
   }
 
-  // Delete from Mux if asset exists
-  if (video.muxAssetId) {
-    try {
-      await mux.video.assets.delete(video.muxAssetId)
-    } catch (err) {
-      // Log but don't block DB deletion
-      console.error('Failed to delete Mux asset:', err)
+  try {
+    // Get the video to delete - using Video with capital V, no quotes
+    const { data: video, error: findError } = await supabaseAdmin
+      .from('Video')
+      .select('muxAssetId, muxPlaybackId')
+      .eq('id', id)
+      .single()
+    
+    if (findError || !video) {
+      console.error(`Error finding video ${id}:`, findError)
+      return { error: 'Video not found', success: false }
+    }
+
+    // If there's a MUX asset ID, delete it from MUX first
+    if (video.muxAssetId) {
+      const assetInfo = await getMuxAsset(video.muxAssetId)
+      if (assetInfo) {
+        await deleteMuxAsset(video.muxAssetId)
+        console.log(`Deleted MUX asset ${video.muxAssetId}`)
+      }
+    }
+
+    // Delete the video from the database - using Video with capital V, no quotes
+    const { error: deleteError } = await supabaseAdmin
+      .from('Video')
+      .delete()
+      .eq('id', id)
+    
+    if (deleteError) {
+      console.error(`Error deleting video ${id}:`, deleteError)
+      return { error: 'Failed to delete video', success: false }
+    }
+
+    // Revalidate paths to update UI
+    revalidatePath('/past-tastings')
+    revalidatePath(`/watch/${id}`)
+
+    return { success: true }
+  } catch (error) {
+    console.error('Error in delete video action:', error)
+    return { 
+      error: 'An unexpected error occurred', 
+      success: false 
     }
   }
-
-  // Delete from DB
-  await prisma.video.delete({ where: { id } })
-
-  return { success: true }
 } 

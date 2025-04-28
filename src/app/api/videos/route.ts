@@ -1,22 +1,33 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { supabaseAdmin, safeSupabaseQuery } from '@/lib/supabase-server'
+import { nanoid } from 'nanoid'
 
-// Define the Video interface to match the database schema
+// Define the Video interface to handle both camelCase and snake_case
 interface Video {
   id: string
   title: string
   description: string | null
   status: string
-  muxUploadId: string | null
-  muxAssetId: string | null
-  muxPlaybackId: string | null
+  // Support both naming conventions
+  mux_upload_id?: string | null
+  muxUploadId?: string | null
+  mux_asset_id?: string | null
+  muxAssetId?: string | null
+  mux_playback_id?: string | null
+  muxPlaybackId?: string | null
   duration: number | null
-  aspectRatio: string | null
-  thumbnailTime: number | null
-  userId: string | null
-  createdAt: Date
-  updatedAt: Date
-  publiclyListed: boolean
+  aspect_ratio?: string | null
+  aspectRatio?: string | null
+  thumbnail_time?: number | null
+  thumbnailTime?: number | null
+  user_id?: string | null
+  userId?: string | null
+  created_at?: Date
+  createdAt?: Date
+  updated_at?: Date
+  updatedAt?: Date
+  publicly_listed?: boolean
+  publiclyListed?: boolean
   views: number
   user?: {
     name: string
@@ -28,66 +39,90 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const status = url.searchParams.get('status')
   const limit = parseInt(url.searchParams.get('limit') || '20', 10)
+  const includeAllVideos = url.searchParams.get('includeAll') === 'true'
   
   try {
-    const whereClause: any = {}
+    console.log('GET /api/videos - Starting request')
+    console.log(`Status filter: ${status || 'Not specified (using defaults)'}`)
+    console.log(`Limit: ${limit}, includeAllVideos: ${includeAllVideos}`)
     
-    // Filter by status if provided
+    // Query the Video table directly with proper casing
+    let query = supabaseAdmin
+      .from('Video')  // Capital V, no quotes
+      .select('*')
+      .order('createdAt', { ascending: false })
+      .limit(Math.min(limit, 50))
+    
+    // Apply status filter - if no status provided, show all videos
     if (status) {
-      whereClause.status = status
-    } else {
-      // Default to videos that are ready or processing
-      whereClause.OR = [
-        { status: 'ready' },
-        { status: 'processing' }
-      ]
+      query = query.eq('status', status)
+    } else if (!includeAllVideos) {
+      // Default to videos that are ready or processing only if not including all
+      query = query.or('status.eq.ready,status.eq.processing')
     }
     
-    // Only show publicly listed videos
-    whereClause.publiclyListed = true
-    
-    // Debug to see if the model exists at all
-    console.log('Available models in Prisma client:', Object.keys(prisma));
-    
-    try {
-      // Attempt to find videos
-      const videos = await (prisma as any).video.findMany({
-        where: whereClause,
-        orderBy: {
-          createdAt: 'desc'
-        },
-        take: Math.min(limit, 50) // Limit to maximum 50 videos
-      }) as Video[];
-      
-      // Format user data manually since we don't have a direct relation in the schema
-      const formattedVideos = (videos || []).map(video => {
-        return {
-          ...video,
-          user: video.userId ? {
-            name: video.userId.split('@')[0] || 'User', // Create a username from email or ID
-            avatar: undefined // No avatar data available
-          } : undefined
-        };
-      });
-      
-      // Create a response with cache control headers to prevent excessive requests
-      const response = NextResponse.json({ videos: formattedVideos });
-      
-      // Add cache headers - cache for 60 seconds to avoid constant rerequests
-      response.headers.set('Cache-Control', 'public, max-age=60, s-maxage=60');
-      response.headers.set('CDN-Cache-Control', 'public, max-age=60');
-      response.headers.set('Vercel-CDN-Cache-Control', 'public, max-age=60');
-      
-      return response;
-    } catch (error) {
-      console.error('Error with video model access:', error);
-      // Return empty array as fallback
-      return NextResponse.json({ videos: [] });
+    // Only show publicly listed videos by default
+    if (!includeAllVideos) {
+      query = query.eq('publiclyListed', true)
     }
+    
+    console.log('Executing query to Video table')
+    const { data: videos, error } = await query
+    
+    if (error) {
+      console.error('Supabase query error:', error)
+      throw error
+    }
+    
+    console.log(`Retrieved ${videos?.length || 0} videos from database`)
+    
+    // Format the videos with consistent camelCase for the frontend
+    // Make sure to handle missing playback IDs - include videos even without them
+    const formattedVideos = (videos || []).map(video => {
+      // Extract user info
+      const userName = video.userId ? 
+        (typeof video.userId === 'string' && video.userId.includes('@') ? 
+          video.userId.split('@')[0] : 
+          video.userId) : 
+        'Unknown User'
+      
+      // Apply defaults for missing values
+      return {
+        ...video,
+        // Ensure these fields are always present
+        muxPlaybackId: video.muxPlaybackId || null,
+        muxAssetId: video.muxAssetId || null,
+        muxUploadId: video.muxUploadId || null,
+        duration: video.duration || 0,
+        aspectRatio: video.aspectRatio || '16:9',
+        thumbnailTime: video.thumbnailTime || 0,
+        // Add user object
+        user: {
+          name: userName,
+          avatar: undefined
+        }
+      }
+    })
+    
+    // Create response with cache control headers
+    const response = NextResponse.json({ videos: formattedVideos })
+    response.headers.set('Cache-Control', 'public, max-age=60, s-maxage=60')
+    response.headers.set('CDN-Cache-Control', 'public, max-age=60')
+    response.headers.set('Vercel-CDN-Cache-Control', 'public, max-age=60')
+    
+    return response
   } catch (error) {
     console.error('Error fetching videos:', error)
+    const errorDetails = error instanceof Error ? 
+      { message: error.message, stack: error.stack } : 
+      { raw: String(error) }
+    
     return NextResponse.json(
-      { error: 'Failed to fetch videos' },
+      { 
+        error: 'Failed to fetch videos',
+        details: errorDetails,
+        timestamp: new Date().toISOString()
+      },
       { status: 500 }
     )
   }
@@ -97,29 +132,37 @@ export async function POST(request: Request) {
   try {
     const { title, description, muxPlaybackId, userId } = await request.json()
     
-    if (!title || !muxPlaybackId) {
+    if (!title) {
       return NextResponse.json(
-        { error: 'Title and playback ID are required' },
+        { error: 'Title is required' },
         { status: 400 }
       )
     }
     
     try {
-      // Attempt to create a video
-      const video = await (prisma as any).video.create({
-        data: {
+      // Create a new video record in Supabase with correct casing
+      const { data: video, error } = await supabaseAdmin
+        .from('Video')  // Capital V, no quotes
+        .insert({
           title,
           description: description || '',
-          muxPlaybackId,
-          status: 'ready',
-          userId
-        }
-      }) as Video;
+          muxPlaybackId: muxPlaybackId || null,
+          status: muxPlaybackId ? 'ready' : 'uploading',
+          userId,
+          publiclyListed: true,
+          views: 0
+        })
+        .select()
+        .single()
       
-      return NextResponse.json({ video });
+      if (error) {
+        throw error
+      }
+      
+      return NextResponse.json({ video })
     } catch (error) {
-      console.error('Error creating video:', error);
-      throw error;
+      console.error('Error creating video:', error)
+      throw error
     }
   } catch (error) {
     console.error('Error creating video:', error)
