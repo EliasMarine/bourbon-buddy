@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/supabase-auth';
-import { safePrismaQuery, prisma } from '@/lib/prisma-fix';
+import { createSupabaseServerClient, safeSupabaseQuery, handleSupabaseError } from '@/lib/supabase-server';
 import { z } from 'zod';
 
 // Schema for comment creation
@@ -30,40 +30,35 @@ export async function POST(request: Request) {
       // Validate the request body
       const validatedData = CommentSchema.parse(body);
       
+      // Get Supabase client (SSR, with cookies)
+      const supabase = await createSupabaseServerClient();
+      
       // Check if the video exists
-      const video = await safePrismaQuery(() => 
-        prisma.video.findUnique({
-          where: { id: validatedData.videoId },
-          select: { id: true }
-        })
+      const { data: video, error: videoError } = await safeSupabaseQuery(async () =>
+        await supabase.from('Video').select('id').eq('id', validatedData.videoId).maybeSingle()
       );
       
-      if (!video) {
+      if (videoError || !video) {
         return NextResponse.json(
           { error: 'Video not found' },
           { status: 404 }
         );
       }
       
-      // Create the comment
-      const comment = await safePrismaQuery(() => 
-        prisma.comment.create({
-          data: {
+      // Insert the comment
+      const { data: comment, error: commentError } = await safeSupabaseQuery(async () =>
+        await supabase.from('Comment').insert({
             content: validatedData.content,
             videoId: validatedData.videoId,
             userId: user.id,
-            reviewId: validatedData.reviewId || "placeholder-review-id",
-          },
-          include: {
-            user: {
-              select: {
-                name: true,
-                image: true,
-              },
-            },
-          },
-        })
+            reviewId: validatedData.reviewId || null,
+        }).select('*, user:User(name, image)').maybeSingle()
       );
+      
+      if (commentError || !comment) {
+        const { status, message } = handleSupabaseError(commentError, 'create comment');
+        return NextResponse.json({ error: message }, { status });
+      }
       
       return NextResponse.json(comment);
       
@@ -98,15 +93,15 @@ export async function GET(request: Request) {
       );
     }
     
+    // Get Supabase client (SSR, with cookies)
+    const supabase = await createSupabaseServerClient();
+    
     // Check if the video exists
-    const video = await safePrismaQuery(() => 
-      prisma.video.findUnique({
-        where: { id: videoId },
-        select: { id: true }
-      })
+    const { data: video, error: videoError } = await safeSupabaseQuery(async () =>
+      await supabase.from('Video').select('id').eq('id', videoId).maybeSingle()
     );
     
-    if (!video) {
+    if (videoError || !video) {
       return NextResponse.json(
         { error: 'Video not found' },
         { status: 404 }
@@ -114,20 +109,17 @@ export async function GET(request: Request) {
     }
     
     // Fetch comments for the video
-    const comments = await safePrismaQuery(() => 
-      prisma.comment.findMany({
-        where: { videoId },
-        orderBy: { createdAt: 'desc' },
-        include: {
-          user: {
-            select: {
-              name: true,
-              image: true,
-            },
-          },
-        },
-      })
+    const { data: comments, error: commentsError } = await safeSupabaseQuery(async () =>
+      await supabase.from('Comment')
+        .select('*, user:User(name, image)')
+        .eq('videoId', videoId)
+        .order('created_at', { ascending: false })
     );
+    
+    if (commentsError) {
+      const { status, message } = handleSupabaseError(commentsError, 'fetch comments');
+      return NextResponse.json({ error: message }, { status });
+    }
     
     return NextResponse.json(comments);
     
