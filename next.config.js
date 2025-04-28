@@ -150,7 +150,7 @@ const nextConfig = {
                   ],
                   styleSrc: [
                     "'self'",
-                    "'unsafe-inline'",
+                    // 'unsafe-inline' is only allowed in development, not production
                   ],
                   imgSrc: [
                     "'self'",
@@ -195,7 +195,7 @@ const nextConfig = {
                   ],
                   styleSrc: [
                     "'self'",
-                    "'unsafe-inline'", // Only if needed for styled-jsx/emotion
+                    // 'unsafe-inline' removed for production
                   ],
                   imgSrc: [
                     "'self'",
