@@ -1,17 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/supabase-auth';
-// Removed authOptions import - not needed with Supabase Auth;
-import { prisma } from '@/lib/prisma';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { createClient } from '@/utils/supabase/server';
 
-// Define type for raw query result
+// Define type for query result
 type PopularUser = {
   id: string;
   name: string | null;
   username: string;
   email: string;
   image: string | null;
-  spiritsCount: bigint; // SQL COUNT returns bigint
+  spiritsCount: number;
 };
 
 // GET /api/users/popular - Get users with the most spirits in their collection
@@ -20,16 +18,16 @@ export async function GET(request: Request) {
     const debugId = Math.random().toString(36).substring(2, 8);
     console.log(`[${debugId}] 🔍 Fetching popular users`);
     
-    // Try to get session from NextAuth first
+    // Try to get session from Supabase
     const user = await getCurrentUser();
     let userEmail: string | undefined;
     
-    // If no NextAuth session, try to get from Supabase
+    // If no user from getCurrentUser, try another approach
     if (!user?.email) {
-      console.log(`[${debugId}] ℹ️ No NextAuth session, checking Supabase`);
+      console.log(`[${debugId}] ℹ️ No user from getCurrentUser, checking Supabase directly`);
       
       // Create Supabase server client
-      const supabase = createSupabaseServerClient();
+      const supabase = await createClient();
       
       try {
         const { data: { session: supabaseSession }, error } = await supabase.auth.getSession();
@@ -75,7 +73,7 @@ export async function GET(request: Request) {
         );
       }
     } else {
-      console.log(`[${debugId}] ✅ Found NextAuth session for user: ${user.email}`);
+      console.log(`[${debugId}] ✅ Found user session for user: ${user.email}`);
       userEmail = user.email;
     }
     
@@ -105,33 +103,64 @@ export async function GET(request: Request) {
     try {
       console.log(`[${debugId}] 🔍 Executing database query to find popular users`);
       
-      // Use a single optimized query with JOIN and COUNT
-      // This avoids prepared statement conflicts by reducing query count
-      const users = await prisma.$queryRaw<PopularUser[]>`
-        SELECT 
-          u.id, 
-          u.name, 
-          u.username, 
-          u.email, 
-          u.image, 
-          COUNT(s.id) as "spiritsCount"
-        FROM "User" u
-        LEFT JOIN "Spirit" s ON s."ownerId" = u.id
-        WHERE u.email != ${userEmail}
-        GROUP BY u.id, u.name, u.username, u.email, u.image
-        HAVING COUNT(s.id) > 0
-        ORDER BY "spiritsCount" DESC
-        LIMIT 12
-      `;
+      // Create Supabase client for the database query
+      const supabase = await createClient();
       
-      // Convert bigint to number for JSON serialization
-      const formattedUsers = users.map(user => ({
-        ...user,
-        spiritsCount: Number(user.spiritsCount)
-      }));
+      // Use Supabase's RPC to run a complex query
+      const { data: users, error } = await supabase.rpc(
+        'get_popular_users',
+        { current_user_email: userEmail, limit_count: 12 }
+      );
       
-      console.log(`[${debugId}] ✅ Found ${formattedUsers.length} popular users`);
-      return NextResponse.json({ users: formattedUsers });
+      if (error) {
+        console.error(`[${debugId}] ❌ Supabase RPC error:`, error);
+        throw error;
+      }
+      
+      // If we don't have the RPC function yet, fallback to a normal query
+      if (!users || users.length === 0) {
+        console.log(`[${debugId}] ⚠️ RPC function not found or returned no results, trying direct query`);
+        
+        // Run the query directly
+        const { data: queryResult, error: queryError } = await supabase
+          .from('User')
+          .select(`
+            id, 
+            name, 
+            username, 
+            email, 
+            image, 
+            Spirit!inner (id)
+          `)
+          .neq('email', userEmail)
+          .order('created_at', { ascending: false });
+          
+        if (queryError) {
+          console.error(`[${debugId}] ❌ Supabase query error:`, queryError);
+          throw queryError;
+        }
+        
+        // Process results to count spirits and format data
+        const formattedUsers = queryResult 
+          ? queryResult.map(user => ({
+              id: user.id,
+              name: user.name,
+              username: user.username,
+              email: user.email,
+              image: user.image,
+              spiritsCount: Array.isArray(user.Spirit) ? user.Spirit.length : 0
+            }))
+            .filter(user => user.spiritsCount > 0)
+            .sort((a, b) => b.spiritsCount - a.spiritsCount)
+            .slice(0, 12)
+          : [];
+        
+        console.log(`[${debugId}] ✅ Found ${formattedUsers.length} popular users using direct query`);
+        return NextResponse.json({ users: formattedUsers });
+      }
+      
+      console.log(`[${debugId}] ✅ Found ${users.length} popular users using RPC`);
+      return NextResponse.json({ users });
     } catch (queryError) {
       console.error(`[${debugId}] ❌ Database query error:`, queryError);
       
@@ -148,8 +177,6 @@ export async function GET(request: Request) {
     }
   } catch (error) {
     console.error('Error fetching popular users:', error);
-    
-    // No manual disconnect needed - handled by global prisma setup
     
     return NextResponse.json(
       { error: 'Internal server error', message: 'Failed to fetch popular users' },
