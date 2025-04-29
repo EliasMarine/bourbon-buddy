@@ -239,6 +239,7 @@ export default function Navbar() {
           <button 
             className="w-full px-4 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-gray-700 flex items-center gap-2"
             onClick={handleSignOut}
+            data-prefetch="false"
           >
             <LogOut size={16} />
             Sign Out
@@ -250,11 +251,17 @@ export default function Navbar() {
 
   // Menu link component
   function MenuLink({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
+    // Determine if this is a sensitive link that shouldn't be prefetched
+    const isSensitiveLink = href.includes('security') || 
+                           href.includes('reset-credentials') ||
+                           href.includes('password');
+
     return (
       <Link 
         href={href}
         className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
         onClick={() => setIsProfileOpen(false)}
+        prefetch={isSensitiveLink ? false : undefined}
       >
         <span className="flex items-center gap-2">
           {icon}
@@ -353,6 +360,7 @@ export default function Navbar() {
         <button
           className="w-full mt-2 px-3 py-2.5 rounded-lg font-medium flex items-center text-red-400 hover:text-red-300 hover:bg-gray-800/50"
           onClick={handleSignOut}
+          data-prefetch="false"
         >
           <LogOut className="mr-3" size={18} />
           Sign Out
@@ -363,11 +371,17 @@ export default function Navbar() {
 
   // Mobile menu link component
   function MobileMenuLink({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
+    // Determine if this is a sensitive link that shouldn't be prefetched
+    const isSensitiveLink = href.includes('security') || 
+                          href.includes('reset-credentials') ||
+                          href.includes('password');
+
     return (
       <Link
         href={href}
         className="px-3 py-2.5 rounded-lg font-medium flex items-center text-gray-300 hover:text-white hover:bg-gray-800/50"
         onClick={() => setIsMobileMenuOpen(false)}
+        prefetch={isSensitiveLink ? false : undefined}
       >
         <span className="mr-3">{icon}</span>
         {label}

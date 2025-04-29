@@ -1,22 +1,18 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
 import { getCurrentUser } from '@/lib/supabase-auth';
-// Removed authOptions import - not needed with Supabase Auth;
-import { prisma } from '@/lib/prisma';
-
-// Remove the direct PrismaClient instantiation
-// const prisma = new PrismaClient();
+import { createServerSupabaseClient, supabase, safeSupabaseQuery } from '@/lib/supabase';
+import { PostgrestError } from '@supabase/supabase-js';
 
 export async function GET() {
   try {
     const user = await getCurrentUser();
     
     // Check if we have a session
-    const sessionInfo = session ? {
+    const sessionInfo = user ? {
       hasSession: true,
-      email: session.user?.email,
-      name: session.user?.name,
-      id: session.user?.id,
+      email: user.email,
+      name: user.user_metadata?.name || user.email,
+      id: user.id,
     } : {
       hasSession: false
     };
@@ -27,17 +23,26 @@ export async function GET() {
     let firstUser = null;
     
     try {
-      userCount = await prisma.user.count();
+      // Use Supabase query instead of Prisma
+      const { data, count, error } = await supabase
+        .from('User')
+        .select('*', { count: 'exact', head: true });
+      
+      if (error) throw error;
+      
+      userCount = count || 0;
       dbStatus = 'connected';
       
       if (userCount > 0) {
-        firstUser = await prisma.user.findFirst({
-          select: {
-            id: true,
-            email: true,
-            name: true,
-          }
-        });
+        // Get first user with Supabase
+        const { data: firstUserData, error: firstUserError } = await supabase
+          .from('User')
+          .select('id, email, name')
+          .limit(1)
+          .single();
+        
+        if (firstUserError) throw firstUserError;
+        firstUser = firstUserData;
       }
     } catch (dbError) {
       dbStatus = 'error';
@@ -48,12 +53,15 @@ export async function GET() {
     let sessionUserFound = false;
     if (user?.email) {
       try {
-        const user = await prisma.user.findUnique({
-          where: { email: session.user.email },
-          select: { id: true }
-        });
+        // Use Supabase to find the user by email
+        const { data: dbUser, error } = await supabase
+          .from('User')
+          .select('id')
+          .eq('email', user.email)
+          .maybeSingle();
         
-        sessionUserFound = !!user;
+        if (error) throw error;
+        sessionUserFound = !!dbUser;
       } catch (userError) {
         console.error('Error finding session user:', userError);
       }

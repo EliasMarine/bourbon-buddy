@@ -4,6 +4,9 @@ const { createSecureHeaders } = require('next-secure-headers')
 // Determine if we're in development mode
 const isDevelopment = process.env.NODE_ENV !== 'production';
 const cspMode = process.env.NEXT_PUBLIC_CSP_MODE || (isDevelopment ? 'development' : 'production');
+const isVercelProduction = process.env.VERCEL_ENV === 'production';
+const isVercelPreview = process.env.VERCEL_ENV === 'preview' || 
+                       process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview';
 
 // Define Next.js config
 const nextConfig = {
@@ -137,99 +140,9 @@ const nextConfig = {
       {
         source: '/:path*',
         headers: createSecureHeaders({
-          contentSecurityPolicy: {
-            directives: isDevelopment
-              ? {
-                  defaultSrc: ["'self'"],
-                  scriptSrc: [
-                    "'self'",
-                    "'unsafe-inline'",
-                    "'unsafe-eval'",
-                    'https://www.gstatic.com', // Chromecast support (added)
-                    'https://assets.mux.com', // Mux Player scripts
-                  ],
-                  styleSrc: [
-                    "'self'",
-                    // 'unsafe-inline' is only allowed in development, not production
-                  ],
-                  imgSrc: [
-                    "'self'",
-                    'data:',
-                    'https://image.mux.com', // Mux thumbnails
-                  ],
-                  mediaSrc: [
-                    "'self'",
-                    'blob:', // HLS playback
-                    'https://stream.mux.com', // Mux video playback
-                    'https://assets.mux.com', // Mux Player media
-                    'https://image.mux.com', // Mux thumbnails/storyboards
-                    'https://*.mux.com', // Mux manifests/segments (wildcard for all mux CDNs)
-                    'https://*.fastly.mux.com', // Mux CDN
-                    'https://*.cloudflare.mux.com', // Mux CDN
-                  ],
-                  connectSrc: [
-                    "'self'",
-                    'ws://localhost:*',
-                    'http://localhost:*',
-                    'https://hjodvataujilredguzig.supabase.co',
-                    'wss://hjodvataujilredguzig.supabase.co',
-                    'https://api.mux.com', // Mux analytics
-                    'https://inferred.litix.io', // Mux analytics
-                    'https://stream.mux.com', // HLS manifest
-                    'https://assets.mux.com', // Mux Player analytics
-                    'https://*.mux.com', // Mux manifests/segments (wildcard for all mux CDNs)
-                    'https://*.fastly.mux.com', // Mux CDN
-                    'https://*.cloudflare.mux.com', // Mux CDN
-                    'https://storage.googleapis.com', // Google Cloud Storage for Mux uploads
-                  ],
-                  frameSrc: [
-                    "'self'",
-                  ],
-                }
-              : {
-                  defaultSrc: ["'self'"],
-                  scriptSrc: [
-                    "'self'",
-                    'https://www.gstatic.com', // Chromecast support (added)
-                    'https://assets.mux.com', // Mux Player scripts
-                  ],
-                  styleSrc: [
-                    "'self'",
-                    // 'unsafe-inline' removed for production
-                  ],
-                  imgSrc: [
-                    "'self'",
-                    'data:',
-                    'https://image.mux.com', // Mux thumbnails
-                  ],
-                  mediaSrc: [
-                    "'self'",
-                    'blob:', // HLS playback
-                    'https://stream.mux.com', // Mux video playback
-                    'https://assets.mux.com', // Mux Player media
-                    'https://image.mux.com', // Mux thumbnails/storyboards
-                    'https://*.mux.com', // Mux manifests/segments (wildcard for all mux CDNs)
-                    'https://*.fastly.mux.com', // Mux CDN
-                    'https://*.cloudflare.mux.com', // Mux CDN
-                  ],
-                  connectSrc: [
-                    "'self'",
-                    'https://hjodvataujilredguzig.supabase.co',
-                    'wss://hjodvataujilredguzig.supabase.co',
-                    'https://api.mux.com', // Mux analytics
-                    'https://inferred.litix.io', // Mux analytics
-                    'https://stream.mux.com', // HLS manifest
-                    'https://assets.mux.com', // Mux Player analytics
-                    'https://*.mux.com', // Mux manifests/segments (wildcard for all mux CDNs)
-                    'https://*.fastly.mux.com', // Mux CDN
-                    'https://*.cloudflare.mux.com', // Mux CDN
-                    'https://storage.googleapis.com', // Google Cloud Storage for Mux uploads
-                  ],
-                  frameSrc: [
-                    "'self'",
-                  ],
-                }
-          },
+          // Note: ContentSecurityPolicy is removed from here
+          // because it's now handled in middleware.ts with nonces
+          contentSecurityPolicy: false, // Disable CSP in next-secure-headers
           forceHTTPSRedirect: [true, { maxAge: 60 * 60 * 24 * 4, includeSubDomains: true }],
           referrerPolicy: 'same-origin',
           nosniff: 'nosniff',

@@ -1,8 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
-import { createServerClient as createSupabaseSsrClient } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { cache } from 'react';
+import type { Database } from './supabase';
 
 // Helper function to safely check if we're on the server side
 export const isServer = () => typeof window === 'undefined';
@@ -28,7 +30,7 @@ interface SupabaseCookie {
  */
 export async function createSupabaseServerClient() {
   const cookieStore = await cookies();
-  return createSupabaseSsrClient(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -56,7 +58,7 @@ export function createMiddlewareClient(request: NextRequest) {
     },
   });
   
-  const supabase = createSupabaseSsrClient(
+  const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -182,6 +184,36 @@ export async function checkSupabaseConnection(): Promise<boolean> {
     return false
   }
 }
+
+/**
+ * Create a Supabase client for server components
+ * Uses next/headers cookies() which only works in App Router
+ */
+export const createServerSupabaseClient = cache(() => {
+  return createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        async getAll() {
+          return (await cookies()).getAll();
+        },
+        async setAll(cookiesToSet) {
+          try {
+            const cookieStore = await cookies();
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch (error) {
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
+          }
+        }
+      }
+    }
+  );
+});
 
 // Export the typed client as default
 export default supabaseAdmin; 

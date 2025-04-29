@@ -1,11 +1,102 @@
-import { createBrowserClient as createSsrBrowserClient } from '@supabase/ssr';
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createBrowserClient, createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { cache } from 'react';
+
+// Avoid direct imports from next/headers to make this file compatible with pages router
+// Instead, have functions accept cookies as parameters
 
 // Storage bucket configuration
 const STORAGE_BUCKET = 'spirits';
+
+// Types to match our database schema
+export type Database = {
+  public: {
+    Tables: {
+      User: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      Spirit: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      Review: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      Stream: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      StreamLike: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      StreamSubscription: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      StreamReport: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      StreamTip: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      StreamView: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      Video: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      Account: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      Comment: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      Follows: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      Session: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      VerificationToken: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+      SecurityEvent: {
+        Row: any
+        Insert: any
+        Update: any
+      }
+    }
+  }
+}
 
 /**
  * Generate a debug ID for tracing
@@ -22,19 +113,19 @@ function isServerSide() {
 }
 
 // Define a global type for browser usage
-let globalSupabaseBrowserClient: SupabaseClient | null = null;
+let globalSupabaseBrowserClient: SupabaseClient<Database> | null = null;
 
 /**
  * Creates a Supabase client for browser usage
  */
-export function createBrowserClient() {
+export function createBrowserSupabaseClient() {
   // Use singleton for browser clients
   if (typeof window !== 'undefined' && globalSupabaseBrowserClient) {
     return globalSupabaseBrowserClient;
   }
   
   // Create a new client
-  const client = createSsrBrowserClient(
+  const client = createBrowserClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
@@ -50,22 +141,21 @@ export function createBrowserClient() {
 /**
  * Creates a Supabase client for server components
  */
-export async function createServerComponentClient() {
-  const cookieStore = await cookies();
-  
-  return createServerClient(
+export const createServerSupabaseClient = cache(() => {
+  return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return cookieStore.getAll();
+        async getAll() {
+          return (await cookies()).getAll();
         },
-        setAll(cookiesToSet) {
+        async setAll(cookiesToSet) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
+            const cookieStore = await cookies();
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
           } catch (error) {
             // The `setAll` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing
@@ -75,12 +165,12 @@ export async function createServerComponentClient() {
       }
     }
   );
-}
+});
 
 /**
  * Creates a Supabase client for middleware
  */
-export function createMiddlewareClient(request: NextRequest) {
+export function createMiddlewareSupabaseClient(request: NextRequest) {
   // Create an unmodified response
   let response = NextResponse.next({
     request: {
@@ -88,7 +178,7 @@ export function createMiddlewareClient(request: NextRequest) {
     },
   });
   
-  const supabase = createServerClient(
+  const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -97,7 +187,7 @@ export function createMiddlewareClient(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value));
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           response = NextResponse.next({
             request,
           });
@@ -112,11 +202,17 @@ export function createMiddlewareClient(request: NextRequest) {
   return { supabase, response };
 }
 
+// For direct access (server-side only)
+export const supabase = createClient<Database>(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
 /**
  * Gets the public URL for a file in storage
  */
 export function getStorageUrl(bucket: string = STORAGE_BUCKET, path: string) {
-  const client = createBrowserClient();
+  const client = createBrowserSupabaseClient();
   return client.storage.from(bucket).getPublicUrl(path).data.publicUrl;
 }
 
@@ -128,7 +224,7 @@ export async function uploadFile(path: string, file: File, options?: {
   upsert?: boolean, 
   contentType?: string 
 }) {
-  const client = createBrowserClient();
+  const client = createBrowserSupabaseClient();
   const bucket = options?.bucket || STORAGE_BUCKET;
   
   return client.storage.from(bucket).upload(path, file, {
@@ -144,7 +240,7 @@ export async function downloadFile(path: string, options?: {
   bucket?: string, 
   transform?: { width?: number, height?: number, quality?: number } 
 }) {
-  const client = createBrowserClient();
+  const client = createBrowserSupabaseClient();
   const bucket = options?.bucket || STORAGE_BUCKET;
   
   return client.storage.from(bucket).download(path, {
@@ -161,7 +257,7 @@ export async function listFiles(directory: string = '', options?: {
   offset?: number, 
   sortBy?: { column: string, order: 'asc' | 'desc' }
 }) {
-  const client = createBrowserClient();
+  const client = createBrowserSupabaseClient();
   const bucket = options?.bucket || STORAGE_BUCKET;
   
   return client.storage.from(bucket).list(directory, {
@@ -175,11 +271,59 @@ export async function listFiles(directory: string = '', options?: {
  * Removes a file from storage
  */
 export async function removeFiles(paths: string | string[], options?: { bucket?: string }) {
-  const client = createBrowserClient();
+  const client = createBrowserSupabaseClient();
   const bucket = options?.bucket || STORAGE_BUCKET;
   
   // Accept both single string and array of strings
   const pathsArray = Array.isArray(paths) ? paths : [paths];
   
   return client.storage.from(bucket).remove(pathsArray);
-} 
+}
+
+// Health check function similar to the Prisma one
+export async function checkSupabaseConnection() {
+  try {
+    const { data, error } = await supabase.from('User').select('id').limit(1);
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.error('❌ Supabase health check failed:', e);
+    return false;
+  }
+}
+
+// Equivalent of safePrismaQuery for Supabase
+export async function safeSupabaseQuery<T>(
+  queryFn: () => Promise<T>,
+  maxAttempts = 3
+): Promise<T> {
+  let attempts = 0;
+  let lastError: any;
+
+  while (attempts < maxAttempts) {
+    try {
+      return await queryFn();
+    } catch (error: any) {
+      lastError = error;
+      attempts++;
+      
+      // For specific Supabase errors that might need retry
+      if (
+        error?.message?.includes('connection') ||
+        error?.message?.includes('timeout') ||
+        error?.code === 'PGRST') {
+        console.warn(`Supabase query failed (attempt ${attempts}/${maxAttempts}):`, error);
+        await new Promise(resolve => setTimeout(resolve, 500 * attempts));
+        continue;
+      }
+      
+      // For other errors, just throw immediately
+      throw error;
+    }
+  }
+
+  throw lastError || new Error(`Failed to execute Supabase query after ${maxAttempts} attempts.`);
+}
+
+// Default export for convenience
+export default supabase; 

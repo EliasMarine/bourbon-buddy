@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
 import { getCurrentUser } from '@/lib/supabase-auth';
-// Removed authOptions import - not needed with Supabase Auth;
-import { prisma } from '@/lib/prisma';
+import { createServerSupabaseClient, supabase } from '@/lib/supabase';
 
 // GET /api/spirit/[id] - Get a specific spirit
 export async function GET(request: NextRequest) {
@@ -19,18 +17,26 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Use standard query now that the webImageUrl column issue is fixed
-    const spirit = await prisma.spirit.findUnique({
-      where: { id: spiritId },
-      include: {
-        owner: {
-          select: {
-            name: true,
-            email: true,
-          },
-        },
-      },
-    });
+    // Use Supabase query
+    const { data: spirit, error } = await supabase
+      .from('Spirit')
+      .select(`
+        *,
+        owner:User (
+          name,
+          email
+        )
+      `)
+      .eq('id', spiritId)
+      .single();
+
+    if (error) {
+      console.error('Supabase query error:', error);
+      return NextResponse.json(
+        { error: 'Internal server error' },
+        { status: 500 }
+      );
+    }
 
     if (!spirit) {
       return NextResponse.json(

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/supabase-auth';
-// Use safePrismaQuery and the fixed prisma instance
-import { safePrismaQuery, prisma } from '@/lib/prisma-fix'; 
+import { supabase, safeSupabaseQuery } from '@/lib/supabase';
 import { z } from 'zod';
 
 const CreateStreamSchema = z.object({
@@ -16,36 +15,28 @@ const CreateStreamSchema = z.object({
 export async function GET() {
   try {
     // Calculate the stale threshold (1 hour ago)
-    const staleThreshold = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+    const staleThreshold = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 1 hour ago
 
-    // Use safePrismaQuery for the database call
-    const streams = await safePrismaQuery(() => prisma.stream.findMany({
-      where: {
-        isLive: true,
-        // Only show streams that started within the last hour
-        startedAt: {
-          gte: staleThreshold
-        }
-      },
-      include: {
-        host: {
-          select: {
-            name: true,
-            image: true,
-          },
-        },
-        spirit: {
-          select: {
-            name: true,
-            type: true,
-            brand: true,
-          },
-        },
-      },
-      orderBy: {
-        startedAt: 'desc',
-      },
-    }));
+    // Use Supabase for the database call
+    const { data: streams, error } = await supabase
+      .from('Stream')
+      .select(`
+        *,
+        host:User!Stream_hostId_fkey (
+          name, 
+          image
+        ),
+        spirit:Spirit (
+          name, 
+          type, 
+          brand
+        )
+      `)
+      .eq('isLive', true)
+      .gte('startedAt', staleThreshold)
+      .order('startedAt', { ascending: false });
+
+    if (error) throw error;
 
     // Create response with cache headers
     const response = NextResponse.json({ streams });
@@ -58,13 +49,13 @@ export async function GET() {
     
     return response;
   } catch (error) {
-    console.error('Streams GET error:', error)
+    console.error('Streams GET error:', error);
     if (error instanceof Error) {
-      console.error('Error message:', error.message)
-      console.error('Error stack:', error.stack)
-      // Prisma error fields
-      if ('code' in error) console.error('Prisma error code:', (error as any).code)
-      if ('meta' in error) console.error('Prisma error meta:', (error as any).meta)
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      // Supabase error fields
+      if ('code' in error) console.error('Supabase error code:', (error as any).code);
+      if ('details' in error) console.error('Supabase error details:', (error as any).details);
     }
     return NextResponse.json(
       { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
@@ -90,17 +81,14 @@ export async function POST(request: Request) {
     try {
       const validatedData = CreateStreamSchema.parse(body);
       
-      const dbUser = await prisma.user.findUnique({
-        where: { email: user.email },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          image: true,
-        },
-      });
+      // Find user by email
+      const { data: dbUser, error: userError } = await supabase
+        .from('User')
+        .select('id, name, email, image')
+        .eq('email', user.email)
+        .single();
 
-      if (!dbUser) {
+      if (userError || !dbUser) {
         return NextResponse.json(
           { error: 'User not found' },
           { status: 404 }
@@ -108,41 +96,37 @@ export async function POST(request: Request) {
       }
 
       // Prepare data for database - handle nulls and undefined properly
-      const cleanData: any = {
+      const cleanData = {
         title: validatedData.title,
         description: validatedData.description || null, // Convert undefined to null
         privacy: validatedData.privacy,
         hostId: dbUser.id,
         isLive: false, // Start as not live until the host starts streaming
-        startedAt: new Date(),
+        startedAt: new Date().toISOString(),
+        spiritId: (validatedData.spiritId && validatedData.spiritId.trim() !== '') ? validatedData.spiritId : null
       };
-      
-      // Only add spiritId if it exists and is not empty
-      if (validatedData.spiritId && validatedData.spiritId.trim() !== '') {
-        cleanData.spiritId = validatedData.spiritId;
-      }
 
       // Create the stream
-      const stream = await prisma.stream.create({
-        data: cleanData,
-        include: {
-          host: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true,
-            },
-          },
-          spirit: validatedData.spiritId ? {
-            select: {
-              name: true,
-              type: true,
-              brand: true,
-            },
-          } : false, // Skip including spirit if no spiritId
-        },
-      });
+      const { data: stream, error: streamError } = await supabase
+        .from('Stream')
+        .insert(cleanData)
+        .select(`
+          *,
+          host:User!Stream_hostId_fkey (
+            id, 
+            name, 
+            email, 
+            image
+          ),
+          spirit:Spirit (
+            name, 
+            type, 
+            brand
+          )
+        `)
+        .single();
+
+      if (streamError) throw streamError;
 
       // If the stream is private, handle invited emails here
       if (validatedData.privacy === 'private' && validatedData.invitedEmails?.length) {
@@ -151,9 +135,7 @@ export async function POST(request: Request) {
       }
 
       // Return the full stream object with explicit ID field
-      return NextResponse.json({
-        ...stream
-      });
+      return NextResponse.json(stream);
     } catch (validationError) {
       if (validationError instanceof z.ZodError) {
         console.error('Validation error:', validationError.errors);
@@ -196,21 +178,21 @@ export async function PATCH(request: Request) {
     }
 
     const now = Date.now();
-    const threshold = new Date(now - CLEANUP_PERIODS.INACTIVE);
+    const threshold = new Date(now - CLEANUP_PERIODS.INACTIVE).toISOString();
 
     // Delete all streams (live or not) that are older than 1 hour
-    const deletedStreams = await prisma.stream.deleteMany({
-      where: {
-        startedAt: {
-          lt: threshold
-        }
-      }
-    });
+    const { data, error, count } = await supabase
+      .from('Stream')
+      .delete()
+      .lt('startedAt', threshold)
+      .select('id');
+
+    if (error) throw error;
 
     return NextResponse.json({ 
       success: true,
-      message: `Cleaned up ${deletedStreams.count} old streams`,
-      deletedCount: deletedStreams.count
+      message: `Cleaned up ${data?.length || 0} old streams`,
+      deletedCount: data?.length || 0
     });
   } catch (error) {
     console.error('Streams PATCH error:', error);

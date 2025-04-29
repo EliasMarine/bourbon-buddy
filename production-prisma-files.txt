@@ -1,0 +1,183 @@
+./src/app/admin/security/csrf-monitoring/page.tsx:import { prisma } from '@/lib/prisma'
+./src/app/admin/security/csrf-monitoring/page.tsx:  const totalCsrfFailures = await prisma.securityEvent.count({
+./src/app/admin/security/csrf-monitoring/page.tsx:  const previousCsrfFailures = await prisma.securityEvent.count({
+./src/app/admin/security/csrf-monitoring/page.tsx:  const uniqueIpsResult = await prisma.$queryRaw`
+./src/app/admin/security/csrf-monitoring/page.tsx:  const potentialAttacks = await prisma.securityEvent.count({
+./src/app/api/collection/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/collection/route.ts:    // const spirits = await prisma.spirit.findMany({
+./src/app/api/collection/route.ts:    const reviews = await prisma.review.findMany({
+./src/app/api/collection/route.ts:    // const favorite = await prisma.favorite.create({
+./src/app/api/mux/upload/action.ts:import { prisma } from '@/lib/prisma'
+./src/app/api/mux/upload/action.ts:import { createVideoSafely, runTransaction } from '@/lib/prisma-transaction-fix'
+./src/app/api/mux/upload/action.ts:    const video = await prisma.video.findUnique({
+./src/app/api/mux/upload/action.ts:    await prisma.video.delete({
+./src/app/api/spirit/[id]/route.ts:import { PrismaClient } from '@prisma/client';
+./src/app/api/spirit/[id]/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/spirit/[id]/route.ts:    const spirit = await prisma.spirit.findUnique({
+./src/app/api/streams/[id]/interactions/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/streams/[id]/interactions/route.ts:    const likesCount = await prisma.streamLike.count({
+./src/app/api/streams/[id]/interactions/route.ts:    const dbUser = await prisma.user.findUnique({
+./src/app/api/streams/[id]/interactions/route.ts:    const stream = await prisma.stream.findUnique({
+./src/app/api/streams/[id]/interactions/route.ts:    const like = await prisma.streamLike.findUnique({
+./src/app/api/streams/[id]/interactions/route.ts:    const subscription = await prisma.streamSubscription.findUnique({
+./src/app/api/streams/[id]/like/route.ts:import { PrismaClient } from '@prisma/client';
+./src/app/api/streams/[id]/like/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/streams/[id]/like/route.ts:    const dbUser = await prisma.user.findUnique({
+./src/app/api/streams/[id]/like/route.ts:    const stream = await prisma.stream.findUnique({
+./src/app/api/streams/[id]/like/route.ts:    const existingLike = await prisma.streamLike.findUnique({
+./src/app/api/streams/[id]/like/route.ts:      await prisma.streamLike.delete({
+./src/app/api/streams/[id]/like/route.ts:      await prisma.streamLike.create({
+./src/app/api/streams/[id]/like/route.ts:    const likes = await prisma.streamLike.count({
+./src/app/api/streams/[id]/report/route.ts:import { PrismaClient } from '@prisma/client';
+./src/app/api/streams/[id]/report/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/streams/[id]/report/route.ts:    const dbUser = await prisma.user.findUnique({
+./src/app/api/streams/[id]/report/route.ts:    const stream = await prisma.stream.findUnique({
+./src/app/api/streams/[id]/report/route.ts:    const existingReport = await prisma.streamReport.findFirst({
+./src/app/api/streams/[id]/report/route.ts:    await prisma.streamReport.create({
+./src/app/api/streams/[id]/route.ts:import { PrismaClient } from '@prisma/client';
+./src/app/api/streams/[id]/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/streams/[id]/route.ts:    const stream = await prisma.stream.findUnique({
+./src/app/api/streams/[id]/route.ts:    const stream = await prisma.stream.findUnique({
+./src/app/api/streams/[id]/route.ts:    const updatedStream = await prisma.stream.update({
+./src/app/api/streams/[id]/route.ts:    const stream = await prisma.stream.findUnique({
+./src/app/api/streams/[id]/route.ts:    await prisma.stream.delete({
+./src/app/api/streams/[id]/tip/route.ts:import { PrismaClient } from '@prisma/client';
+./src/app/api/streams/[id]/tip/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/streams/[id]/tip/route.ts:    const dbUser = await prisma.user.findUnique({
+./src/app/api/streams/[id]/tip/route.ts:    const stream = await prisma.stream.findUnique({
+./src/app/api/streams/[id]/tip/route.ts:    const tip = await prisma.streamTip.create({
+./src/app/api/streams/cleanup/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/streams/cleanup/route.ts:// import { runTransaction } from '@/lib/prisma-transaction-fix';
+./src/app/api/streams/cleanup/route.ts:      const staleLiveResult = await prisma.stream.updateMany({
+./src/app/api/streams/cleanup/route.ts:      const deletedResult = await prisma.stream.deleteMany({
+./src/app/api/streams/route.ts:// Use safePrismaQuery and the fixed prisma instance
+./src/app/api/streams/route.ts:import { safePrismaQuery, prisma } from '@/lib/prisma-fix'; 
+./src/app/api/streams/route.ts:    // Use safePrismaQuery for the database call
+./src/app/api/streams/route.ts:    const streams = await safePrismaQuery(() => prisma.stream.findMany({
+./src/app/api/streams/route.ts:      // Prisma error fields
+./src/app/api/streams/route.ts:      if ('code' in error) console.error('Prisma error code:', (error as any).code)
+./src/app/api/streams/route.ts:      if ('meta' in error) console.error('Prisma error meta:', (error as any).meta)
+./src/app/api/streams/route.ts:      const dbUser = await prisma.user.findUnique({
+./src/app/api/streams/route.ts:      const stream = await prisma.stream.create({
+./src/app/api/streams/route.ts:    const deletedStreams = await prisma.stream.deleteMany({
+./src/app/api/streams/subscribe/route.ts:import { PrismaClient } from '@prisma/client';
+./src/app/api/streams/subscribe/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/streams/subscribe/route.ts:    const dbUser = await prisma.user.findUnique({
+./src/app/api/streams/subscribe/route.ts:    const host = await prisma.user.findUnique({
+./src/app/api/streams/subscribe/route.ts:    const existingSubscription = await prisma.streamSubscription.findUnique({
+./src/app/api/streams/subscribe/route.ts:      await prisma.streamSubscription.delete({
+./src/app/api/streams/subscribe/route.ts:    await prisma.streamSubscription.create({
+./src/app/api/user/appearance/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/user/appearance/route.ts:    const updatedUser = await prisma.user.update({
+./src/app/api/user/security/password/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/user/security/password/route.ts:    const user = await prisma.user.findUnique({
+./src/app/api/user/security/password/route.ts:    await prisma.user.update({
+./src/app/api/user/upload-image/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/user/upload-image/route.ts:    const dbUser = await prisma.user.findUnique({
+./src/app/api/user/upload-image/route.ts:    const updatedUser = await prisma.user.update({
+./src/app/api/users/popular/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/users/popular/route.ts:      const users = await prisma.$queryRaw<PopularUser[]>`
+./src/app/api/users/popular/route.ts:    // No manual disconnect needed - handled by global prisma setup
+./src/app/api/verify/route.ts:import { PrismaClient } from '@prisma/client';
+./src/app/api/verify/route.ts:import { prisma } from '@/lib/prisma';
+./src/app/api/verify/route.ts:// Remove the direct PrismaClient instantiation
+./src/app/api/verify/route.ts:// const prisma = new PrismaClient();
+./src/app/api/verify/route.ts:      userCount = await prisma.user.count();
+./src/app/api/verify/route.ts:        firstUser = await prisma.user.findFirst({
+./src/app/api/verify/route.ts:        const user = await prisma.user.findUnique({
+./src/app/api/videos/[id]/set-asset/route.ts:import { prisma } from '@/lib/prisma'
+./src/app/api/videos/[id]/set-asset/route.ts:    const video = await (prisma as any).video.findUnique({
+./src/app/api/videos/[id]/update-status/route.ts:// import { prisma } from '@/lib/prisma'
+./src/app/api/videos/[id]/update-status/route.ts:    const video = await (prisma as any).video.findUnique({
+./src/app/api/videos/[id]/update-status/route.ts:      const updatedVideo = await (prisma as any).video.update({
+./src/lib/error-handlers.ts:import { PrismaClientInitializationError, PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+./src/lib/error-handlers.ts: * Handles Prisma database errors safely for API responses
+./src/lib/error-handlers.ts:export function handlePrismaError(error: unknown, context = 'operation', userId?: string) {
+./src/lib/error-handlers.ts:  console.error(`Prisma error in ${context}:`, error);
+./src/lib/error-handlers.ts:  if (error instanceof PrismaClientInitializationError || 
+./src/lib/error-handlers.ts:  if (error instanceof PrismaClientKnownRequestError) {
+./src/lib/error-handlers.ts:    // Handle common Prisma error codes
+./src/lib/fix-videos.ts:import { prisma } from '@/lib/prisma'
+./src/lib/fix-videos.ts:    const videos = await prisma.video.findMany(query)
+./src/lib/prisma-fix.ts:import { prisma, disconnectAllPrismaInstances, reconnectPrisma } from './prisma'
+./src/lib/prisma-fix.ts: * Reset the Prisma client completely using the unified singleton.
+./src/lib/prisma-fix.ts:export async function resetPrismaClient() {
+./src/lib/prisma-fix.ts:  await disconnectAllPrismaInstances()
+./src/lib/prisma-fix.ts:  await reconnectPrisma()
+./src/lib/prisma-fix.ts: * Executes a Prisma query with automatic retry for connection errors.
+./src/lib/prisma-fix.ts:export async function safePrismaQuery<T>(queryFn: () => Promise<T>): Promise<T> {
+./src/lib/prisma-fix.ts:        await resetPrismaClient()
+./src/lib/prisma-fix.ts:  throw new Error(`Failed to execute Prisma query after ${MAX_ATTEMPTS} attempts.`)
+./src/lib/prisma-fix.ts:export { prisma } 
+./src/lib/prisma-transaction-fix.ts: * Prisma Transaction Fix
+./src/lib/prisma-transaction-fix.ts: * This utility implements a more robust transaction handler for Prisma
+./src/lib/prisma-transaction-fix.ts:import { prisma } from './prisma';
+./src/lib/prisma-transaction-fix.ts:import { Prisma } from '@prisma/client';
+./src/lib/prisma-transaction-fix.ts:  fn: (prisma: Prisma.TransactionClient) => Promise<T>
+./src/lib/prisma-transaction-fix.ts:          await prisma.$executeRaw`DEALLOCATE ALL`;
+./src/lib/prisma-transaction-fix.ts:      return await prisma.$transaction(fn, {
+./src/lib/prisma-transaction-fix.ts:        isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+./src/lib/prisma-transaction-fix.ts:          await prisma.$disconnect();
+./src/lib/prisma-transaction-fix.ts:          await prisma.$connect();
+./src/lib/prisma-transaction-fix.ts:            await prisma.$executeRaw`DEALLOCATE ALL`;
+./src/lib/prisma-transaction-fix.ts: * A more reliable version of prisma.create that handles prepared statement errors
+./src/lib/prisma.ts:import { PrismaClient } from '@prisma/client';
+./src/lib/prisma.ts:// PrismaClient is attached to the `global` object in development to prevent
+./src/lib/prisma.ts:// Type for the global Prisma instance using recommended namespaced approach
+./src/lib/prisma.ts:const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+./src/lib/prisma.ts:export const prisma =
+./src/lib/prisma.ts:    ? new PrismaClient()
+./src/lib/prisma.ts:    : globalForPrisma.prisma ?? new PrismaClient();
+./src/lib/prisma.ts:if (!isServerless && process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+./src/lib/prisma.ts:      await prisma.$queryRaw`SELECT 1`;
+./src/lib/prisma.ts:      // console.log('✅ Prisma health check passed');
+./src/lib/prisma.ts:      console.error('❌ Prisma health check failed:', e);
+./src/lib/prisma.ts:// Export function to access the Prisma client singleton
+./src/lib/prisma.ts:export function getPrismaClient(): PrismaClient {
+./src/lib/prisma.ts:  return prisma;
+./src/lib/prisma.ts:// Function to disconnect all Prisma instances to fix "prepared statement already exists" errors
+./src/lib/prisma.ts:export async function disconnectAllPrismaInstances(): Promise<void> {
+./src/lib/prisma.ts:    if (process.env.NODE_ENV === 'development' && globalForPrisma.prisma) {
+./src/lib/prisma.ts:        await globalForPrisma.prisma.$disconnect();
+./src/lib/prisma.ts:        console.log('Disconnected global Prisma instance');
+./src/lib/prisma.ts:        globalForPrisma.prisma = undefined;
+./src/lib/prisma.ts:        console.warn('Error disconnecting global Prisma instance:', globalError);
+./src/lib/prisma.ts:    if (prisma && prisma !== globalForPrisma.prisma) {
+./src/lib/prisma.ts:        await prisma.$disconnect();
+./src/lib/prisma.ts:        console.log('Disconnected main Prisma instance');
+./src/lib/prisma.ts:        console.warn('Error disconnecting main Prisma instance:', mainError);
+./src/lib/prisma.ts:    console.error('Error in disconnectAllPrismaInstances:', error);
+./src/lib/prisma.ts:      await prisma.$disconnect();
+./src/lib/prisma.ts:      console.log('Prisma client disconnected (SIGINT)');
+./src/lib/prisma.ts:      console.warn('Error during Prisma disconnect on SIGINT:', err);
+./src/lib/prisma.ts:      await prisma.$disconnect();
+./src/lib/prisma.ts:      console.log('Prisma client disconnected (SIGTERM)');
+./src/lib/prisma.ts:      console.warn('Error during Prisma disconnect on SIGTERM:', err);
+./src/lib/prisma.ts:    await prisma.user.findFirst({
+./src/lib/prisma.ts:      await prisma.$disconnect();
+./src/lib/prisma.ts:      await prisma.$connect();
+./src/lib/prisma.ts:        await prisma.user.findFirst({
+./src/lib/prisma.ts:export async function connectPrisma(): Promise<void> {
+./src/lib/prisma.ts:    await prisma.$connect();
+./src/lib/prisma.ts:    console.log('Prisma client connected explicitly');
+./src/lib/prisma.ts:    console.error('Failed to connect Prisma client:', error);
+./src/lib/prisma.ts:export async function reconnectPrisma(): Promise<boolean> {
+./src/lib/prisma.ts:  console.log('🔄 Forcing Prisma reconnection to resolve connection issues...');
+./src/lib/prisma.ts:    await prisma.$disconnect();
+./src/lib/prisma.ts:    if (process.env.NODE_ENV === 'development' && globalForPrisma.prisma) {
+./src/lib/prisma.ts:      globalForPrisma.prisma = undefined;
+./src/lib/prisma.ts:      console.log('✅ Cleared global Prisma instance');
+./src/lib/prisma.ts:    await prisma.$connect();
+./src/lib/prisma.ts:    await prisma.user.findFirst({
+./src/lib/prisma.ts:        await prisma.user.findFirst({
+./src/lib/prisma.ts:        const reconnected = await reconnectPrisma();
+./src/lib/prisma.ts:export default prisma 
+./src/lib/security-monitoring.ts:import { prisma } from '@/lib/prisma'
+./src/lib/security-monitoring.ts:      await prisma.securityEvent.create({
+./src/lib/security-monitoring.ts:    const recentFailures = await prisma.securityEvent.count({
+./src/lib/security-monitoring.ts:      await prisma.securityEvent.create({
+./src/lib/security-monitoring.ts:  return prisma.securityEvent.findMany({
+./src/lib/spiritUtils.ts:import { prisma } from './prisma';
+./src/lib/spiritUtils.ts:    // const backupData = await prisma.spiritBackup.findUnique({ where: { backupId } });
+./src/lib/spiritUtils.ts:    //   const restoredSpirit = await prisma.spirit.create({
+./src/lib/supabase-server.ts: * Similar to safePrismaQuery, but for Supabase

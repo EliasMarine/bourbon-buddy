@@ -160,6 +160,58 @@ function getAllowedDomains(): string[] {
   return Array.from(new Set(domains))
 }
 
+// Generate a cryptographically random nonce for CSP
+function generateCSPNonce(): string {
+  return Buffer.from(crypto.randomUUID()).toString('base64');
+}
+
+// Create Content Security Policy with nonce
+function createCSPHeader(nonce: string): string {
+  const isDevelopment = process.env.NODE_ENV !== 'production';
+  const isVercelPreview = process.env.VERCEL_ENV === 'preview' || 
+                          process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview';
+  
+  // Base CSP directives common to all environments
+  const baseDirectives = `
+    default-src 'self';
+    font-src 'self' https://vercel.live;
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self';
+    frame-ancestors 'none';
+    img-src 'self' data: blob: https://image.mux.com https://vercel.live https://vercel.com https://*.pusher.com/;
+    media-src 'self' blob: https://stream.mux.com https://assets.mux.com https://image.mux.com https://*.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com;
+    connect-src 'self' https://hjodvataujilredguzig.supabase.co wss://hjodvataujilredguzig.supabase.co https://api.mux.com https://inferred.litix.io https://stream.mux.com https://assets.mux.com https://*.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://storage.googleapis.com https://vercel.live https://vercel.com https://*.pusher.com wss://*.pusher.com https://vitals.vercel-insights.com;
+    frame-src 'self' https://vercel.live https://vercel.com;
+    upgrade-insecure-requests;
+  `;
+
+  // Development mode: add unsafe-eval for hot reloading and more permissive settings
+  if (isDevelopment) {
+    return `
+      ${baseDirectives}
+      script-src 'self' 'nonce-${nonce}' 'unsafe-eval' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com;
+      style-src 'self' 'nonce-${nonce}' https://vercel.com;
+    `;
+  }
+  
+  // Vercel Preview: Add unsafe-inline for preview feedback features
+  if (isVercelPreview) {
+    return `
+      ${baseDirectives}
+      script-src 'self' 'nonce-${nonce}' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com 'unsafe-inline';
+      style-src 'self' 'nonce-${nonce}' https://vercel.com;
+    `;
+  }
+  
+  // Production: strictest CSP with nonces
+  return `
+    ${baseDirectives}
+    script-src 'self' 'nonce-${nonce}' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com 'strict-dynamic';
+    style-src 'self' 'nonce-${nonce}' https://vercel.com;
+  `;
+}
+
 // Supabase-related cookies to monitor
 const supabaseCookies = ['sb-access-token', 'sb-refresh-token']
 
@@ -176,152 +228,94 @@ function getBasePath(path: string): string {
  * Auth middleware for handling authentication and authorization
  */
 export async function middleware(request: NextRequest) {
-  // Add debug ID to track individual requests through the logs
-  const debugId = generateDebugId()
-  log(debugId, `🔄 Middleware processing ${request.method} ${request.nextUrl.pathname}`)
+  // Skip CSP for static assets to improve performance
+  const { pathname } = request.nextUrl;
+  const skipCSP = staticAssetPatterns.some(pattern => 
+    typeof pattern === 'string' 
+      ? pathname.includes(pattern) 
+      : pattern.test(pathname)
+  );
+
+  // Generate CSP nonce for this request
+  const nonce = skipCSP ? '' : generateCSPNonce();
   
-  try {
-    // Skip processing for WebSocket upgrade requests
-    if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-      log(debugId, `🔌 WebSocket upgrade request detected`);
-      return NextResponse.next();
+  // Create modified request headers with nonce
+  const requestHeaders = new Headers(request.headers);
+  if (!skipCSP) {
+    requestHeaders.set('x-nonce', nonce);
+  }
+  
+  let response = NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
+
+  // Apply CSP with nonce if not skipping
+  if (!skipCSP) {
+    const contentSecurityPolicy = createCSPHeader(nonce)
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    
+    // Set CSP header in the response
+    response.headers.set('Content-Security-Policy', contentSecurityPolicy);
+  }
+
+  // Create Supabase client with correct cookie handling pattern
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set(name, value)
+            response = NextResponse.next({
+              request,
+            })
+            response.cookies.set(name, value, options)
+          })
+        },
+      },
     }
-    
-    // Skip processing for static assets to improve performance
-    const isStaticAsset = staticAssetPatterns.some(pattern => 
-      pattern.test(request.nextUrl.pathname)
-    );
-    
-    if (isStaticAsset) {
-      log(debugId, `📦 Static asset, skipping auth check: ${request.nextUrl.pathname}`);
-      return NextResponse.next();
-    }
-    
-    // Get the pathname for route checking
-    const pathname = request.nextUrl.pathname;
-    
-    // Check if this is an auth-related path (login, signup, auth callbacks)
-    const isAuthPath = pathname.startsWith('/login') || 
+  )
+
+  // Do not run code between createServerClient and
+  // supabase.auth.getUser(). A simple mistake could make it very hard to debug
+  // issues with users being randomly logged out.
+
+  // IMPORTANT: DO NOT REMOVE auth.getUser()
+
+  await supabase.auth.getUser();
+
+  // Check if user is authenticated for protected routes
+  const isAuthRoute = pathname.startsWith('/login') || 
                      pathname.startsWith('/signup') || 
                      pathname.startsWith('/auth');
-    
-    // First, update the Supabase session using the dedicated function
-    // This ensures we have the most up-to-date auth state before any decision
-    const sessionResponse = await updateSession(request);
-    sessionResponse.headers.set('x-debug-id', debugId);
-    
-    // Determine if this is a public path that doesn't need authentication
-    const isPublicPath = publicRoutes.some(route => pathname.startsWith(route));
-    
-    if (isPublicPath) {
-      log(debugId, `🔓 Public path, skipping auth check: ${pathname}`);
-      return sessionResponse;
-    }
-    
-    // For protected routes, we need to check the auth state
-    const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
-    
-    if (isProtectedRoute) {
-      log(debugId, `🔒 Protected route access: ${pathname}`);
-      
-      // Create a Supabase client to check the auth state
-      const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          cookies: {
-            getAll() {
-              return request.cookies.getAll();
-            },
-            setAll(cookiesToSet) {
-              cookiesToSet.forEach(({ name, value, options }) => {
-                sessionResponse.cookies.set(name, value, options);
-              });
-            },
-          },
-        }
-      );
-      
-      // Get the user to check authentication status
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      
-      // If no user is found and this is a protected route, redirect to login
-      if (!user && isProtectedRoute) {
-        log(debugId, `🔒 No user found, redirecting to login`);
-        
-        // Remember the URL the user was trying to access for post-login redirect
-        const callbackUrl = encodeURIComponent(request.nextUrl.pathname);
-        const redirectUrl = new URL(`/login?callbackUrl=${callbackUrl}`, request.url);
-        
-        return NextResponse.redirect(redirectUrl);
-      }
-    }
-    
-    // Handle auth pages (login/signup) for already authenticated users
-    if (isAuthPath) {
-      log(debugId, `🔑 Auth page detected, checking if user is already authenticated`);
-      
-      // Create a new supabase client for this specific check
-      const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          cookies: {
-            getAll() {
-              return request.cookies.getAll();
-            },
-            setAll(cookiesToSet) {
-              cookiesToSet.forEach(({ name, value, options }) => {
-                sessionResponse.cookies.set(name, value, options);
-              });
-            },
-          },
-        }
-      );
-      
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      
-      // If user is already logged in and on an auth page, redirect to dashboard
-      if (user) {
-        log(debugId, `👤 User already authenticated, redirecting to dashboard`);
-        
-        // Get callback URL if present, otherwise default to dashboard
-        const callbackUrl = request.nextUrl.searchParams.get('callbackUrl');
-        const redirectUrl = callbackUrl ? decodeURIComponent(callbackUrl) : '/dashboard';
-        
-        return NextResponse.redirect(new URL(redirectUrl, request.url));
-      }
-    }
-    
-    log(debugId, `✅ Middleware processing complete`);
-    return sessionResponse;
-  } catch (error) {
-    logError(debugId, `🔥 Critical middleware error:`, error);
-    
-    // In production, don't block the request even if middleware fails
-    if (process.env.NODE_ENV === 'production') {
-      console.warn(`[${debugId}] ⚠️ Bypassing middleware due to critical error`);
-      return NextResponse.next();
-    }
-    
-    // In development, show the error
-    return new NextResponse(
-      JSON.stringify({ 
-        error: 'Middleware failed', 
-        message: error instanceof Error ? error.message : 'Unknown error'
-      }),
-      { 
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
-    );
+                     
+  const isApiRoute = pathname.startsWith('/api');
+  const isPublicRoute = pathname === '/' || 
+                       pathname.startsWith('/public') || 
+                       isApiRoute;
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user && !isAuthRoute && !isPublicRoute) {
+    // Redirect to login if trying to access protected routes without auth
+    const redirectUrl = new URL('/login', request.url);
+    return NextResponse.redirect(redirectUrl);
   }
+  
+  if (user && isAuthRoute) {
+    // Redirect to dashboard if already authenticated
+    const redirectUrl = new URL('/dashboard', request.url);
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  return response;
 }
 
 export const config = {

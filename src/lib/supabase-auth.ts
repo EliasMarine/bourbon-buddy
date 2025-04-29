@@ -25,7 +25,9 @@ export function createAdminClient() {
  */
 export function createRequestClient(req: NextRequest) {
   // Create a response to use for storing cookies
-  const res = NextResponse.next();
+  let res = NextResponse.next({
+    request: req
+  });
   
   // Create the Supabase client with cookie handling
   return createServerClient(
@@ -39,6 +41,9 @@ export function createRequestClient(req: NextRequest) {
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
             req.cookies.set(name, value);
+            res = NextResponse.next({
+              request: req,
+            });
             res.cookies.set(name, value, options);
           });
         },

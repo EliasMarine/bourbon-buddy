@@ -1,4 +1,3 @@
-import { PrismaClientInitializationError, PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
@@ -146,25 +145,26 @@ export function logSecurityEvent(eventType: string, details: any, severity: 'low
 }
 
 /**
- * Handles Prisma database errors safely for API responses
+ * Handles Supabase database errors safely for API responses
  * Prevents sensitive information from being exposed to clients
  */
-export function handlePrismaError(error: unknown, context = 'operation', userId?: string) {
+export function handleDatabaseError(error: unknown, context = 'operation', userId?: string) {
   // Log the full error internally for debugging
-  console.error(`Prisma error in ${context}:`, error);
+  console.error(`Database error in ${context}:`, error);
 
-  // Provide sanitized error messages for client
-  if (error instanceof PrismaClientInitializationError || 
-      (error instanceof Error && 
-       (error.message.includes("Can't reach database server") || 
-        error.message.includes("Connection refused") || 
-        error.message.includes("Connection terminated") ||
-        error.message.includes("database connection is currently unavailable")))) {
+  // Check for database connection errors
+  if (error instanceof Error && 
+      (error.message.includes("Can't reach database server") || 
+       error.message.includes("Connection refused") || 
+       error.message.includes("Connection terminated") ||
+       error.message.includes("database connection is currently unavailable") ||
+       error.message.includes("timeout") ||
+       error.message.includes("network error"))) {
     
     logSecurityEvent('database_connection_error', { 
       context, 
-      errorType: 'initialization',
-      message: error instanceof Error ? error.message : 'Unknown connection error'
+      errorType: 'connection',
+      message: error.message
     }, 'high');
     
     return NextResponse.json(
@@ -183,37 +183,64 @@ export function handlePrismaError(error: unknown, context = 'operation', userId?
         }
       }
     );
-  } 
-  
-  if (error instanceof PrismaClientKnownRequestError) {
-    // Handle common Prisma error codes
-    switch (error.code) {
-      case 'P2002': // Unique constraint violation
-        logSecurityEvent('database_constraint_violation', { context, errorCode: error.code, meta: error.meta }, 'low', userId);
+  }
+
+  // Handle Supabase PGRST errors (PostgreSQL REST)
+  if (error instanceof Error && 'code' in error) {
+    const pgError = error as Error & { code: string; details?: string; hint?: string; message: string };
+    
+    // Common PostgreSQL error codes
+    switch (pgError.code) {
+      case '23505': // Unique violation
+        logSecurityEvent('database_constraint_violation', { context, errorCode: pgError.code, details: pgError.details }, 'low', userId);
         return NextResponse.json(
           { message: 'Resource already exists with these details.' },
           { status: 400 }
         );
-      case 'P2025': // Record not found
-        logSecurityEvent('resource_not_found', { context, errorCode: error.code }, 'low', userId);
+      case '23503': // Foreign key violation
+        logSecurityEvent('database_constraint_violation', { context, errorCode: pgError.code, details: pgError.details }, 'medium', userId);
         return NextResponse.json(
-          { message: 'Resource not found.' },
-          { status: 404 }
+          { message: 'Operation would violate database constraints.' },
+          { status: 400 }
         );
-      case 'P2004': // Constraint violation
-      case 'P2012': // Missing required value
-        logSecurityEvent('data_validation_error', { context, errorCode: error.code, meta: error.meta }, 'medium', userId);
+      case '23502': // Not null violation
+      case '22P02': // Invalid text representation
+        logSecurityEvent('data_validation_error', { context, errorCode: pgError.code, details: pgError.details }, 'medium', userId);
         return NextResponse.json(
           { message: 'Invalid data format. Please check your input.' },
           { status: 400 }
         );
+      case 'PGRST301': // Resource not found
+      case '42P01': // Table does not exist
+        logSecurityEvent('resource_not_found', { context, errorCode: pgError.code }, 'low', userId);
+        return NextResponse.json(
+          { message: 'Resource not found.' },
+          { status: 404 }
+        );
+      case '42501': // Insufficient privilege
+      case '42P11': // Invalid schema name
+      case '42501': // Permission denied
+        logSecurityEvent('database_permission_error', { context, errorCode: pgError.code, details: pgError.details }, 'high', userId);
+        return NextResponse.json(
+          { message: 'You do not have permission to perform this action.' },
+          { status: 403 }
+        );
       default:
-        logSecurityEvent('database_error', { context, errorCode: error.code, meta: error.meta }, 'medium', userId);
+        logSecurityEvent('database_error', { context, errorCode: pgError.code, details: pgError.details }, 'medium', userId);
         return NextResponse.json(
           { message: 'Database error occurred. Please try again later.' },
           { status: 500 }
         );
     }
+  }
+
+  // Handle Supabase Auth errors
+  if (error instanceof Error && error.message.includes('supabase')) {
+    logSecurityEvent('supabase_auth_error', { context, errorMessage: error.message }, 'medium', userId);
+    return NextResponse.json(
+      { message: 'Authentication error occurred. Please try again later.' },
+      { status: 401 }
+    );
   }
 
   // Handle any other types of errors with a generic message
@@ -227,7 +254,7 @@ export function handlePrismaError(error: unknown, context = 'operation', userId?
 
 /**
  * Safe error message for authentication errors
- * To be used with NextAuth and auth-related routes
+ * To be used with Supabase Auth and auth-related routes
  */
 export function handleAuthError(error: unknown, userId?: string, identifierHint?: string) {
   // Safely serialize error details

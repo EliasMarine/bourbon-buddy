@@ -1,11 +1,18 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useSupabaseSession, useSession } from '@/hooks/use-supabase-session';
 import Link from 'next/link';
 import Image from 'next/image';
-import { PlusCircle, Users, Calendar, Award, Clock, Info, GlassWater, Star, Trash2 } from 'lucide-react';
+import { 
+  PlusCircle, Users, Calendar, Award, Clock, Info, GlassWater, 
+  Star, Trash2, FileVideo, Video, PlayCircle, Tv, EyeIcon
+} from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { MuxThumbnail } from '@/components/ui/mux-thumbnail';
+import { useVideoStatus, VideoType } from '@/hooks/use-video-status';
+import { deleteVideoAction } from '@/app/watch/[id]/delete-video-action'
+import { VideoCardWithDelete } from '@/components/ui/video-card-with-delete'
 
 interface Stream {
   id: string;
@@ -26,33 +33,86 @@ interface Stream {
   featured?: boolean;
 }
 
+interface Video {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  muxUploadId: string | null;
+  muxAssetId: string | null;
+  muxPlaybackId: string | null;
+  duration: number | null;
+  aspectRatio: string | null;
+  thumbnailTime: number | null;
+  userId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  publiclyListed: boolean;
+  views: number;
+  featured?: boolean;
+  user?: {
+    name: string;
+    avatar?: string;
+  };
+}
+
 export default function StreamsPage() {
   const { data: session } = useSession();
   const [streams, setStreams] = useState<Stream[]>([]);
+  const [videos, setVideos] = useState<Video[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingVideos, setIsLoadingVideos] = useState(true);
   const [filter, setFilter] = useState<'all' | 'live'>('all');
+  const [view, setView] = useState<'live'>('live');
   const [userName, setUserName] = useState<string>('');
   const [isCleaningUp, setIsCleaningUp] = useState(false);
   const cleanupRef = useRef(false);
+  const [cleanupCompleted, setCleanupCompleted] = useState(false);
+  const firstLoadRef = useRef(true);
+  const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null)
+  
+  // Use our custom hook to manage video status
+  const {
+    videoStatuses,
+    isCheckingStatus,
+    manualAssetId,
+    showManualAssetInput,
+    hasJustBecomeReady,
+    checkVideoStatus,
+    setMuxAssetId,
+    setManualAssetId,
+    setShowManualAssetInput
+  } = useVideoStatus(videos as VideoType[]);
 
   useEffect(() => {
-    fetchStreams();
-    
-    // Set user name from session if available
-    if (session?.user?.name) {
-      setUserName(session.user.name);
-    }
+    // Only load data on first render
+    if (firstLoadRef.current) {
+      firstLoadRef.current = false;
+      fetchStreams();
+      fetchVideos();
+      
+      // Set user name from session if available
+      if (session?.user?.name) {
+        setUserName(session.user.name);
+      }
 
-    // Trigger cleanup only once when page loads
-    if (!cleanupRef.current) {
-      triggerCleanup();
-      cleanupRef.current = true;
+      // Trigger cleanup only once when page loads
+      if (!cleanupRef.current) {
+        triggerCleanup();
+        cleanupRef.current = true;
+      }
     }
-  }, [session]);
-
+  }, [session]); // Only depend on session, not other state that might change
+  
   const fetchStreams = async () => {
     try {
+      setIsLoading(true);
       const response = await fetch('/api/streams');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch streams: ${response.status}`);
+      }
+      
       const data = await response.json();
       
       // For demonstration, mark some streams as featured
@@ -66,6 +126,37 @@ export default function StreamsPage() {
       console.error('Failed to fetch streams:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchVideos = async () => {
+    try {
+      setIsLoadingVideos(true);
+      const response = await fetch('/api/videos');
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch videos: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Add featured property and manually create user data from userId
+      const enhancedVideos = (data.videos || []).map((video: Video, index: number) => ({
+        ...video,
+        featured: index === 0 || index === 3, // Mark a couple of videos as featured for demo
+        user: {
+          name: video.userId ? (video.userId.includes('@') ? video.userId.split('@')[0] : video.userId) : 'Anonymous User',
+          avatar: undefined
+        }
+      }));
+      
+      setVideos(enhancedVideos);
+    } catch (error) {
+      console.error('Failed to fetch videos:', error);
+      // Set some fallback data if API fails
+      setVideos([]);
+    } finally {
+      setIsLoadingVideos(false);
     }
   };
 
@@ -87,6 +178,8 @@ export default function StreamsPage() {
         // Refresh the streams list if any cleanup was performed
         fetchStreams();
       }
+      
+      setCleanupCompleted(true);
     } catch (error) {
       console.error('Error triggering cleanup:', error);
     }
@@ -120,6 +213,36 @@ export default function StreamsPage() {
         <div className="flex justify-between items-center mt-6">
           <div className="h-3 bg-gray-700 rounded w-24"></div>
           <div className="h-8 bg-amber-700/50 rounded w-20"></div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Skeleton UI specifically for video cards
+  const VideoSkeletonCard = () => (
+    <div className="bg-gradient-to-b from-gray-800/90 to-gray-900/90 rounded-xl overflow-hidden border border-gray-700 backdrop-blur-sm animate-pulse">
+      <div className="relative aspect-video bg-gray-800">
+        {/* Simulated status bar */}
+        <div className="absolute top-0 left-0 right-0 p-2">
+          <div className="h-7 bg-amber-600/70 rounded-md w-full"></div>
+        </div>
+        
+        {/* Simulated duration badge */}
+        <div className="absolute bottom-2 right-2">
+          <div className="h-5 w-12 bg-black/60 rounded"></div>
+        </div>
+      </div>
+      <div className="p-5 md:p-6">
+        <div className="h-6 bg-gray-700 rounded-md w-3/4 mb-3"></div>
+        <div className="h-4 bg-gray-700/50 rounded-md w-full mb-2"></div>
+        <div className="h-4 bg-gray-700/50 rounded-md w-2/3 mb-4"></div>
+        
+        <div className="h-6 w-24 bg-gray-800 rounded-full mb-4"></div>
+        
+        <div className="flex items-center gap-2 mt-6 pt-3 border-t border-gray-700/30">
+          <div className="w-8 h-8 rounded-full bg-gray-700"></div>
+          <div className="h-3 bg-gray-700 rounded-md w-24"></div>
+          <div className="ml-auto h-3 bg-gray-700 rounded-md w-16"></div>
         </div>
       </div>
     </div>
@@ -160,6 +283,26 @@ export default function StreamsPage() {
     }
   };
 
+  async function handleDeleteVideo(videoId: string) {
+    if (!window.confirm('Are you sure you want to delete this video? This action cannot be undone.')) return
+    setDeletingVideoId(videoId)
+    try {
+      const formData = new FormData()
+      formData.append('id', videoId)
+      const result = await deleteVideoAction(formData)
+      if (result?.success) {
+        toast.success('Video deleted successfully')
+        fetchVideos()
+      } else {
+        toast.error(result?.error || 'Failed to delete video')
+      }
+    } catch (err) {
+      toast.error('An error occurred while deleting the video')
+    } finally {
+      setDeletingVideoId(null)
+    }
+  }
+
   return (
     <div className="min-h-[calc(100vh-180px)]">
       <div className="container mx-auto px-4 py-8 max-w-7xl mt-16">
@@ -179,7 +322,6 @@ export default function StreamsPage() {
                 <PlusCircle size={16} className="md:w-[18px] md:h-[18px]" />
                 <span>Start a Tasting</span>
               </Link>
-              
               {session && (
                 <button
                   onClick={cleanupStaleStreams}
@@ -193,7 +335,7 @@ export default function StreamsPage() {
             </div>
           )}
         </div>
-
+        {/* Only Live Tastings Content remains */}
         <div className="flex flex-wrap items-center gap-2 md:gap-4 mb-6">
           <button 
             onClick={() => setFilter('all')}
@@ -209,11 +351,10 @@ export default function StreamsPage() {
               ? 'bg-amber-600 text-white' 
               : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
           >
-            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+            <Tv size={16} className="md:w-[18px] md:h-[18px]" />
             Live Now ({isLoading ? '...' : liveCount})
           </button>
         </div>
-
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
             {[...Array(6)].map((_, i) => (
@@ -351,19 +492,15 @@ export default function StreamsPage() {
             ))}
           </div>
         )}
-        
-        {/* Remove the entire chat and demo area */}
-        <div className="mt-10">
-          {!session && (
-            <div className="max-w-xl mx-auto mb-10">
-              <Link href="/api/auth/signin" className="bg-gradient-to-r from-amber-600 to-amber-700 text-white px-6 py-3 rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-300 flex items-center justify-center gap-2 shadow-lg shadow-amber-900/20 w-full font-medium">
-                <PlusCircle size={18} />
-                <span>Sign in to Create a Tasting</span>
-              </Link>
-              <p className="text-sm text-gray-400 mt-2 text-center">Join the community and start streaming</p>
-            </div>
-          )}
-        </div>
+        {!session && (
+          <div className="mt-10 max-w-xl mx-auto mb-10">
+            <Link href="/api/auth/signin" className="bg-gradient-to-r from-amber-600 to-amber-700 text-white px-6 py-3 rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-300 flex items-center justify-center gap-2 shadow-lg shadow-amber-900/20 w-full font-medium">
+              <PlusCircle size={18} />
+              <span>Sign in to Create a Tasting</span>
+            </Link>
+            <p className="text-sm text-gray-400 mt-2 text-center">Join the community and start streaming</p>
+          </div>
+        )}
       </div>
     </div>
   );
