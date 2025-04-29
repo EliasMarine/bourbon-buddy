@@ -316,6 +316,50 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
                   }
                 }
                 
+                // For signup specifically, use our proxy instead of direct Supabase API
+                if (urlString.includes('/auth/v1/signup')) {
+                  clearTimeout(timeoutId);
+                  console.log('Intercepting signup request to use proxy');
+                  
+                  // Parse body data
+                  let body: Record<string, any> = {};
+                  try {
+                    if (options.body) {
+                      if (typeof options.body === 'string') {
+                        body = JSON.parse(options.body);
+                      } else if (typeof options.body === 'object') {
+                        body = options.body as Record<string, any>;
+                      }
+                    }
+                  } catch (err) {
+                    console.error('Error parsing request body:', err);
+                  }
+                  
+                  // Get CSRF token if available
+                  let csrfToken = '';
+                  try {
+                    if (typeof window !== 'undefined' && window.sessionStorage) {
+                      csrfToken = window.sessionStorage.getItem('csrfToken') || '';
+                    }
+                  } catch (error) {
+                    console.warn('Unable to retrieve CSRF token from sessionStorage:', error);
+                  }
+                  
+                  return fetch('/api/auth/signup', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
+                    },
+                    body: JSON.stringify(body),
+                    credentials: 'include',
+                    mode: 'same-origin'
+                  }).catch(error => {
+                    console.error('Error using signup proxy:', error);
+                    throw error;
+                  });
+                }
+                
                 // For any other auth endpoint, add CORS mode explicitly
                 console.log(`Auth request: ${urlString} with credentials`);
               }

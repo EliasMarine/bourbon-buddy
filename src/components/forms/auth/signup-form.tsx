@@ -41,28 +41,33 @@ export function SignupForm({ callbackUrl = '/dashboard', className = '' }: Signu
         return
       }
       
-      console.log('✅ Form validation passed, attempting Supabase signup...')
+      console.log('✅ Form validation passed, attempting signup via API endpoint...')
       
-      // Sign up with Supabase
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            username,
-            name,
-            full_name: name,
-          }
-        }
+      // Use server API endpoint instead of direct Supabase call to avoid CORS issues
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...csrfHeaders
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          username,
+          name
+        }),
+        credentials: 'include'
       })
       
-      if (signUpError) {
-        console.error('❌ Signup error:', signUpError)
-        setError(signUpError.message || 'Failed to create account')
+      const result = await response.json()
+      
+      if (!response.ok) {
+        console.error('❌ Signup API error:', result)
+        setError(result.error || 'Failed to create account')
         return
       }
       
-      console.log('✅ Supabase signup successful, syncing user with database...')
+      console.log('✅ Server-side signup successful, syncing user with database...')
       
       // Sync user with database after successful signup
       try {
