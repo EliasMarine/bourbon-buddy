@@ -54,7 +54,22 @@ export default function PastTastingsPage() {
 
   useEffect(() => {
     fetchVideos()
+    syncVideosOnLoad()
   }, [])
+
+  async function syncVideosOnLoad() {
+    try {
+      await fetch('/api/videos/sync-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+      setTimeout(() => fetchVideos(), 2000)
+    } catch (error) {
+      console.error('Background sync error:', error)
+    }
+  }
 
   async function fetchVideos() {
     setIsLoading(true)

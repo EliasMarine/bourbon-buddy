@@ -21,28 +21,50 @@ const supabaseAdmin = createClient(
   }
 );
 
+// Define the update result type
+interface VideoUpdateResult {
+  id: string;
+  status: 'skipped' | 'no_asset_id' | 'status_updated' | 'playback_id_updated' | 'error';
+  message?: string;
+}
+
 /**
- * Middleware function to run before rendering video pages
+ * Automatic background sync middleware to fix video statuses
  * This automatically fixes placeholder IDs and updates video status
- * by querying the actual Mux asset status
+ * by querying the actual Mux asset status without requiring user interaction
  */
 export async function GET(request: Request) {
   // Extract videoId from URL query parameter if available
   const url = new URL(request.url);
   const videoId = url.searchParams.get('videoId');
+  const isBackgroundSync = url.searchParams.get('background') === 'true';
   
   try {
-    // Query videos with placeholder IDs or processing status
-    const query = supabaseAdmin.from('Video').select('*');
+    console.log(`Starting ${isBackgroundSync ? 'background' : 'manual'} video sync${videoId ? ` for video ${videoId}` : ''}`);
+    
+    // Query videos with placeholder IDs or processing status that might need updating
+    // Set a cutoff time for uploads/processing to avoid checking very recent videos
+    // - Processing videos that are too recent should be left alone (they might still be processing)
+    const PROCESSING_CUTOFF_MINS = 5; // Only check videos that have been processing for more than 5 minutes
+    const cutoffTime = new Date();
+    cutoffTime.setMinutes(cutoffTime.getMinutes() - PROCESSING_CUTOFF_MINS);
+    
+    // Build the query with the proper filters
+    let query = supabaseAdmin.from('Video').select('*');
     
     // If videoId is provided, only sync that specific video
     if (videoId) {
       query.eq('id', videoId);
     } else {
-      // Otherwise sync all videos with placeholders or processing status
-      query.or('status.eq.processing,muxPlaybackId.like.placeholder-%');
+      // Query for videos in 'processing' state for more than 5 minutes
+      // OR videos with placeholder playback IDs
+      // Use simple or clause since the complex object syntax is causing type issues
+      query.or('status.eq.processing,muxPlaybackId.like.placeholder-%,updatedAt.lt.' + cutoffTime.toISOString());
     }
     
+    // Limit to a reasonable number to prevent overwhelming Mux API
+    query.limit(20);
+
     const { data: videosToUpdate, error: fetchError } = await query;
 
     if (fetchError) {
@@ -62,14 +84,17 @@ export async function GET(request: Request) {
 
     console.log(`Found ${videosToUpdate.length} videos to check/update`);
     let updatedCount = 0;
+    const results: VideoUpdateResult[] = [];
 
     // Process each video in parallel for better performance
     await Promise.all(videosToUpdate.map(async (video) => {
       const assetId = video.muxAssetId;
+      const result: VideoUpdateResult = { id: video.id, status: 'skipped' };
       
       // Skip videos without an asset ID (this should rarely happen)
       if (!assetId) {
-        console.log(`Video ${video.id} has no Mux asset ID, skipping`);
+        result.status = 'no_asset_id';
+        results.push(result);
         return;
       }
 
@@ -86,6 +111,7 @@ export async function GET(request: Request) {
         if (video.status !== assetStatus) {
           updateData.status = assetStatus;
           needsUpdate = true;
+          result.status = 'status_updated';
         }
         
         // Handle playback ID - always prefer using real Mux playback IDs
@@ -109,11 +135,19 @@ export async function GET(request: Request) {
             
             updateData.muxPlaybackId = actualPlaybackId;
             needsUpdate = true;
+            result.status = 'playback_id_updated';
           }
           
           // Always update video metadata if the asset is ready
-          updateData.duration = asset.duration || video.duration;
-          updateData.aspectRatio = asset.aspect_ratio || video.aspectRatio;
+          if (asset.duration && (!video.duration || video.duration !== asset.duration)) {
+            updateData.duration = asset.duration;
+            needsUpdate = true;
+          }
+          
+          if (asset.aspect_ratio && (!video.aspectRatio || video.aspectRatio !== asset.aspect_ratio)) {
+            updateData.aspectRatio = asset.aspect_ratio;
+            needsUpdate = true;
+          }
         }
         
         // Only update if needed
@@ -124,28 +158,39 @@ export async function GET(request: Request) {
             .eq('id', video.id);
 
           if (updateError) {
+            result.status = 'error';
+            result.message = updateError.message;
             throw updateError;
           }
           
           updatedCount++;
           console.log(`Updated video ${video.id}: ${JSON.stringify(updateData)}`);
         }
+        
+        results.push(result);
       } catch (error) {
         console.error(`Error processing video ${video.id}:`, error);
+        result.status = 'error';
+        result.message = error instanceof Error ? error.message : String(error);
+        results.push(result);
       }
     }));
 
-    // Revalidate relevant paths to update UI
-    revalidatePath('/past-tastings');
-    revalidatePath('/watch/[id]', 'page');
-    if (videoId) {
-      revalidatePath(`/watch/${videoId}`);
+    // Revalidate relevant paths to update UI - don't do this for background sync
+    // to avoid unnecessary revalidations that might impact performance
+    if (!isBackgroundSync) {
+      revalidatePath('/past-tastings');
+      revalidatePath('/watch/[id]', 'page');
+      if (videoId) {
+        revalidatePath(`/watch/${videoId}`);
+      }
     }
 
     return NextResponse.json({
       message: `Checked ${videosToUpdate.length} videos, updated ${updatedCount}`,
       checked: videosToUpdate.length,
-      updated: updatedCount
+      updated: updatedCount,
+      results
     });
   } catch (error) {
     console.error('Error syncing video statuses:', error);

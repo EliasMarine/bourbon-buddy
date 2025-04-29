@@ -52,7 +52,9 @@ function formatDate(date: string): string {
  */
 function isPlaceholderId(playbackId: string | null): boolean {
   if (!playbackId) return false
-  return playbackId.startsWith('placeholder-') || playbackId.includes('sample-playback-id')
+  return playbackId.startsWith('placeholder-') || 
+         playbackId.includes('sample-playback-id') ||
+         playbackId === 'placeholder'
 }
 
 /**

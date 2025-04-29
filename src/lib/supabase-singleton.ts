@@ -335,6 +335,40 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
                     console.error('Error parsing request body:', err);
                   }
                   
+                  // Validate required fields for signup
+                  const { email, password, options: signupOptions } = body;
+                  const userData = signupOptions?.data || {};
+                  
+                  if (!email || !password) {
+                    console.error('Missing required fields for signup:', { 
+                      hasEmail: !!email, 
+                      hasPassword: !!password,
+                      userData,
+                    });
+                    return Promise.reject(new Error('Email and password are required for signup'));
+                  }
+                  
+                  // Ensure we have a username
+                  // Extract from metadata if it exists, or use email as fallback
+                  const username = userData.username || email.split('@')[0];
+                  
+                  // Create enhanced body with all required fields
+                  const enhancedBody = {
+                    ...body,
+                    username,
+                    email,
+                    password,
+                    // Add any user metadata from options
+                    name: userData.name || userData.full_name || '',
+                  };
+                  
+                  console.log('Signup request fields:', {
+                    hasEmail: !!enhancedBody.email,
+                    hasPassword: !!enhancedBody.password,
+                    hasUsername: !!enhancedBody.username,
+                    hasName: !!enhancedBody.name,
+                  });
+                  
                   // Get CSRF token if available
                   let csrfToken = '';
                   try {
@@ -351,7 +385,7 @@ export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClie
                       'Content-Type': 'application/json',
                       ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
                     },
-                    body: JSON.stringify(body),
+                    body: JSON.stringify(enhancedBody),
                     credentials: 'include',
                     mode: 'same-origin'
                   }).catch(error => {

@@ -35,6 +35,54 @@ interface Video {
   }
 }
 
+// Function to check if a video needs syncing
+function needsSync(video: Video): boolean {
+  // Check if video is in processing state
+  if (video.status === 'processing' || video.status === 'uploading') {
+    return true;
+  }
+  
+  // Check if video has a placeholder playback ID
+  const playbackId = video.muxPlaybackId || video.mux_playback_id;
+  if (playbackId && (
+    playbackId.startsWith('placeholder-') || 
+    playbackId.includes('sample-playback-id')
+  )) {
+    return true;
+  }
+  
+  return false;
+}
+
+// Internal function to silently sync needed videos
+async function syncVideosIfNeeded(videos: Video[]) {
+  try {
+    // Find videos that need syncing
+    const videosToSync = videos.filter(needsSync);
+    
+    if (videosToSync.length === 0) {
+      return; // Nothing to sync
+    }
+    
+    console.log(`Auto-syncing ${videosToSync.length} videos that need updates`);
+    
+    // Trigger sync-status endpoint in the background
+    const response = await fetch(new URL('/api/videos/sync-status', process.env.NEXTAUTH_URL || 'http://localhost:3000').toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    if (!response.ok) {
+      console.warn('Auto-sync background request failed, but continuing with current data');
+    }
+  } catch (error) {
+    console.error('Error in automatic video sync:', error);
+    // Fail silently - we'll still return the current data
+  }
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url)
   const status = url.searchParams.get('status')
@@ -75,6 +123,11 @@ export async function GET(request: Request) {
     }
     
     console.log(`Retrieved ${videos?.length || 0} videos from database`)
+    
+    // Trigger background sync if any videos need updating
+    if (videos && videos.length > 0) {
+      syncVideosIfNeeded(videos);
+    }
     
     // Format the videos with consistent camelCase for the frontend
     // Make sure to handle missing playback IDs - include videos even without them

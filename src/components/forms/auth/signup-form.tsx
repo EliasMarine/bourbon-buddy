@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, FormEvent } from 'react'
+import { useState, FormEvent, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { CsrfFormWrapper } from './csrf-form-wrapper'
 import { useSupabase } from '@/components/providers/SupabaseProvider'
+import useSignup from '@/hooks/use-signup'
 
 interface SignupFormProps {
   callbackUrl?: string
@@ -20,54 +21,33 @@ export function SignupForm({ callbackUrl = '/dashboard', className = '' }: Signu
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [validationErrors, setValidationErrors] = useState<ValidationError[]>([])
-  const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const router = useRouter()
   const supabase = useSupabase()
+  
+  // Use our custom signup hook
+  const { signup, isLoading, error, validationErrors, clearErrors } = useSignup()
+  
+  // Clear errors when form fields change
+  useEffect(() => {
+    if (error || validationErrors.length > 0) {
+      clearErrors()
+    }
+  }, [email, password, username, name])
   
   const handleSubmit = async (e: FormEvent<HTMLFormElement>, csrfHeaders: Record<string, string>) => {
     e.preventDefault()
     
     try {
-      setLoading(true)
-      setError(null)
-      setValidationErrors([])
-      
-      // Basic validation
-      if (!email || !username || !password) {
-        setError('Please fill in all required fields')
-        return
-      }
-      
-      console.log('✅ Form validation passed, attempting signup via API endpoint...')
-      
-      // Use server API endpoint instead of direct Supabase call to avoid CORS issues
-      const response = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...csrfHeaders
-        },
-        body: JSON.stringify({
-          email,
-          password,
-          username,
-          name
-        }),
-        credentials: 'include'
+      // Use our signup hook to handle the signup process
+      await signup({
+        email,
+        password,
+        username,
+        name
       })
       
-      const result = await response.json()
-      
-      if (!response.ok) {
-        console.error('❌ Signup API error:', result)
-        setError(result.error || 'Failed to create account')
-        return
-      }
-      
-      console.log('✅ Server-side signup successful, syncing user with database...')
+      console.log('✅ Signup successful, syncing user with database...')
       
       // Sync user with database after successful signup
       try {
@@ -101,10 +81,8 @@ export function SignupForm({ callbackUrl = '/dashboard', className = '' }: Signu
         router.push('/login?newAccount=true')
       }, 3000) // Slightly longer delay to give user time to read success message
     } catch (err) {
-      console.error('🔥 Unexpected signup error:', err)
-      setError('An unexpected error occurred. Please try again.')
-    } finally {
-      setLoading(false)
+      // Error handling is now done inside the useSignup hook
+      console.error('🔥 Signup error:', err)
     }
   }
   
@@ -215,10 +193,10 @@ export function SignupForm({ callbackUrl = '/dashboard', className = '' }: Signu
         <div>
           <button
             type="submit"
-            disabled={loading}
+            disabled={isLoading}
             className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
           >
-            {loading ? (
+            {isLoading ? (
               <>
                 <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
