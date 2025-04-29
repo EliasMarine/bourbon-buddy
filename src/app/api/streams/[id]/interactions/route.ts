@@ -1,7 +1,7 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { getCurrentUser } from '@/lib/supabase-auth';
 // Removed authOptions import - not needed with Supabase Auth;
-import { prisma } from '@/lib/prisma';
+import supabase, { createServerSupabaseClient } from '@/lib/supabase';
 
 // Proper way to extract ID in Next.js App Router
 export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -23,27 +23,38 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     console.log('Current user:', user?.email || 'Not logged in');
 
     // Get total likes count
-    const likesCount = await prisma.streamLike.count({
-      where: { streamId },
-    });
+    const { count: likesCount, error: countError } = await supabase
+      .from('StreamLike')
+      .select('*', { count: 'exact', head: true })
+      .eq('streamId', streamId);
     
-    console.log('Likes count for stream:', likesCount);
+    if (countError) {
+      console.error('Error getting likes count:', countError);
+      return NextResponse.json(
+        { error: 'Error getting likes count' },
+        { status: 500 }
+      );
+    }
+    
+    console.log('Likes count for stream:', likesCount || 0);
 
     // If user is not logged in, return only public data
     if (!user?.email) {
       return NextResponse.json({
-        likes: likesCount,
+        likes: likesCount || 0,
         isLiked: false,
         isSubscribed: false,
       });
     }
 
     // Get user from database
-    const dbUser = await prisma.user.findUnique({
-      where: { email: user.email },
-    });
+    const { data: dbUser, error: userError } = await supabase
+      .from('User')
+      .select('*')
+      .eq('email', user.email)
+      .single();
 
-    if (!dbUser) {
+    if (userError || !dbUser) {
       console.error('User not found in database:', user.email);
       return NextResponse.json(
         { error: 'User not found' },
@@ -52,12 +63,13 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     }
 
     // Get stream to check host
-    const stream = await prisma.stream.findUnique({
-      where: { id: streamId },
-      select: { hostId: true },
-    });
+    const { data: stream, error: streamError } = await supabase
+      .from('Stream')
+      .select('hostId')
+      .eq('id', streamId)
+      .single();
 
-    if (!stream) {
+    if (streamError || !stream) {
       console.error('Stream not found:', streamId);
       return NextResponse.json(
         { error: 'Stream not found' },
@@ -66,27 +78,23 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     }
 
     // Check if user has liked the stream
-    const like = await prisma.streamLike.findUnique({
-      where: {
-        streamId_userId: {
-          streamId,
-          userId: dbUser.id,
-        },
-      },
-    });
+    const { data: like, error: likeError } = await supabase
+      .from('StreamLike')
+      .select('*')
+      .eq('streamId', streamId)
+      .eq('userId', dbUser.id)
+      .single();
 
     // Check if user is subscribed to the host
-    const subscription = await prisma.streamSubscription.findUnique({
-      where: {
-        hostId_userId: {
-          hostId: stream.hostId,
-          userId: dbUser.id,
-        },
-      },
-    });
+    const { data: subscription, error: subscriptionError } = await supabase
+      .from('StreamSubscription')
+      .select('*')
+      .eq('hostId', stream.hostId)
+      .eq('userId', dbUser.id)
+      .single();
     
     const result = {
-      likes: likesCount,
+      likes: likesCount || 0,
       isLiked: !!like,
       isSubscribed: !!subscription,
     };
