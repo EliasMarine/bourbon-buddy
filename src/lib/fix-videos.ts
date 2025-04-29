@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import { supabaseAdmin } from '@/lib/supabase-server'
 import { getMuxAsset, setMuxAssetIdAndCreatePlaybackId } from './mux'
 
 /**
@@ -9,18 +9,26 @@ import { getMuxAsset, setMuxAssetIdAndCreatePlaybackId } from './mux'
 export async function checkAndFixMuxPlaybackIds(videoId?: string) {
   try {
     // Query for videos that have an assetId but no playbackId or videos with a specific ID
-    const query = {
-      where: {
-        ...(videoId ? { id: videoId } : {}),
-        muxAssetId: { not: null },
-        ...(videoId ? {} : { muxPlaybackId: null })
-      }
-    }
-
-    // Find videos that need fixing
-    const videos = await prisma.video.findMany(query)
+    let query = supabaseAdmin.from('Video').select('*')
     
-    if (videos.length === 0) {
+    // Add filters
+    if (videoId) {
+      query = query.eq('id', videoId)
+    } else {
+      query = query.is('muxPlaybackId', null)
+    }
+    
+    // Add condition for muxAssetId not null
+    query = query.not('muxAssetId', 'is', null)
+
+    // Execute query
+    const { data: videos, error } = await query
+    
+    if (error) {
+      throw new Error(`Failed to query videos: ${error.message}`)
+    }
+    
+    if (!videos || videos.length === 0) {
       return {
         success: true,
         message: videoId 
@@ -52,7 +60,7 @@ export async function checkAndFixMuxPlaybackIds(videoId?: string) {
         }
 
         // Verify the asset exists in Mux
-        const asset = await getMuxAsset(video.muxAssetId as string)
+        const asset = await getMuxAsset(video.muxAssetId)
         
         if (!asset) {
           results.failed++
@@ -67,7 +75,7 @@ export async function checkAndFixMuxPlaybackIds(videoId?: string) {
         // Create a playback ID for this asset
         const result = await setMuxAssetIdAndCreatePlaybackId(
           video.id, 
-          video.muxAssetId as string
+          video.muxAssetId
         )
         
         // The setMuxAssetIdAndCreatePlaybackId function always returns an object with success: true
