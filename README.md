@@ -568,3 +568,62 @@ To see the demo:
 - [MUX Signed URLs Guide](https://docs.mux.com/guides/secure-video-playback)
 - [MUX Assets API Reference](https://docs.mux.com/api-reference/video/assets/create-asset)
 - [JWT.io](https://jwt.io/) - Useful for debugging JWT tokens
+
+## Database Migration: Prisma to Supabase
+
+This project is being migrated from Prisma ORM to Supabase for database access. If you encounter build errors related to Prisma imports, run the following script to fix them:
+
+```bash
+node scripts/fix-prisma-imports.js
+```
+
+### Migration Notes
+
+1. All database access should now use Supabase client instead of Prisma
+2. Import the Supabase client from `@/lib/supabase`
+3. Replace Prisma queries with equivalent Supabase queries
+
+#### Example: Prisma to Supabase Query Conversion
+
+**Before (Prisma):**
+```typescript
+import { prisma } from '@/lib/prisma';
+
+// Fetch a user
+const user = await prisma.user.findUnique({
+  where: { id: userId }
+});
+
+// Count records
+const count = await prisma.review.count({
+  where: { userId }
+});
+```
+
+**After (Supabase):**
+```typescript
+import supabase from '@/lib/supabase';
+
+// Fetch a user
+const { data: user, error } = await supabase
+  .from('User')
+  .select('*')
+  .eq('id', userId)
+  .single();
+
+// Count records
+const { count, error: countError } = await supabase
+  .from('Review')
+  .select('*', { count: 'exact', head: true })
+  .eq('userId', userId);
+```
+
+### Environment Variables
+
+Make sure the following environment variables are set for Supabase:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_KEY=your-supabase-service-key (optional)
+```

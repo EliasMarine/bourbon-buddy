@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import supabase, { createServerSupabaseClient } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/supabase-auth';
 
 // This is a stub route file created for development builds
@@ -16,29 +16,46 @@ export async function GET(request: Request) {
 
     console.log(`[api/collection] Fetching collection for user: ${user.id}`);
 
-    // Fetch spirits associated with the user
-    // Assuming a many-to-many relation or similar structure 
-    // Adjust based on your actual schema (e.g., through tastings, favorites, etc.)
-    // This example assumes a direct link or through a join table like `UserSpiritCollection`
-    
-    // EXAMPLE 1: Direct relation on Spirit (if spirit has userId)
-    // const spirits = await prisma.spirit.findMany({
-    //   where: { userId: user.id },
-    //   orderBy: { name: 'asc' },
-    // });
+    // Fetch spirits associated with the user through reviews (using Supabase)
+    const { data: reviews, error: reviewsError } = await supabase
+      .from('Review')
+      .select('spiritId')
+      .eq('userId', user.id)
+      .order('createdAt', { ascending: false });
 
-    // EXAMPLE 2: Through a join table (e.g., UserReviewedSpirit, UserFavoritedSpirit)
-    // Let's assume we want spirits the user has reviewed
-    const reviews = await prisma.review.findMany({
-      where: { userId: user.id },
-      select: {
-        spirit: true // Select the related spirit
-      },
-      distinct: ['spiritId'] // Only get unique spirits
+    if (reviewsError) {
+      console.error('[api/collection] Error fetching reviews:', reviewsError);
+      return NextResponse.json(
+        { error: 'Error fetching reviews', details: reviewsError.message },
+        { status: 500 }
+      );
+    }
+
+    // Get unique spirit IDs (fix for Set iteration issue)
+    const spiritIdSet = new Set<string>();
+    reviews.forEach(review => {
+      if (review.spiritId) spiritIdSet.add(review.spiritId);
     });
+    const uniqueSpiritIds = Array.from(spiritIdSet);
 
-    // Extract the spirit objects from the reviews
-    const spirits = reviews.map(review => review.spirit).filter(spirit => spirit !== null);
+    if (uniqueSpiritIds.length === 0) {
+      console.log(`[api/collection] No spirits found for user ${user.id}`);
+      return NextResponse.json({ spirits: [] });
+    }
+
+    // Fetch the spirits by their IDs
+    const { data: spirits, error: spiritsError } = await supabase
+      .from('Spirit')
+      .select('*')
+      .in('id', uniqueSpiritIds);
+
+    if (spiritsError) {
+      console.error('[api/collection] Error fetching spirits:', spiritsError);
+      return NextResponse.json(
+        { error: 'Error fetching spirits', details: spiritsError.message },
+        { status: 500 }
+      );
+    }
 
     console.log(`[api/collection] Found ${spirits.length} spirits for user ${user.id}`);
 
@@ -56,7 +73,7 @@ export async function GET(request: Request) {
   }
 }
 
-// POST /api/collection - Add a spirit to the user's collection (Example)
+// POST /api/collection - Add a spirit to the user's collection
 export async function POST(request: Request) {
   try {
     const user = await getCurrentUser();
@@ -74,20 +91,29 @@ export async function POST(request: Request) {
 
     console.log(`[api/collection] Adding spirit ${spiritId} to collection for user: ${user.id}`);
 
-    // Logic to add spirit to collection depends on schema
-    // EXAMPLE: Add a favorite record
-    // const favorite = await prisma.favorite.create({
-    //   data: {
-    //     userId: user.id,
-    //     spiritId: spiritId,
-    //   }
-    // });
+    // Add to user's favorites using Supabase
+    const { data, error } = await supabase
+      .from('Favorite')
+      .insert({
+        userId: user.id,
+        spiritId: spiritId,
+      })
+      .select();
 
-    // Replace with your actual logic
-    console.warn('[api/collection] POST endpoint needs implementation based on schema.')
+    if (error) {
+      console.error('[api/collection] Error adding to collection:', error);
+      return NextResponse.json(
+        { error: 'Error adding to collection', details: error.message },
+        { status: 500 }
+      );
+    }
 
-    // Return a success response (or the created record)
-    return NextResponse.json({ success: true, message: `Spirit ${spiritId} interaction recorded (Implementation needed)` });
+    // Return a success response with the created record
+    return NextResponse.json({ 
+      success: true, 
+      message: `Spirit ${spiritId} added to collection`, 
+      data 
+    });
 
   } catch (error) {
     console.error('[api/collection] Error in POST request:', error);

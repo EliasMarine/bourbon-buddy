@@ -9,7 +9,7 @@
     "dev": "next dev",
     "dev:socket": "node server.js",
     "dev:realtime": "ts-node -P scripts/tsconfig.json scripts/pre-startup-fix.ts && node server.js",
-    "build": "node scripts/fix-database-connection.js && node scripts/fix-next-auth-imports.js && next build",
+    "build": "node scripts/fix-database-connection.js && node scripts/fix-next-auth-imports.js && node scripts/fix-prisma-imports.js && next build",
     "start": "next start",
     "start:socket": "NODE_ENV=production node server.js",
     "start:next": "ts-node scripts/pre-startup.ts && next start",
