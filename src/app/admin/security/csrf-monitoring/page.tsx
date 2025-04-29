@@ -1,5 +1,5 @@
 import { getRecentSecurityEvents } from '@/lib/security-monitoring'
-import { prisma } from '@/lib/prisma'
+import { supabase } from '@/lib/supabase'
 import { formatDistanceToNow } from 'date-fns'
 import { CsrfClientTest } from './client-test'
 
@@ -208,65 +208,60 @@ async function getSecurityStats() {
   const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)
   
   // Count CSRF failures in the last day
-  const totalCsrfFailures = await prisma.securityEvent.count({
-    where: {
-      type: 'csrf_validation_failure',
-      timestamp: {
-        gte: oneDayAgo
-      }
-    }
-  })
+  const { count: totalCsrfFailures } = await supabase
+    .from('SecurityEvent')
+    .select('*', { count: 'exact', head: true })
+    .eq('type', 'csrf_validation_failure')
+    .gte('timestamp', oneDayAgo.toISOString())
   
   // Count CSRF failures in the previous day
-  const previousCsrfFailures = await prisma.securityEvent.count({
-    where: {
-      type: 'csrf_validation_failure',
-      timestamp: {
-        gte: twoDaysAgo,
-        lt: oneDayAgo
-      }
-    }
-  })
+  const { count: previousCsrfFailures } = await supabase
+    .from('SecurityEvent')
+    .select('*', { count: 'exact', head: true })
+    .eq('type', 'csrf_validation_failure')
+    .gte('timestamp', twoDaysAgo.toISOString())
+    .lt('timestamp', oneDayAgo.toISOString())
   
   // Calculate % change
-  const csrfFailureChange = previousCsrfFailures === 0 
+  const csrfFailureChange = !previousCsrfFailures || previousCsrfFailures === 0 
     ? 0 
-    : Math.round((totalCsrfFailures - previousCsrfFailures) / previousCsrfFailures * 100)
+    : Math.round(((totalCsrfFailures || 0) - (previousCsrfFailures || 0)) / previousCsrfFailures * 100)
   
   // Count unique IPs with CSRF failures
-  const uniqueIpsResult = await prisma.$queryRaw`
-    SELECT COUNT(DISTINCT ip) as count 
-    FROM "SecurityEvent" 
-    WHERE type = 'csrf_validation_failure' 
-    AND timestamp >= ${oneDayAgo}
-  `
-  const uniqueIps = Array.isArray(uniqueIpsResult) && uniqueIpsResult.length > 0
-    ? Number(uniqueIpsResult[0].count)
-    : 0
+  const { data: uniqueIpsResult } = await supabase
+    .from('SecurityEvent')
+    .select('ip')
+    .eq('type', 'csrf_validation_failure')
+    .gte('timestamp', oneDayAgo.toISOString())
+    .is('ip', 'not.null')
+  
+  // Count unique IPs (we need to manually count as Supabase doesn't have COUNT DISTINCT)
+  const uniqueIpSet = new Set<string>()
+  if (uniqueIpsResult) {
+    uniqueIpsResult.forEach(row => {
+      if (row.ip) uniqueIpSet.add(row.ip)
+    })
+  }
+  const uniqueIps = uniqueIpSet.size
   
   // Count potential attacks
-  const potentialAttacks = await prisma.securityEvent.count({
-    where: {
-      type: 'suspicious_activity',
-      metadata: {
-        contains: 'csrf_failures'
-      },
-      timestamp: {
-        gte: oneDayAgo
-      }
-    }
-  })
+  const { count: potentialAttacks } = await supabase
+    .from('SecurityEvent')
+    .select('*', { count: 'exact', head: true })
+    .eq('type', 'suspicious_activity')
+    .ilike('metadata', '%csrf_failures%')
+    .gte('timestamp', oneDayAgo.toISOString())
   
   // Estimate success rate (if we don't track successful validations)
   // In a real implementation, you'd want to track successful CSRF validations too
-  const totalRequests = totalCsrfFailures + 10000 // Assuming a baseline of requests
-  const successRate = Math.round((totalRequests - totalCsrfFailures) / totalRequests * 100)
+  const totalRequests = (totalCsrfFailures || 0) + 10000 // Assuming a baseline of requests
+  const successRate = Math.round((totalRequests - (totalCsrfFailures || 0)) / totalRequests * 100)
   
   return {
-    totalCsrfFailures,
+    totalCsrfFailures: totalCsrfFailures || 0,
     csrfFailureChange,
     uniqueIps,
-    potentialAttacks,
+    potentialAttacks: potentialAttacks || 0,
     successRate
   }
 } 

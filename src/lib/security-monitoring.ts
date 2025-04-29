@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import { supabase } from '@/lib/supabase'
 import { randomUUID } from 'crypto'
 
 export type SecurityEventSeverity = 'low' | 'medium' | 'high' | 'critical'
@@ -63,17 +63,15 @@ export async function logSecurityEvent(
     
     // Store in database - try/catch to prevent failures from breaking the app
     try {
-      await prisma.securityEvent.create({
-        data: {
-          id: eventId,
-          type,
-          severity,
-          timestamp,
-          userId: metadata.userId || null,
-          ip: ip || null,
-          userAgent: userAgent || null,
-          metadata: JSON.stringify(metadata)
-        }
+      await supabase.from('SecurityEvent').insert({
+        id: eventId,
+        type,
+        severity,
+        timestamp,
+        userId: metadata.userId || null,
+        ip: ip || null,
+        userAgent: userAgent || null,
+        metadata: JSON.stringify(metadata)
       })
     } catch (dbError) {
       console.error('Failed to log security event to database:', dbError)
@@ -97,18 +95,15 @@ async function detectCsrfAttackPatterns(ip: string | null, endpoint: string | nu
   
   try {
     // Count recent failures from this IP
-    const recentFailures = await prisma.securityEvent.count({
-      where: {
-        type: 'csrf_validation_failure',
-        ip,
-        timestamp: {
-          gte: new Date(Date.now() - 1000 * 60 * 10) // Last 10 minutes
-        }
-      }
-    })
+    const { count: recentFailures } = await supabase
+      .from('SecurityEvent')
+      .select('*', { count: 'exact', head: true })
+      .eq('type', 'csrf_validation_failure')
+      .eq('ip', ip)
+      .gte('timestamp', new Date(Date.now() - 1000 * 60 * 10).toISOString()) // Last 10 minutes
     
     // Threshold for alerting
-    if (recentFailures >= 5) {
+    if (recentFailures && recentFailures >= 5) {
       // Log a higher severity event for potential attack
       const attackEvent: SecurityEventBase = {
         type: 'suspicious_activity',
@@ -126,15 +121,13 @@ async function detectCsrfAttackPatterns(ip: string | null, endpoint: string | nu
       // Alert via console (in production, could send to a monitoring service)
       console.error(`🚨 POTENTIAL CSRF ATTACK DETECTED: IP ${ip} had ${recentFailures} failures in 10 minutes`)
       
-      await prisma.securityEvent.create({
-        data: {
-          id: randomUUID(),
-          type: attackEvent.type,
-          severity: attackEvent.severity,
-          timestamp: attackEvent.timestamp,
-          ip: ip,
-          metadata: JSON.stringify(attackEvent.metadata)
-        }
+      await supabase.from('SecurityEvent').insert({
+        id: randomUUID(),
+        type: attackEvent.type,
+        severity: attackEvent.severity,
+        timestamp: attackEvent.timestamp,
+        ip: ip,
+        metadata: JSON.stringify(attackEvent.metadata)
       })
       
       // In production, integrate with security monitoring service or send alerts
@@ -179,46 +172,46 @@ export async function getRecentSecurityEvents(
   
   const minSeverityValue = minSeverity ? severityValue[minSeverity] : undefined
   
-  // Build where clause based on options
-  const where: any = {}
+  // Build query
+  let query = supabase
+    .from('SecurityEvent')
+    .select('*')
+    .lte('timestamp', endDate.toISOString())
+    .order('timestamp', { ascending: false })
+    .limit(limit)
   
+  // Apply filters
   if (types && types.length > 0) {
-    where.type = { in: types }
+    query = query.in('type', types)
   }
   
   if (minSeverity) {
-    where.severity = {
-      in: Object.keys(severityValue).filter(
-        key => severityValue[key as SecurityEventSeverity] >= minSeverityValue!
-      ) as SecurityEventSeverity[]
-    }
+    const severities = Object.keys(severityValue).filter(
+      key => severityValue[key as SecurityEventSeverity] >= minSeverityValue!
+    ) as SecurityEventSeverity[]
+    
+    query = query.in('severity', severities)
   }
   
   if (userId) {
-    where.userId = userId
+    query = query.eq('userId', userId)
   }
   
   if (ip) {
-    where.ip = ip
+    query = query.eq('ip', ip)
   }
   
   if (startDate) {
-    where.timestamp = {
-      gte: startDate,
-      lte: endDate
-    }
-  } else {
-    where.timestamp = {
-      lte: endDate
-    }
+    query = query.gte('timestamp', startDate.toISOString())
   }
   
-  // Query database
-  return prisma.securityEvent.findMany({
-    where,
-    orderBy: {
-      timestamp: 'desc'
-    },
-    take: limit
-  })
+  // Execute query
+  const { data, error } = await query
+  
+  if (error) {
+    console.error('Error fetching security events:', error)
+    return []
+  }
+  
+  return data || []
 } 

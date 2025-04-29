@@ -23,6 +23,12 @@ const keyRoutes = [
   'src/app/api/user',
   'src/app/api/videos',
   'src/app/api/collection',
+  'src/app/admin/security/csrf-monitoring'
+];
+
+// Individual files to process
+const individualFiles = [
+  'src/lib/security-monitoring.ts'
 ];
 
 // Regex to match Prisma database operations
@@ -377,6 +383,19 @@ async function main() {
       filesToProcess.push(...files);
     } catch (error) {
       console.warn(`⚠️ Could not process ${routePath}:`, error.message);
+    }
+  }
+  
+  // Add individual files to process
+  for (const filePath of individualFiles) {
+    const fullPath = path.join(rootDir, filePath);
+    try {
+      const stats = await fs.stat(fullPath);
+      if (stats.isFile()) {
+        filesToProcess.push(fullPath);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Could not access file ${filePath}:`, error.message);
     }
   }
   
