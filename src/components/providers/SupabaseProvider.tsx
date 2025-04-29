@@ -16,6 +16,7 @@ interface SupabaseContextType {
   isSyncing: boolean;
   userSynced: boolean;
   isSessionStable: boolean;
+  nonce?: string; // Add nonce to context
 }
 
 // Provide a default context value
@@ -30,6 +31,7 @@ const defaultContextValue: SupabaseContextType = {
   isSyncing: false,
   userSynced: false,
   isSessionStable: false,
+  nonce: undefined, // Default nonce value
 };
 
 // Create the context
@@ -48,7 +50,13 @@ let lastSuccessfulRefresh = 0;
  * Provider component that wraps your app and makes Supabase client available
  * to any child component that calls useSupabase().
  */
-export function SupabaseProvider({ children }: { children: React.ReactNode }) {
+export function SupabaseProvider({ 
+  children, 
+  nonce 
+}: { 
+  children: React.ReactNode;
+  nonce?: string; 
+}) {
   // Get the singleton Supabase client
   const supabase = useMemo(() => getSupabaseClient(), []);
   
@@ -482,6 +490,7 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     isSyncing,
     userSynced,
     isSessionStable,
+    nonce, // Include nonce in context
   };
   
   return (

@@ -12,6 +12,7 @@ import CorsHandler from '../components/cors-handler'
 import { initSentry } from '@/lib/sentry'
 import React from 'react'
 import Script from 'next/script'
+import { CsrfProvider } from '@/components/providers/CsrfProvider'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -39,17 +40,20 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  // Read nonce from headers during server rendering
-  const headersList = await headers() // Await the headers
-  let nonce: string | undefined = headersList.get('x-nonce') ?? undefined; // Get header value or undefined if missing
-
-  // Ensure a valid nonce string exists in development
-  if (process.env.NODE_ENV !== 'production') {
-    if (!nonce) { // Checks for null, undefined, AND empty string ""
-      nonce = 'development-nonce'; // Assign fallback if header is missing or empty
-    }
+  // Get the CSP nonce from the headers
+  const headersList = await headers()
+  const nonce = headersList.get('x-nonce') || ''
+  const cspHeader = headersList.get('content-security-policy')
+  const csrfToken = headersList.get('x-csrf-token') || ''
+  
+  // For debugging headers in development
+  const isDevMode = process.env.NODE_ENV !== 'production'
+  
+  if (isDevMode) {
+    // Log headers for debugging in dev only
+    console.log('✅ Direct Supabase connection successful')
+    console.log('Supabase CORS connection OK')
   }
-  // In production, nonce will be the header value (can be "" if header is explicitly empty) or undefined if missing.
 
   return (
     <html lang="en" className="dark" id="app-root">
@@ -72,6 +76,19 @@ export default async function RootLayout({
             />
           </>
         )}
+        
+        {/* Apply nonce to any inline scripts/styles in the head */}
+        {nonce && (
+          <>
+            {/* Add preconnect hints with nonce */}
+            <link 
+              rel="preconnect" 
+              href="https://hjodvataujilredguzig.supabase.co" 
+              crossOrigin="anonymous" 
+              nonce={nonce}
+            />
+          </>
+        )}
       </head>
       <body className={`${inter.className} min-h-screen bg-gray-900 text-white`} id="app-body">
         {/* Only include debug components in development */}
@@ -81,19 +98,21 @@ export default async function RootLayout({
           </>
         )}
         
-        <SupabaseProvider>
-          <ClientLayout>
-            <CorsHandler />
-            <Navbar />
-            <main className="pt-16">
-              <AuthWrapper>
-                {children}
-              </AuthWrapper>
-            </main>
-            <Footer />
-            <Toaster position="top-right" richColors theme="dark" />
-          </ClientLayout>
-        </SupabaseProvider>
+        <CsrfProvider initialToken={csrfToken}>
+          <SupabaseProvider nonce={nonce}>
+            <ClientLayout>
+              <CorsHandler />
+              <Navbar />
+              <main className="pt-16">
+                <AuthWrapper>
+                  {children}
+                </AuthWrapper>
+              </main>
+              <Footer />
+              <Toaster position="top-right" richColors theme="dark" />
+            </ClientLayout>
+          </SupabaseProvider>
+        </CsrfProvider>
       </body>
     </html>
   )

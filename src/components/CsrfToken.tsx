@@ -1,237 +1,90 @@
 'use client'
 
-import React, { useEffect, useContext, createContext, useState, PropsWithChildren } from 'react'
+import React, { useEffect, useState } from 'react'
+import { useSupabase } from '@/components/providers/SupabaseProvider'
 
-// CSRF token context type
-interface CsrfContextType {
-  csrfToken: string | null
-  isLoading: boolean
-  error: string | null
-}
-
-// CSRF provider props
 interface CsrfTokenProps {
   children: React.ReactNode
-  refreshInterval?: number
-  fetchOnMount?: boolean
+  onTokenLoad?: (token: string | null) => void
 }
 
-// Create context with default values
-const CsrfContext = createContext<CsrfContextType>({
-  csrfToken: null,
-  isLoading: false,
-  error: null,
-})
-
-// Token refresh interval in minutes (default is 60 min)
-const DEFAULT_REFRESH_INTERVAL = 60
-
 /**
- * Custom hook to access CSRF token
+ * Component that loads and manages CSRF token for forms
+ * This component fetches the CSRF token from the server and makes it available
+ * to child components via the onTokenLoad callback
  */
-export const useCsrfToken = () => useContext(CsrfContext)
-
-/**
- * CSRF Token Provider Component - Manages CSRF token lifecycle
- */
-export function CsrfToken({ 
-  children, 
-  refreshInterval = DEFAULT_REFRESH_INTERVAL,
-  fetchOnMount = true,
-}: CsrfTokenProps) {
+export function CsrfToken({ children, onTokenLoad }: CsrfTokenProps) {
   const [csrfToken, setCsrfToken] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState<boolean>(true)
-  const [error, setError] = useState<string | null>(null)
-  const [lastFetched, setLastFetched] = useState<number>(0)
+  const [isLoading, setIsLoading] = useState(true)
+  const { nonce } = useSupabase()
 
-  // Fetch a new CSRF token from the server
-  const fetchCsrfToken = async () => {
-    setIsLoading(true)
-    setError(null)
+  useEffect(() => {
+    // Try to get token from session storage first
+    const storedToken = sessionStorage.getItem('csrfToken')
     
-    try {
-      // Add cache busting query parameter
-      const timestamp = new Date().getTime()
-      const response = await fetch(`/api/csrf?_t=${timestamp}`, {
-        method: 'GET',
-        credentials: 'include', // Important: include cookies
-        headers: {
-          // Prevent caching
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
-        }
-      })
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch CSRF token: ${response.statusText}`)
-      }
-      
-      // Debug response headers to check for Set-Cookie
-      const headers = Array.from(response.headers.entries())
-      console.log('CSRF API Response Headers:', {
-        status: response.status,
-        hasSetCookie: response.headers.has('set-cookie'),
-        contentType: response.headers.get('content-type'),
-        headers: headers.map(([key, value]) => 
-          `${key}: ${key.toLowerCase() === 'set-cookie' ? '[cookie-value]' : value.substring(0, 30)}${value.length > 30 ? '...' : ''}`)
-      })
-      
-      const data = await response.json()
-      
-      if (!data.csrfToken || typeof data.csrfToken !== 'string') {
-        throw new Error('Invalid CSRF token received')
-      }
-      
-      // Store token in sessionStorage for persistence and access from other components
-      try {
-        sessionStorage.setItem('csrfToken', data.csrfToken)
-        sessionStorage.setItem('csrfTokenTimestamp', Date.now().toString())
-        
-        // Also store origin for debugging cross-origin issues
-        sessionStorage.setItem('csrfTokenOrigin', window.location.origin)
-        
-        console.log('Stored CSRF token in sessionStorage', {
-          tokenLength: data.csrfToken.length,
-          tokenStart: data.csrfToken.substring(0, 5) + '...',
-          origin: window.location.origin,
-          host: window.location.host
-        })
-      } catch (storageError) {
-        console.warn('Unable to store CSRF token in sessionStorage:', storageError)
-      }
-      
-      setCsrfToken(data.csrfToken)
-      setLastFetched(Date.now())
-      console.log('CSRF token loaded successfully', { 
-        cookieName: data.cookieName,
-        tokenAvailable: !!data.csrfToken,
-        tokenLength: data.csrfToken?.length || 0,
-        status: data.status
-      })
-    } catch (fetchError) {
-      console.error('Error fetching CSRF token:', fetchError)
-      setError(fetchError instanceof Error ? fetchError.message : 'Unknown error')
-      
-      // Try to recover by using existing token if available
-      try {
-        const existingToken = sessionStorage.getItem('csrfToken')
-        if (existingToken) {
-          setCsrfToken(existingToken)
-          console.warn('Failed to fetch new CSRF token, using existing one from storage')
-        }
-      } catch (storageError) {
-        console.error('Unable to access sessionStorage:', storageError)
-      }
-    } finally {
+    if (storedToken) {
+      setCsrfToken(storedToken)
+      onTokenLoad?.(storedToken)
       setIsLoading(false)
+      console.log('Using CSRF token from sessionStorage')
+      return
     }
-  }
-
-  // Add CSRF token to outgoing fetch/XHR requests
-  useEffect(() => {
-    const originalFetch = window.fetch
-
-    // Override the global fetch function to add CSRF token to requests
-    window.fetch = async (input, init?) => {
-      // Clone init to avoid modifying the original object
-      const modifiedInit = init ? { ...init } : {}
-      
-      // Skip for GET requests
-      if (modifiedInit.method === undefined || modifiedInit.method?.toUpperCase() === 'GET') {
-        return originalFetch(input, modifiedInit)
-      }
-
-      // Only add CSRF token for same-origin or API requests (not third-party analytics)
-      let url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      const isSameOrigin = url.startsWith('/') || url.startsWith(window.location.origin)
-      const isApiRequest = url.includes('/api/')
-      const isAnalytics = url.includes('inferred.litix.io')
-
-      const token = sessionStorage.getItem('csrfToken')
-      if (token && (isSameOrigin || isApiRequest) && !isAnalytics) {
-        console.log('Adding CSRF token to POST request to', url)
-        modifiedInit.headers = {
-          ...(modifiedInit.headers || {}),
-          'X-CSRF-Token': token
-        }
-      }
-
+    
+    // If no token in storage, fetch a new one
+    async function fetchCsrfToken() {
       try {
-        return await originalFetch(input, modifiedInit)
-      } catch (error) {
-        console.error('Fetch error with CSRF token:', error)
-        throw error
-      }
-    }
-
-    // Clean up the override when component unmounts
-    return () => {
-      window.fetch = originalFetch
-    }
-  }, [])
-
-  // Initialize token on mount and refresh periodically
-  useEffect(() => {
-    let storedToken: string | null = null
-    let storedTimestamp: string | null = null
-
-    // Try to get token from sessionStorage
-    try {
-      storedToken = sessionStorage.getItem('csrfToken')
-      storedTimestamp = sessionStorage.getItem('csrfTokenTimestamp')
-      
-      if (storedToken) {
-        console.log('Using CSRF token from sessionStorage')
-        setCsrfToken(storedToken)
-        setIsLoading(false)
+        const response = await fetch('/api/csrf', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache, no-store',
+          },
+          cache: 'no-store',
+        })
         
-        // Check if token needs refresh
-        if (storedTimestamp) {
-          const timestamp = parseInt(storedTimestamp, 10)
-          const now = Date.now()
-          const age = now - timestamp
-          const maxAge = refreshInterval * 60 * 1000 // Convert minutes to milliseconds
-          
-          if (age > maxAge && fetchOnMount) {
-            console.log('CSRF token expired, fetching new one')
-            fetchCsrfToken()
+        if (response.ok) {
+          const data = await response.json()
+          if (data.csrfToken) {
+            // Store token in session storage for future use
+            sessionStorage.setItem('csrfToken', data.csrfToken)
+            setCsrfToken(data.csrfToken)
+            onTokenLoad?.(data.csrfToken)
+            console.log('CSRF token loaded successfully', data)
           } else {
-            setLastFetched(timestamp)
+            console.error('No CSRF token found in response')
+            onTokenLoad?.(null)
           }
+        } else {
+          console.error('Failed to fetch CSRF token:', response.status)
+          onTokenLoad?.(null)
         }
-      } else if (fetchOnMount) {
-        // No token in storage, fetch a new one
-        fetchCsrfToken()
-      } else {
-        setIsLoading(false)
-      }
-    } catch (storageError) {
-      console.warn('Unable to access sessionStorage:', storageError)
-      
-      if (fetchOnMount) {
-        fetchCsrfToken()
-      } else {
+      } catch (error) {
+        console.error('Error fetching CSRF token:', error)
+        onTokenLoad?.(null)
+      } finally {
         setIsLoading(false)
       }
     }
+    
+    fetchCsrfToken()
+  }, [onTokenLoad])
 
-    // Set up token refresh interval
-    const intervalId = setInterval(() => {
-      const tokenAge = Date.now() - lastFetched
-      const maxAge = refreshInterval * 60 * 1000 // Convert minutes to milliseconds
-      
-      if (tokenAge > maxAge) {
-        console.log('Refreshing CSRF token')
-        fetchCsrfToken()
-      }
-    }, 60 * 1000) // Check every minute
-
-    return () => clearInterval(intervalId)
-  }, [refreshInterval, lastFetched, fetchOnMount])
-
+  // Render loading state or children
   return (
-    <CsrfContext.Provider value={{ csrfToken, isLoading, error }}>
-      {children}
-    </CsrfContext.Provider>
+    <>
+      {isLoading ? (
+        <div className="text-center p-4" nonce={nonce}>
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
+            <span className="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">
+              Loading...
+            </span>
+          </div>
+        </div>
+      ) : (
+        children
+      )}
+    </>
   )
 }
+
+export default CsrfToken

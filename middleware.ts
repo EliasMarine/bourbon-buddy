@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { updateSession } from '@/utils/supabase/middleware';
+import { generateNonce, createCSPHeader } from '@/lib/csp';
 
 // Helper to generate a debug ID for tracing requests through logs
 function generateDebugId() {
@@ -160,58 +161,6 @@ function getAllowedDomains(): string[] {
   return Array.from(new Set(domains))
 }
 
-// Generate a cryptographically random nonce for CSP
-function generateCSPNonce(): string {
-  return Buffer.from(crypto.randomUUID()).toString('base64');
-}
-
-// Create Content Security Policy with nonce
-function createCSPHeader(nonce: string): string {
-  const isDevelopment = process.env.NODE_ENV !== 'production';
-  const isVercelPreview = process.env.VERCEL_ENV === 'preview' || 
-                          process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview';
-  
-  // Base CSP directives common to all environments
-  const baseDirectives = `
-    default-src 'self';
-    font-src 'self' https://vercel.live;
-    object-src 'none';
-    base-uri 'self';
-    form-action 'self';
-    frame-ancestors 'none';
-    img-src 'self' data: blob: https://image.mux.com https://vercel.live https://vercel.com https://*.pusher.com/;
-    media-src 'self' blob: https://stream.mux.com https://assets.mux.com https://image.mux.com https://*.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com;
-    connect-src 'self' https://hjodvataujilredguzig.supabase.co wss://hjodvataujilredguzig.supabase.co https://api.mux.com https://inferred.litix.io https://stream.mux.com https://assets.mux.com https://*.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://storage.googleapis.com https://vercel.live https://vercel.com https://*.pusher.com wss://*.pusher.com https://vitals.vercel-insights.com;
-    frame-src 'self' https://vercel.live https://vercel.com;
-    upgrade-insecure-requests;
-  `;
-
-  // Development mode: add unsafe-eval for hot reloading and more permissive settings
-  if (isDevelopment) {
-    return `
-      ${baseDirectives}
-      script-src 'self' 'nonce-${nonce}' 'unsafe-eval' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com;
-      style-src 'self' 'nonce-${nonce}' https://vercel.com;
-    `;
-  }
-  
-  // Vercel Preview: Add unsafe-inline for preview feedback features
-  if (isVercelPreview) {
-    return `
-      ${baseDirectives}
-      script-src 'self' 'nonce-${nonce}' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com 'unsafe-inline';
-      style-src 'self' 'nonce-${nonce}' https://vercel.com;
-    `;
-  }
-  
-  // Production: strictest CSP with nonces
-  return `
-    ${baseDirectives}
-    script-src 'self' 'nonce-${nonce}' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com 'strict-dynamic';
-    style-src 'self' 'nonce-${nonce}' https://vercel.com;
-  `;
-}
-
 // Supabase-related cookies to monitor
 const supabaseCookies = ['sb-access-token', 'sb-refresh-token']
 
@@ -237,7 +186,7 @@ export async function middleware(request: NextRequest) {
   );
 
   // Generate CSP nonce for this request
-  const nonce = skipCSP ? '' : generateCSPNonce();
+  const nonce = skipCSP ? '' : generateNonce();
   
   // Create modified request headers with nonce
   const requestHeaders = new Headers(request.headers);
@@ -253,9 +202,7 @@ export async function middleware(request: NextRequest) {
 
   // Apply CSP with nonce if not skipping
   if (!skipCSP) {
-    const contentSecurityPolicy = createCSPHeader(nonce)
-      .replace(/\s{2,}/g, ' ')
-      .trim();
+    const contentSecurityPolicy = createCSPHeader(nonce);
     
     // Set CSP header in the response
     response.headers.set('Content-Security-Policy', contentSecurityPolicy);
