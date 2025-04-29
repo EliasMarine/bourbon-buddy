@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { useSupabase } from '@/components/providers/SupabaseProvider'
+import { useSupabase } from './providers'
 
 interface CsrfTokenProps {
   children: React.ReactNode

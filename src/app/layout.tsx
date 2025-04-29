@@ -4,15 +4,13 @@ import { Toaster } from 'sonner'
 import { headers } from 'next/headers'
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
-import ClientLayout from '../components/providers/ClientLayout'
-import SupabaseProvider from '../components/providers/SupabaseProvider'
+import { ClientLayout, SupabaseProvider, CsrfProvider } from '../components/providers'
 import AuthWrapper from '../components/auth/AuthWrapper'
 import ClientDebug from '../components/debug/ClientDebug'
 import CorsHandler from '../components/cors-handler'
 import { initSentry } from '@/lib/sentry'
 import React from 'react'
 import Script from 'next/script'
-import { CsrfProvider } from '@/components/providers/CsrfProvider'
 
 const inter = Inter({ subsets: ['latin'] })
 
