@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/supabase-auth';
 // Removed authOptions import - not needed with Supabase Auth;
-import { prisma } from '@/lib/prisma';
+import { createClient } from '@/utils/supabase/server';
 
 export async function POST(request: NextRequest) {
+  // Initialize Supabase client
+  const supabase = await createClient();
+
   try {
     // Check authentication
     const user = await getCurrentUser();
@@ -39,9 +42,11 @@ export async function POST(request: NextRequest) {
       : { coverPhoto: imageUrl };
 
     // Find user in database by email
-    const dbUser = await prisma.user.findUnique({
-      where: { email: user.email }
-    });
+    const { data: dbUser, error: dbUserError } = await supabase
+  .from('User')
+  .select('*')
+  .eq('email', user.email)
+  .single();
 
     if (!dbUser) {
       return NextResponse.json(

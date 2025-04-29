@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { createClient } from '@/utils/supabase/server';
 import { setMuxAssetIdAndCreatePlaybackId } from '@/lib/mux'
 
 export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  // Initialize Supabase client
+  const supabase = await createClient();
+
   const params = await props.params;
   try {
     // Ensure params is fully resolved

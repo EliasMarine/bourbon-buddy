@@ -86,3 +86,7 @@ node
 .dev-build-backups/route.ts.sync-user.auth
 
 files_do_not_upload/
+
+# Migration backups
+*.bak
+prisma-usages.txt

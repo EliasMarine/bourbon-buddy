@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/supabase-auth';
 // Removed authOptions import - not needed with Supabase Auth;
-import { prisma } from '@/lib/prisma';
+import { createClient } from '@/utils/supabase/server';
 
 export async function PUT(request: Request) {
+  // Initialize Supabase client
+  const supabase = await createClient();
+
   try {
     const user = await getCurrentUser();
 
