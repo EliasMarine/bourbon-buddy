@@ -73,7 +73,7 @@
     "next-auth": "^4.24.6",
     "next-secure-headers": "^2.2.0",
     "node-fetch": "^3.3.2",
-    "pg": "^8.15.1",
+    "pg": "^8.15.6",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-error-boundary": "^5.0.0",
