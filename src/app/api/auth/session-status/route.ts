@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/supabase-auth';
 // Removed authOptions import - not needed with Supabase Auth;
-import { createServerClient } from '@/lib/supabase-server';
+import { createSupabaseServerClient } from '@/lib/supabase-server';
 
 export async function GET() {
   try {
     // Get Supabase session
-    const supabase = createServerClient();
+    const supabase = await createSupabaseServerClient();
     const { data: { session: supabaseSession }, error } = await supabase.auth.getSession();
     
     if (error) {

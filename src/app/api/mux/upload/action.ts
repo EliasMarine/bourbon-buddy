@@ -2,8 +2,7 @@
 
 import { z } from 'zod'
 import { createMuxUpload } from '@/lib/mux'
-import { prisma } from '@/lib/prisma'
-import { createVideoSafely, runTransaction } from '@/lib/prisma-transaction-fix'
+import { supabaseAdmin } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 
 // Upload request validation schema
@@ -62,18 +61,21 @@ export async function createVideoUpload(formData: FormData): Promise<ActionRespo
     // Store the upload in the database with our safe transaction method
     // that handles the "prepared statement already exists" error
     try {
-      const videoRecord = await createVideoSafely({
-        title: validatedData.title,
-        description: validatedData.description || '',
-        muxUploadId: upload.id,
-        status: 'uploading',
-        userId: validatedData.userId,
-      })
-      
-      console.log('✅ Successfully created video record with safe transaction method')
+      const { error } = await supabaseAdmin
+        .from('Video')
+        .insert({
+          title: validatedData.title,
+          description: validatedData.description || '',
+          muxUploadId: upload.id,
+          status: 'uploading',
+          userId: validatedData.userId,
+        })
+        .select()
+        .single()
+      if (error) throw error
+      console.log('✅ Successfully created video record in Supabase')
     } catch (dbError) {
-      console.error('❌ Failed to create video record with safe transaction:', dbError)
-      
+      console.error('❌ Failed to create video record in Supabase:', dbError)
       // Even if the database record fails, we can still return the upload URL
       // The MUX webhook can handle creating the record when the upload is complete
       console.log('⚠️ Continuing with upload despite database error')
@@ -102,12 +104,11 @@ export async function createVideoUpload(formData: FormData): Promise<ActionRespo
 export async function markUploadComplete(uploadId: string): Promise<{ success: boolean; error?: string }> {
   try {
     // Update the video status in the database using a transaction to avoid prepared statement errors
-    await runTransaction(async (tx) => {
-      return (tx as any).video.update({
-        where: { muxUploadId: uploadId },
-        data: { status: 'processing' },
-      });
-    });
+    const { error } = await supabaseAdmin
+      .from('Video')
+      .update({ status: 'processing' })
+      .eq('muxUploadId', uploadId)
+    if (error) throw error
 
     // Revalidate any relevant paths
     revalidatePath('/videos')
@@ -128,10 +129,7 @@ export async function markUploadComplete(uploadId: string): Promise<{ success: b
 export async function deleteVideo(videoId: string): Promise<{ success: boolean; error?: string }> {
   try {
     // Get the video from the database
-    const video = await prisma.video.findUnique({
-      where: { id: videoId },
-      select: { muxAssetId: true },
-    })
+    const video = await supabaseAdmin.from('Video').select('muxAssetId').eq('id', videoId).single()
 
     if (!video) {
       return {
@@ -141,9 +139,7 @@ export async function deleteVideo(videoId: string): Promise<{ success: boolean; 
     }
 
     // Delete the video from the database
-    await prisma.video.delete({
-      where: { id: videoId },
-    })
+    await supabaseAdmin.from('Video').delete().eq('id', videoId)
 
     // If there's a MUX asset ID, you might want to delete it from MUX as well
     // This would typically use the deleteMuxAsset function from your MUX lib
