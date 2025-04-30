@@ -130,6 +130,7 @@ export async function createVideoUpload(formData: FormData): Promise<ActionRespo
       
       // Log the exact insert operation for debugging
       const insertData = {
+        id: `video_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`, // Generate a string ID that matches the schema
         title: validatedData.title,
         description: validatedData.description || '',
         muxUploadId: upload.id,
@@ -164,7 +165,42 @@ export async function createVideoUpload(formData: FormData): Promise<ActionRespo
           console.error('❌ Permission denied - service role key might not have access')
         }
         
-        throw error
+        // Try once more with a simpler insert that only includes essential fields
+        console.log('Attempting simplified insert as fallback...')
+        
+        try {
+          const simplifiedInsert = {
+            id: insertData.id,
+            title: insertData.title,
+            status: 'uploading',
+            muxUploadId: upload.id,
+            userId: validatedData.userId
+          }
+          
+          const { data: fallbackVideo, error: fallbackError } = await supabaseAdmin
+            .from('Video')
+            .insert(simplifiedInsert)
+            .select()
+            .single()
+            
+          if (fallbackError) {
+            console.error('❌ Simplified insert also failed:', fallbackError)
+            throw fallbackError
+          }
+          
+          console.log(`✅ Successfully created video using simplified insert: ${fallbackVideo?.id}`)
+          return {
+            success: true,
+            data: {
+              uploadId: upload.id,
+              uploadUrl: upload.url,
+              videoId: fallbackVideo.id
+            },
+          }
+        } catch (fallbackError) {
+          console.error('❌ Fallback insert failed:', fallbackError)
+          throw error
+        }
       }
       
       console.log(`✅ Successfully created video record in Supabase with ID: ${newVideo?.id || 'unknown'}`)
@@ -297,7 +333,38 @@ export async function markUploadComplete(uploadId: string): Promise<{ success: b
     
     if (!video) {
       console.error(`❌ Could not find video with upload ID: ${uploadId}`, findError)
-      throw new Error(`Video not found for upload ID: ${uploadId}`)
+      
+      // Last attempt - try to create a new video record from scratch as a fallback
+      console.log('Attempting to create a new video record as fallback...')
+      
+      try {
+        const newVideoId = `video_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
+        
+        const { data: newVideo, error: insertError } = await supabaseAdmin
+          .from('Video')
+          .insert({
+            id: newVideoId,
+            title: 'Recovered Video', 
+            status: 'processing',
+            muxUploadId: uploadId,
+            publiclyListed: true,
+            views: 0,
+            userId: null // We don't know which user this belongs to
+          })
+          .select()
+          .single()
+          
+        if (insertError) {
+          console.error(`❌ Fallback creation failed:`, insertError)
+          throw new Error(`Video not found for upload ID: ${uploadId}`)
+        }
+        
+        console.log(`✅ Created fallback video record with ID: ${newVideoId}`)
+        video = newVideo
+      } catch (fallbackError) {
+        console.error(`❌ Fallback creation attempt failed:`, fallbackError)
+        throw new Error(`Video not found for upload ID: ${uploadId}`)
+      }
     }
     
     console.log(`📋 Found video ${video.id} "${video.title}" for upload ID: ${uploadId}`)

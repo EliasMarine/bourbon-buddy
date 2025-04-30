@@ -240,9 +240,13 @@ export async function POST(request: Request) {
                   console.error('Error parsing passthrough metadata:', e);
                 }
                 
+                // Generate a string ID that matches the schema
+                const videoId = `video_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+                
                 const createResult = await supabaseAdmin
                   .from('Video')
                   .insert({
+                    id: videoId,
                     title,
                     muxUploadId: uploadId,
                     muxAssetId: assetId,
