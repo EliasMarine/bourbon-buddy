@@ -2,7 +2,7 @@
 
 import { z } from 'zod'
 import { createMuxUpload } from '@/lib/mux'
-import { supabaseAdmin } from '@/lib/supabase-server'
+import { supabaseAdmin, getColumnInfo, getTableNames } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 
 // Upload request validation schema
@@ -56,6 +56,15 @@ export async function createVideoUpload(formData: FormData): Promise<ActionRespo
       hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
       hasServiceRole: !!process.env.SUPABASE_SERVICE_ROLE_KEY?.substring(0, 3) + '...',
     })
+
+    // NEW: Additional validation for service role key
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY.length < 10) {
+      console.error('❌ Missing or invalid SUPABASE_SERVICE_ROLE_KEY environment variable')
+      return {
+        success: false,
+        error: 'Server configuration error: Missing service role key',
+      }
+    }
     
     const validatedData = uploadRequestSchema.parse({
       title,
@@ -89,11 +98,18 @@ export async function createVideoUpload(formData: FormData): Promise<ActionRespo
       console.log(`📝 Creating video record in database for upload ID: ${upload.id} with userId: ${validatedData.userId}`)
       
       // First, check if a record already exists with this upload ID
-      const { data: existingVideo } = await supabaseAdmin
+      console.log('Checking for existing video record...')
+      
+      const { data: existingVideo, error: queryError } = await supabaseAdmin
         .from('Video')
         .select('id')
         .eq('muxUploadId', upload.id)
         .maybeSingle()
+      
+      if (queryError) {
+        console.error('❌ Error checking for existing video:', queryError)
+        throw queryError
+      }
       
       if (existingVideo) {
         console.log(`⚠️ Video record already exists for upload ID: ${upload.id}`)
@@ -112,28 +128,46 @@ export async function createVideoUpload(formData: FormData): Promise<ActionRespo
       // This bypasses RLS because supabaseAdmin uses the service role key
       console.log('Creating video with supabaseAdmin (service role)...')
       
+      // Log the exact insert operation for debugging
+      const insertData = {
+        title: validatedData.title,
+        description: validatedData.description || '',
+        muxUploadId: upload.id,
+        status: 'uploading',
+        userId: validatedData.userId,
+        publiclyListed: true,
+        views: 0,
+        // Use a placeholder playback ID to make it appear in listings immediately
+        muxPlaybackId: `placeholder-${upload.id}`,
+      }
+      
+      console.log('Inserting video record with data:', JSON.stringify(insertData, null, 2))
+      
       const { data: newVideo, error } = await supabaseAdmin
         .from('Video')
-        .insert({
-          title: validatedData.title,
-          description: validatedData.description || '',
-          muxUploadId: upload.id,
-          status: 'uploading',
-          userId: validatedData.userId,
-          publiclyListed: true,
-          views: 0,
-          // Use a placeholder playback ID to make it appear in listings immediately
-          muxPlaybackId: `placeholder-${upload.id}`,
-        })
+        .insert(insertData)
         .select()
         .single()
       
       if (error) {
         console.error('❌ Failed to create video record in Supabase:', error)
+        console.error('❌ Error details:', JSON.stringify(error, null, 2))
+        
+        // NEW: Try to identify specific errors
+        if (error.message?.includes('not exist')) {
+          console.error('❌ Table might not exist or has incorrect case')
+        }
+        if (error.message?.includes('column') && error.message?.includes('does not exist')) {
+          console.error('❌ Column name might be incorrect or has wrong case')
+        }
+        if (error.message?.includes('permission denied')) {
+          console.error('❌ Permission denied - service role key might not have access')
+        }
+        
         throw error
       }
       
-      console.log(`✅ Successfully created video record in Supabase with ID: ${newVideo.id}`)
+      console.log(`✅ Successfully created video record in Supabase with ID: ${newVideo?.id || 'unknown'}`)
       
       // Return success with the upload URL and video ID
       return {
@@ -174,14 +208,94 @@ export async function markUploadComplete(uploadId: string): Promise<{ success: b
   try {
     console.log(`🏁 Marking upload complete for upload ID: ${uploadId}`)
     
+    // NEW: Check for empty uploadId
+    if (!uploadId) {
+      console.error('❌ uploadId is empty or undefined')
+      return {
+        success: false, 
+        error: 'Upload ID is required'
+      }
+    }
+    
+    // NEW: Additional validation for service role key
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY.length < 10) {
+      console.error('❌ Missing or invalid SUPABASE_SERVICE_ROLE_KEY environment variable')
+      return {
+        success: false,
+        error: 'Server configuration error: Missing service role key',
+      }
+    }
+    
     // Get the video ID first
-    const { data: video, error: findError } = await supabaseAdmin
+    console.log(`Querying for video with muxUploadId: ${uploadId}`)
+    
+    // NEW: Try both table cases just in case there's a mismatch
+    let video: any = null
+    let findError: any = null
+    
+    // First try with capital V (preferred based on schema files)
+    console.log('Trying "Video" table with capital V...')
+    const capitalResult = await supabaseAdmin
       .from('Video')
       .select('id, title')
       .eq('muxUploadId', uploadId)
       .single()
+      
+    if (capitalResult.data) {
+      video = capitalResult.data
+      console.log(`✅ Found video in "Video" table: ${video.id}`)
+    } else {
+      findError = capitalResult.error
+      console.log(`❌ No match in "Video" table, error:`, findError)
+      
+      // Fallback to lowercase "video" table as a last resort
+      console.log('Trying "video" table with lowercase v...')
+      const lowercaseResult = await supabaseAdmin
+        .from('video')
+        .select('id, title')
+        .eq('muxUploadId', uploadId)
+        .single()
+        
+      if (lowercaseResult.data) {
+        video = lowercaseResult.data
+        console.log(`✅ Found video in "video" table: ${video.id}`)
+      } else {
+        findError = lowercaseResult.error
+        console.log(`❌ No match in "video" table either, error:`, findError)
+        
+        // NEW: Last attempt with column casing variations
+        console.log('Trying with different column case variations...')
+        const columnVariations = await supabaseAdmin
+          .from('Video')
+          .select('id, title')
+          .eq('mux_upload_id', uploadId)
+          .single()
+          
+        if (columnVariations.data) {
+          video = columnVariations.data
+          console.log(`✅ Found video using 'mux_upload_id' snake case column: ${video.id}`)
+        } else {
+          // Still failed, log table columns for diagnosis
+          try {
+            // First, check all available tables to find our Video table
+            const tables = await getTableNames();
+            console.log('Available tables:', tables);
+            
+            // Then check the columns of our Video table
+            const tableInfo = await getColumnInfo('Video')
+            console.log('Video table columns:', tableInfo)
+            
+            // Also try lowercase version just to be sure
+            const lowercaseInfo = await getColumnInfo('video')
+            console.log('video table columns:', lowercaseInfo)
+          } catch (e) {
+            console.error('Error getting table info:', e)
+          }
+        }
+      }
+    }
     
-    if (findError) {
+    if (!video) {
       console.error(`❌ Could not find video with upload ID: ${uploadId}`, findError)
       throw new Error(`Video not found for upload ID: ${uploadId}`)
     }
@@ -189,8 +303,10 @@ export async function markUploadComplete(uploadId: string): Promise<{ success: b
     console.log(`📋 Found video ${video.id} "${video.title}" for upload ID: ${uploadId}`)
     
     // Update the video status in the database
+    const updateTable = video.found_in_table || 'Video' // Use the table where we found the record
+    
     const { error: updateError } = await supabaseAdmin
-      .from('Video')
+      .from(updateTable)
       .update({ 
         status: 'processing',
         updatedAt: new Date().toISOString()

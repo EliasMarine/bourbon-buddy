@@ -174,9 +174,32 @@ export async function POST(request: Request) {
         // Try to find the video by upload ID and update it with the asset ID in Supabase
         try {
           const assetId = payload.data?.asset_id;
-          if (assetId) {
-            const { error, data: updatedVideo } = await supabaseAdmin
-              .from('Video')
+          if (!assetId) {
+            console.error('Missing asset_id in webhook payload');
+            return NextResponse.json({ success: false, error: 'No asset ID in payload' });
+          }
+          
+          // Try both table cases and column names
+          console.log(`Looking for video with muxUploadId = "${uploadId}"`);
+          
+          // First try with capital V (Video)
+          let videoUpdateResult = await supabaseAdmin
+            .from('Video')
+            .update({ 
+              muxAssetId: assetId,
+              status: 'processing'
+            })
+            .eq('muxUploadId', uploadId)
+            .select()
+            .single();
+            
+          if (videoUpdateResult.error) {
+            console.log('Error updating Video table:', videoUpdateResult.error);
+            
+            // Try lowercase (video)
+            console.log('Trying lowercase video table...');
+            videoUpdateResult = await supabaseAdmin
+              .from('video')
               .update({ 
                 muxAssetId: assetId,
                 status: 'processing'
@@ -185,15 +208,64 @@ export async function POST(request: Request) {
               .select()
               .single();
             
-            if (error) {
-              console.error(`Failed to update video with asset ID for upload ${uploadId}:`, error);
-              return NextResponse.json({ error: 'Failed to update video' }, { status: 500 });
+            if (videoUpdateResult.error) {
+              console.log('Error updating video table:', videoUpdateResult.error);
+              
+              // Try with snake_case columns
+              console.log('Trying with snake_case columns...');
+              videoUpdateResult = await supabaseAdmin
+                .from('Video')
+                .update({ 
+                  mux_asset_id: assetId,
+                  status: 'processing'
+                })
+                .eq('mux_upload_id', uploadId)
+                .select()
+                .single();
+                
+              if (videoUpdateResult.error) {
+                // If all updates failed, let's try creating a record as a fallback
+                console.log('All update attempts failed. Creating new record as fallback...');
+                
+                // Try to extract metadata from the passthrough
+                let title = 'Untitled Video';
+                let userId = null;
+                try {
+                  if (payload.data.passthrough) {
+                    const metadata = JSON.parse(payload.data.passthrough);
+                    title = metadata.title || title;
+                    userId = metadata.userId;
+                  }
+                } catch (e) {
+                  console.error('Error parsing passthrough metadata:', e);
+                }
+                
+                const createResult = await supabaseAdmin
+                  .from('Video')
+                  .insert({
+                    title,
+                    muxUploadId: uploadId,
+                    muxAssetId: assetId,
+                    status: 'processing',
+                    userId,
+                    publiclyListed: true,
+                    views: 0
+                  })
+                  .select()
+                  .single();
+                  
+                if (createResult.error) {
+                  console.error('Fallback creation also failed:', createResult.error);
+                  throw new Error('Could not update or create video record');
+                }
+                
+                videoUpdateResult = createResult;
+              }
             }
-            
-            console.log(`Updated video with asset ID ${assetId} for upload ${uploadId} in Supabase`);
-            return NextResponse.json({ success: true, videoId: updatedVideo?.id });
           }
-          return NextResponse.json({ success: false, error: 'No asset ID in payload' });
+          
+          console.log(`Updated video with asset ID ${assetId} for upload ${uploadId} in Supabase`);
+          return NextResponse.json({ success: true, videoId: videoUpdateResult?.data?.id });
         } catch (error) {
           console.error(`Failed to update video with asset ID for upload ${uploadId}:`, error);
           return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

@@ -6,6 +6,40 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { cache } from 'react';
 import type { Database } from './supabase';
 
+/**
+ * Helper function to inspect database schema for debugging
+ * This gets table column information directly without creating an RPC
+ */
+export async function getColumnInfo(tableName: string) {
+  try {
+    if (typeof window !== 'undefined') return null; // Only run on server
+    
+    const { data, error } = await supabaseAdmin
+      .from('_columns')
+      .select('*')
+      .limit(1)
+      .then(() => {
+        // Use a direct query instead to get column info
+        return supabaseAdmin
+          .from('information_schema.columns')
+          .select('column_name, data_type, is_nullable')
+          .eq('table_name', tableName)
+          .eq('table_schema', 'public')
+          .order('ordinal_position');
+      });
+    
+    if (error) {
+      console.warn('⚠️ Could not get column info:', error);
+      return null;
+    }
+    
+    return data;
+  } catch (error) {
+    console.warn('⚠️ Could not get column info:', error);
+    return null;
+  }
+}
+
 // Helper function to safely check if we're on the server side
 export const isServer = () => typeof window === 'undefined';
 
@@ -214,6 +248,32 @@ export const createServerSupabaseClient = cache(() => {
     }
   );
 });
+
+/**
+ * Helper function to get a list of all tables in the database
+ * Useful for checking table existence and case sensitivity issues
+ */
+export async function getTableNames() {
+  try {
+    if (typeof window !== 'undefined') return null; // Only run on server
+    
+    const { data, error } = await supabaseAdmin
+      .from('information_schema.tables')
+      .select('table_name')
+      .eq('table_schema', 'public')
+      .order('table_name');
+    
+    if (error) {
+      console.warn('⚠️ Could not get table names:', error);
+      return null;
+    }
+    
+    return data.map(t => t.table_name);
+  } catch (error) {
+    console.warn('⚠️ Could not get table names:', error);
+    return null;
+  }
+}
 
 // Export the typed client as default
 export default supabaseAdmin; 
