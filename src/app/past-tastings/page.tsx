@@ -51,11 +51,104 @@ export default function PastTastingsPage() {
   const [videos, setVideos] = useState<Video[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showOnlyMyVideos, setShowOnlyMyVideos] = useState(false)
+
+  // Log session information for debugging
+  useEffect(() => {
+    if (session) {
+      console.log('Past tastings session:', {
+        userId: session.user?.id,
+        hasUser: !!session.user,
+        isAuth: !!session.user?.id
+      })
+    } else {
+      console.log('No session in past-tastings page')
+    }
+  }, [session])
 
   useEffect(() => {
     fetchVideos()
     syncVideosOnLoad()
-  }, [])
+    
+    // Set up a timer to check for recently uploaded videos
+    if (session?.user?.id) {
+      const checkInterval = setInterval(async () => {
+        if (showOnlyMyVideos) {
+          // Only force sync when in "My Videos" view
+          await forceSyncVideos()
+        }
+      }, 30000) // Check every 30 seconds
+      
+      return () => clearInterval(checkInterval)
+    }
+  }, [showOnlyMyVideos, session?.user?.id])
+
+  async function fetchVideos() {
+    setIsLoading(true)
+    setError(null)
+    try {
+      let url = '/api/videos'
+      
+      // Add the user filter if "My Videos" is selected and the user is logged in
+      if (showOnlyMyVideos && session?.user?.id) {
+        const sessionUserId = session.user.id
+        url = `${url}?userId=${sessionUserId}`
+        console.log(`🔍 Fetching my videos with session userId: ${sessionUserId}`)
+      } else {
+        console.log('🔍 Fetching all videos')
+      }
+      
+      console.log(`API request to: ${url}`)
+      
+      const response = await fetch(url)
+      if (!response.ok) throw new Error('Failed to fetch videos')
+      const data = await response.json()
+      
+      console.log(`📊 Fetched ${data.videos?.length || 0} videos`)
+      if (showOnlyMyVideos && data.videos?.length === 0) {
+        console.log('⚠️ No videos found for current user. Make sure you\'re logged in with the correct account.')
+      }
+      
+      setVideos(data.videos || [])
+    } catch (err) {
+      console.error('❌ Error fetching videos:', err)
+      setError('Failed to load videos')
+      setVideos([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Force sync with Mux to update video status
+  async function forceSyncVideos() {
+    setIsLoading(true)
+    try {
+      console.log('Forcing video sync with Mux...')
+      // First, force a sync to update any pending videos
+      const syncResponse = await fetch('/api/videos/sync-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+      
+      if (!syncResponse.ok) {
+        console.error('Error syncing videos:', await syncResponse.text())
+      }
+      
+      // Wait a moment for the sync to complete
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      
+      // Then fetch the videos again
+      await fetchVideos()
+      toast.success('Videos refreshed from Mux')
+    } catch (error) {
+      console.error('Error during force sync:', error)
+      toast.error('Failed to refresh videos')
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   async function syncVideosOnLoad() {
     try {
@@ -71,20 +164,62 @@ export default function PastTastingsPage() {
     }
   }
 
-  async function fetchVideos() {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const response = await fetch('/api/videos')
-      if (!response.ok) throw new Error('Failed to fetch videos')
-      const data = await response.json()
-      setVideos(data.videos || [])
-    } catch (err) {
-      setError('Failed to load videos')
-      setVideos([])
-    } finally {
-      setIsLoading(false)
-    }
+  // Toggle switch for filtering videos
+  function VideoFilterToggle() {
+    // Only show toggle when user is logged in
+    if (!session) return null;
+    
+    // Disable toggle if we're in My Videos mode and there are no videos
+    const isDisabled = showOnlyMyVideos && videos.length === 0;
+    
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => !isDisabled && setShowOnlyMyVideos(!showOnlyMyVideos)}
+          className={`relative flex items-center bg-gray-800/90 rounded-full p-1 transition-all border border-gray-700/50 shadow-md ${
+            isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-700/90'
+          }`}
+          aria-label={showOnlyMyVideos ? 'Show all videos' : 'Show only my videos'}
+          role="switch"
+          aria-checked={showOnlyMyVideos}
+          disabled={isDisabled}
+        >
+          <div className="relative flex items-center">
+            <div className="flex w-[160px] h-8">
+              <span className={`z-10 flex-1 flex items-center justify-center text-sm font-medium px-2 ${!showOnlyMyVideos ? 'text-white' : 'text-gray-400'}`}>
+                All Videos
+              </span>
+              <span className={`z-10 flex-1 flex items-center justify-center text-sm font-medium px-2 ${showOnlyMyVideos ? 'text-white' : 'text-gray-400'}`}>
+                My Videos
+              </span>
+            </div>
+            <div 
+              className={`absolute bg-gradient-to-r from-amber-600 to-amber-700 w-[80px] h-7 rounded-full shadow-md transition-transform transform duration-300 ease-in-out ${
+                showOnlyMyVideos ? 'translate-x-[78px]' : 'translate-x-0'
+              }`} 
+            />
+          </div>
+        </button>
+        
+        {/* Refresh button only shown when "My Videos" is selected */}
+        {showOnlyMyVideos && (
+          <button 
+            onClick={forceSyncVideos}
+            disabled={isLoading}
+            className="bg-gray-800/90 hover:bg-gray-700/90 p-2 rounded-full border border-gray-700/50 text-white transition-all shadow-md"
+            title="Refresh Videos"
+            aria-label="Refresh videos from Mux"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`${isLoading ? 'animate-spin' : ''}`}>
+              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
+              <path d="M21 3v5h-5"></path>
+              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path>
+              <path d="M3 21v-5h5"></path>
+            </svg>
+          </button>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -97,15 +232,18 @@ export default function PastTastingsPage() {
             </h1>
             <p className="text-gray-300 max-w-2xl text-sm md:text-base">Browse pre-recorded bourbon tasting sessions from the community. Watch, learn, and enjoy!</p>
           </div>
-          {session && (
-            <Link
-              href="/upload"
-              className="bg-gradient-to-r from-amber-600 to-amber-700 text-white px-4 md:px-6 py-2 md:py-3 rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-300 flex items-center gap-2 shadow-lg shadow-amber-900/20 whitespace-nowrap text-sm md:text-base"
-            >
-              <PlusCircle size={16} className="md:w-[18px] md:h-[18px]" />
-              <span>Upload Video</span>
-            </Link>
-          )}
+          <div className="flex items-center gap-3">
+            <VideoFilterToggle />
+            {session && (
+              <Link
+                href="/upload"
+                className="bg-gradient-to-r from-amber-600 to-amber-700 text-white px-4 md:px-6 py-2 md:py-3 rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-300 flex items-center gap-2 shadow-lg shadow-amber-900/20 whitespace-nowrap text-sm md:text-base"
+              >
+                <PlusCircle size={16} className="md:w-[18px] md:h-[18px]" />
+                <span>Upload Video</span>
+              </Link>
+            )}
+          </div>
         </div>
         {error && (
           <div className="bg-red-900/20 border border-red-700/30 text-red-200 rounded-xl p-4 mb-6 text-center font-medium shadow-lg">
@@ -143,8 +281,14 @@ export default function PastTastingsPage() {
             <div className="w-20 h-20 md:w-24 md:h-24 mx-auto mb-6 rounded-full bg-gray-800/70 flex items-center justify-center p-4 md:p-5 border border-amber-600/20">
               <FileVideo size={36} className="text-amber-500 md:w-10 md:h-10" />
             </div>
-            <h3 className="text-xl md:text-2xl font-semibold text-white mb-3">No past tastings yet</h3>
-            <p className="text-gray-300 mb-6 max-w-md mx-auto text-sm md:text-base">Share your bourbon experiences with the community by uploading a tasting session.</p>
+            <h3 className="text-xl md:text-2xl font-semibold text-white mb-3">
+              {showOnlyMyVideos ? "You haven't uploaded any videos yet" : "No past tastings yet"}
+            </h3>
+            <p className="text-gray-300 mb-6 max-w-md mx-auto text-sm md:text-base">
+              {showOnlyMyVideos 
+                ? "Share your bourbon experiences with the community by uploading a tasting session."
+                : "Be the first to share a bourbon tasting with the community."}
+            </p>
             {session ? (
               <Link href="/upload" className="bg-gradient-to-r from-amber-600 to-amber-700 text-white px-5 py-2 md:px-6 md:py-3 rounded-lg hover:from-amber-700 hover:to-amber-800 inline-block transition-all shadow-lg shadow-amber-900/20 text-sm md:text-base">
                 Upload Your First Tasting

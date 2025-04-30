@@ -19,6 +19,7 @@ type ActionResponse = {
   data?: {
     uploadId: string
     uploadUrl: string
+    videoId?: string
   }
 }
 
@@ -33,6 +34,28 @@ export async function createVideoUpload(formData: FormData): Promise<ActionRespo
     const description = formData.get('description') as string
     const userId = formData.get('userId') as string
     const maxDurationSeconds = parseInt(formData.get('maxDurationSeconds') as string) || 3600
+    
+    console.log(`📹 Creating new video upload - DEBUG INFO:`)
+    console.log(`  - Title: "${title}"`)
+    console.log(`  - Description length: ${description?.length || 0} chars`)
+    console.log(`  - User ID: "${userId}" (${typeof userId})`)
+    console.log(`  - User ID empty?: ${!userId}`)
+    console.log(`  - Max duration: ${maxDurationSeconds} seconds`)
+    
+    // Validate userId - it must be provided
+    if (!userId || userId.trim() === '') {
+      console.error('❌ Missing user ID in video upload request')
+      return {
+        success: false,
+        error: 'User ID is required for video uploads',
+      }
+    }
+    
+    // Make sure the supabaseAdmin client is properly configured
+    console.log('Checking supabaseAdmin configuration:', {
+      hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+      hasServiceRole: !!process.env.SUPABASE_SERVICE_ROLE_KEY?.substring(0, 3) + '...',
+    })
     
     const validatedData = uploadRequestSchema.parse({
       title,
@@ -52,16 +75,44 @@ export async function createVideoUpload(formData: FormData): Promise<ActionRespo
     })
 
     if (!upload || !upload.url) {
+      console.error('Failed to create Mux upload URL')
       return {
         success: false,
         error: 'Failed to create upload URL',
       }
     }
+    
+    console.log(`🎬 Mux upload created successfully with ID: ${upload.id}`)
 
-    // Store the upload in the database with our safe transaction method
-    // that handles the "prepared statement already exists" error
+    // Store the upload in the database using proper error handling
     try {
-      const { error } = await supabaseAdmin
+      console.log(`📝 Creating video record in database for upload ID: ${upload.id} with userId: ${validatedData.userId}`)
+      
+      // First, check if a record already exists with this upload ID
+      const { data: existingVideo } = await supabaseAdmin
+        .from('Video')
+        .select('id')
+        .eq('muxUploadId', upload.id)
+        .maybeSingle()
+      
+      if (existingVideo) {
+        console.log(`⚠️ Video record already exists for upload ID: ${upload.id}`)
+        // Return success with the existing upload data
+        return {
+          success: true,
+          data: {
+            uploadId: upload.id,
+            uploadUrl: upload.url,
+            videoId: existingVideo.id
+          },
+        }
+      }
+      
+      // Create a new video record with all required fields using the admin client
+      // This bypasses RLS because supabaseAdmin uses the service role key
+      console.log('Creating video with supabaseAdmin (service role)...')
+      
+      const { data: newVideo, error } = await supabaseAdmin
         .from('Video')
         .insert({
           title: validatedData.title,
@@ -69,25 +120,43 @@ export async function createVideoUpload(formData: FormData): Promise<ActionRespo
           muxUploadId: upload.id,
           status: 'uploading',
           userId: validatedData.userId,
+          publiclyListed: true,
+          views: 0,
+          // Use a placeholder playback ID to make it appear in listings immediately
+          muxPlaybackId: `placeholder-${upload.id}`,
         })
         .select()
         .single()
-      if (error) throw error
-      console.log('✅ Successfully created video record in Supabase')
+      
+      if (error) {
+        console.error('❌ Failed to create video record in Supabase:', error)
+        throw error
+      }
+      
+      console.log(`✅ Successfully created video record in Supabase with ID: ${newVideo.id}`)
+      
+      // Return success with the upload URL and video ID
+      return {
+        success: true,
+        data: {
+          uploadId: upload.id,
+          uploadUrl: upload.url,
+          videoId: newVideo.id
+        },
+      }
     } catch (dbError) {
       console.error('❌ Failed to create video record in Supabase:', dbError)
       // Even if the database record fails, we can still return the upload URL
       // The MUX webhook can handle creating the record when the upload is complete
       console.log('⚠️ Continuing with upload despite database error')
-    }
-
-    // Return the upload URL to the client
-    return {
-      success: true,
-      data: {
-        uploadId: upload.id,
-        uploadUrl: upload.url,
-      },
+      
+      return {
+        success: true,
+        data: {
+          uploadId: upload.id,
+          uploadUrl: upload.url,
+        },
+      }
     }
   } catch (error) {
     console.error('Error creating MUX upload:', error)
@@ -101,19 +170,73 @@ export async function createVideoUpload(formData: FormData): Promise<ActionRespo
 /**
  * Mark a video upload as complete
  */
-export async function markUploadComplete(uploadId: string): Promise<{ success: boolean; error?: string }> {
+export async function markUploadComplete(uploadId: string): Promise<{ success: boolean; error?: string; videoId?: string }> {
   try {
-    // Update the video status in the database using a transaction to avoid prepared statement errors
-    const { error } = await supabaseAdmin
+    console.log(`🏁 Marking upload complete for upload ID: ${uploadId}`)
+    
+    // Get the video ID first
+    const { data: video, error: findError } = await supabaseAdmin
       .from('Video')
-      .update({ status: 'processing' })
+      .select('id, title')
       .eq('muxUploadId', uploadId)
-    if (error) throw error
+      .single()
+    
+    if (findError) {
+      console.error(`❌ Could not find video with upload ID: ${uploadId}`, findError)
+      throw new Error(`Video not found for upload ID: ${uploadId}`)
+    }
+    
+    console.log(`📋 Found video ${video.id} "${video.title}" for upload ID: ${uploadId}`)
+    
+    // Update the video status in the database
+    const { error: updateError } = await supabaseAdmin
+      .from('Video')
+      .update({ 
+        status: 'processing',
+        updatedAt: new Date().toISOString()
+      })
+      .eq('muxUploadId', uploadId)
+    
+    if (updateError) {
+      console.error(`❌ Failed to update video status for upload ID: ${uploadId}`, updateError)
+      throw updateError
+    }
+    
+    console.log(`✅ Successfully updated video ${video.id} status to 'processing'`)
+    
+    // Trigger sync to update video status from Mux
+    try {
+      console.log(`🔄 Triggering sync for video ID: ${video.id}`)
+      
+      // We need to wait a bit before syncing to make sure Mux has processed the video
+      // This will run asynchronously and not block the response
+      setTimeout(async () => {
+        try {
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+          const syncResponse = await fetch(`${baseUrl}/api/videos/sync-status?videoId=${video.id}`, {
+            method: 'POST',
+          })
+          
+          if (!syncResponse.ok) {
+            console.error(`❌ Failed to sync video status for video ID: ${video.id}`, await syncResponse.text())
+          } else {
+            console.log(`✅ Successfully triggered sync for video ID: ${video.id}`)
+          }
+        } catch (syncError) {
+          console.error(`❌ Error triggering sync for video ID: ${video.id}`, syncError)
+        }
+      }, 5000) // Wait 5 seconds before syncing
+      
+    } catch (syncError) {
+      // Don't fail the whole process if sync fails
+      console.error(`⚠️ Warning: Failed to trigger sync for video ID: ${video.id}`, syncError)
+    }
 
     // Revalidate any relevant paths
-    revalidatePath('/videos')
+    revalidatePath('/past-tastings')
+    revalidatePath(`/watch/${video.id}`)
     
-    return { success: true }
+    return { success: true, videoId: video.id }
   } catch (error) {
     console.error('Error marking upload complete:', error)
     return {

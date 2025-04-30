@@ -88,11 +88,13 @@ export async function GET(request: Request) {
   const status = url.searchParams.get('status')
   const limit = parseInt(url.searchParams.get('limit') || '20', 10)
   const includeAllVideos = url.searchParams.get('includeAll') === 'true'
+  const userId = url.searchParams.get('userId')
   
   try {
     console.log('GET /api/videos - Starting request')
     console.log(`Status filter: ${status || 'Not specified (using defaults)'}`)
     console.log(`Limit: ${limit}, includeAllVideos: ${includeAllVideos}`)
+    if (userId) console.log(`Filtering for userId: ${userId}`)
     
     // Query the Video table directly with proper casing
     let query = supabaseAdmin
@@ -107,6 +109,11 @@ export async function GET(request: Request) {
     } else if (!includeAllVideos) {
       // Default to videos that are ready or processing only if not including all
       query = query.or('status.eq.ready,status.eq.processing')
+    }
+    
+    // Filter by userId if provided
+    if (userId) {
+      query = query.eq('userId', userId)
     }
     
     // Only show publicly listed videos by default

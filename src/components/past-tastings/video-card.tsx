@@ -80,6 +80,35 @@ export function VideoCard({ video, currentUserId, onDeleted }: VideoCardProps) {
   const isProcessing = video.status === 'processing' || video.status === 'uploading'
   const isReady = video.status === 'ready' || (video.status !== 'error' && video.muxPlaybackId !== null)
   const hasPlaceholder = isPlaceholderId(video.muxPlaybackId)
+  
+  // Set appropriate message based on video status and upload time
+  const getStatusMessage = () => {
+    if (isProcessing) {
+      // Check if this is a recent upload (within last hour)
+      const uploadTime = new Date(video.createdAt).getTime()
+      const now = new Date().getTime()
+      const timeDiff = now - uploadTime
+      const isRecentUpload = timeDiff < 60 * 60 * 1000 // 1 hour
+      
+      if (isRecentUpload) {
+        // For very recent uploads, show a more detailed message
+        if (timeDiff < 5 * 60 * 1000) { // Less than 5 minutes
+          return "Just uploaded - processing will begin soon"
+        } else if (timeDiff < 15 * 60 * 1000) { // Less than 15 minutes
+          return "Processing video - please wait"
+        } else {
+          return "Processing - almost ready"
+        }
+      }
+      return "Processing"
+    }
+    
+    if (hasPlaceholder) return "Preview"
+    if (isReady && !hasPlaceholder) return "Ready"
+    return ""
+  }
+  
+  const statusMessage = getStatusMessage()
 
   // Handle video deletion (only for owner)
   async function handleDelete(e: React.MouseEvent) {
@@ -147,7 +176,7 @@ export function VideoCard({ video, currentUserId, onDeleted }: VideoCardProps) {
         {isProcessing && (
           <div className="ml-auto flex items-center gap-1 bg-blue-900/40 text-blue-200 px-2 py-0.5 rounded-full text-xs">
             <Clock size={14} className="animate-pulse" />
-            <span>Processing</span>
+            <span>{statusMessage}</span>
           </div>
         )}
         {hasPlaceholder && (
@@ -214,9 +243,10 @@ export function VideoCard({ video, currentUserId, onDeleted }: VideoCardProps) {
         {/* Processing overlay */}
         {isProcessing && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-            <div className="text-center">
+            <div className="text-center max-w-[90%]">
               <Clock className="w-12 h-12 text-blue-400 animate-pulse mx-auto mb-2" />
-              <p className="text-white text-sm font-medium">Processing video...</p>
+              <p className="text-white text-sm font-medium mb-1">{statusMessage}</p>
+              <p className="text-gray-300 text-xs">This may take a few minutes depending on the video size</p>
             </div>
           </div>
         )}

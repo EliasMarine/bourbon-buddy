@@ -2,7 +2,7 @@
 
 import { useState, useRef, ChangeEvent, FormEvent } from 'react'
 import { createVideoUpload, markUploadComplete } from '@/app/api/mux/upload/action'
-import { Video, Upload, AlertCircle } from 'lucide-react'
+import { Video, Upload, AlertCircle, Check } from 'lucide-react'
 
 interface MuxUploaderProps {
   onUploadComplete?: (uploadId: string) => void
@@ -27,6 +27,7 @@ export function MuxUploader({
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   
   const fileInputRef = useRef<HTMLInputElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
@@ -76,6 +77,13 @@ export function MuxUploader({
       return
     }
     
+    // Validate userId before proceeding
+    if (!userId) {
+      console.error('Missing user ID in MuxUploader. Upload will proceed but video won\'t be associated with a user.')
+    } else {
+      console.log('MuxUploader submitting with userId:', userId)
+    }
+    
     try {
       setIsUploading(true)
       setError('')
@@ -84,7 +92,18 @@ export function MuxUploader({
       const formData = new FormData()
       formData.append('title', title)
       formData.append('description', description)
-      if (userId) formData.append('userId', userId)
+      
+      // Ensure userId is included even if it's empty
+      formData.append('userId', userId || '')
+      
+      formData.append('maxDurationSeconds', '3600') // 1 hour max
+      
+      console.log('Creating video upload...', { 
+        title, 
+        userId,
+        hasUserId: Boolean(userId),
+        userIdType: typeof userId
+      })
       
       // Create the upload URL
       const response = await createVideoUpload(formData)
@@ -93,26 +112,42 @@ export function MuxUploader({
         throw new Error(response.error || 'Failed to create upload')
       }
       
+      console.log('Upload URL created:', response.data.uploadId)
+      
       // Upload the file directly to MUX
       await uploadFileToMux(file, response.data.uploadUrl)
+      console.log('File uploaded to Mux successfully')
       
       // Mark the upload as complete
-      await markUploadComplete(response.data.uploadId)
+      const completeResponse = await markUploadComplete(response.data.uploadId)
+      
+      if (!completeResponse.success) {
+        throw new Error(completeResponse.error || 'Failed to mark upload as complete')
+      }
+      
+      console.log('Upload marked as complete:', completeResponse)
+      
+      // Show success message
+      setUploadProgress(100)
+      setSuccessMessage(`Video upload successful! Your video is now processing. It will be available soon on the Past Tastings page.`)
       
       // Call the completion callback
       if (onUploadComplete) {
         onUploadComplete(response.data.uploadId)
       }
       
-      // Reset the form
-      setFile(null)
-      setTitle('')
-      setDescription('')
-      setUploadProgress(0)
-      if (formRef.current) formRef.current.reset()
+      // Reset the form after a delay to show the success message
+      setTimeout(() => {
+        setFile(null)
+        setTitle('')
+        setDescription('')
+        setUploadProgress(0)
+        if (formRef.current) formRef.current.reset()
+      }, 5000)
       
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred'
+      console.error('Upload error:', errorMessage, err)
       setError(errorMessage)
       if (onUploadError) onUploadError(errorMessage)
     } finally {
@@ -241,6 +276,13 @@ export function MuxUploader({
           <div className="flex items-center gap-2 text-red-400 text-sm p-2 bg-red-900/20 border border-red-900/30 rounded-md">
             <AlertCircle size={16} />
             <span>{error}</span>
+          </div>
+        )}
+        
+        {successMessage && !error && (
+          <div className="flex items-center gap-2 text-green-400 text-sm p-2 bg-green-900/20 border border-green-900/30 rounded-md mt-4">
+            <Check size={16} />
+            <span>{successMessage}</span>
           </div>
         )}
         
