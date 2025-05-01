@@ -1,3 +1,4 @@
+import { createAppRouterSupabaseClient } from '@/lib/supabase';
 import { createClient } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -63,7 +64,9 @@ interface SupabaseCookie {
  * Creates a Supabase client for SSR server component usage (App Router only)
  */
 export async function createSupabaseServerClient() {
-  const cookieStore = await cookies();
+  // Cookies are now handled internally by createAppRouterSupabaseClient
+// // Cookies are now handled internally by createAppRouterSupabaseClient
+// const cookieStore = cookies();;;
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -234,7 +237,9 @@ export const createServerSupabaseClient = cache(() => {
         },
         async setAll(cookiesToSet) {
           try {
-            const cookieStore = await cookies();
+            // Cookies are now handled internally by createAppRouterSupabaseClient
+// // Cookies are now handled internally by createAppRouterSupabaseClient
+// const cookieStore = cookies();;;
             cookiesToSet.forEach(({ name, value, options }) => {
               cookieStore.set(name, value, options);
             });

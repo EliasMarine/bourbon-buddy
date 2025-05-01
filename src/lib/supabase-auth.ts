@@ -1,3 +1,4 @@
+import { createAppRouterSupabaseClient } from '@/lib/supabase';
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
@@ -127,7 +128,9 @@ export async function getCurrentUser() {
   'use server';
   
   // Note: For server components, we work directly with cookies() API
-  const cookieStore = await cookies();
+  // Cookies are now handled internally by createAppRouterSupabaseClient
+// // Cookies are now handled internally by createAppRouterSupabaseClient
+// const cookieStore = cookies();;;
   
   // Create a client that can read the server cookies
   const supabase = createServerClient(

@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/supabase-auth';
 import { createClient } from '@supabase/supabase-js';
 import { createServerClient as createSsrServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { generateDebugId } from '@/lib/supabase';
+import {generateDebugId, createAppRouterSupabaseClient} from '@/lib/supabase';
 import { RequestCookie } from 'next/dist/compiled/@edge-runtime/cookies';
 
 // Only allow this endpoint in development by default, but can be enabled in production for debugging
@@ -15,7 +15,9 @@ const ALLOW_IN_PROD = process.env.DEBUG_AUTH === 'true';
  */
 async function getCookies(debugId: string) {
   try {
-    const cookieStore = await cookies();
+    // Cookies are now handled internally by createAppRouterSupabaseClient
+// // Cookies are now handled internally by createAppRouterSupabaseClient
+// const cookieStore = cookies();;;
     let allCookies: { name: string; value: string }[] = [];
     
     // Try alternative methods to get cookies since the API has changed in different Next.js versions

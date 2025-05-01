@@ -1,3 +1,4 @@
+import { createAppRouterSupabaseClient } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/supabase-auth';
 import { cookies } from 'next/headers';
@@ -26,7 +27,9 @@ export async function GET() {
     let cookieNames: string[] = [];
     
     try {
-      const cookieStore = await cookies();
+      // Cookies are now handled internally by createAppRouterSupabaseClient
+// // Cookies are now handled internally by createAppRouterSupabaseClient
+// const cookieStore = cookies();;;
       
       // Try alternative methods to get cookies since the API has changed in different Next.js versions
       // This handles both the older synchronous and newer Promise-based cookies API

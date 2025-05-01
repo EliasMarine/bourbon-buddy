@@ -90,3 +90,4 @@ files_do_not_upload/
 # Migration backups
 *.bak
 prisma-usages.txt
+*.bak
