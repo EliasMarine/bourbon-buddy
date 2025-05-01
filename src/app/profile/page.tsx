@@ -4,10 +4,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useSupabaseSession, useSession } from '@/hooks/use-supabase-session';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { Camera, MapPin, Briefcase, Calendar, Edit, Settings, Share2, Wine, Users } from 'lucide-react';
+import { Camera, MapPin, Briefcase, Calendar, Edit, Settings, Share2, Wine, Users, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { getProfileImageUrl, getCoverPhotoUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
 import SafeImage from '@/components/ui/SafeImage';
+
+// No need for additional icon imports, using Lucide icons
 
 // Extend the session user type to support coverPhoto
 type UserWithCoverPhoto = {
@@ -53,12 +55,56 @@ export default function ProfilePage() {
     if (!file) return;
 
     try {
+      // Simple validation before upload
+      if (file.size === 0) {
+        toast.error('File appears to be empty. Please select a valid image.');
+        return;
+      }
+
+      // Check file size (5MB max)
+      const MAX_SIZE = 5 * 1024 * 1024;
+      if (file.size > MAX_SIZE) {
+        toast.error(`File size exceeds 5MB limit. Please select a smaller image.`);
+        return;
+      }
+
+      // Check file type
+      const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+      if (!validTypes.includes(file.type)) {
+        toast.error(`Invalid file type. Please select a JPEG, PNG, WebP, or GIF image.`);
+        return;
+      }
+
       setIsUploading(true);
       setUploadType(type);
       
-      // First, upload the file to get a URL
+      // Create a proper FormData object
       const formData = new FormData();
-      formData.append('file', file);
+      try {
+        // Make a clean copy of the file to avoid any potential issues
+        const cleanFile = new File([file], file.name, { 
+          type: file.type,
+          lastModified: file.lastModified
+        });
+        
+        // Check that the file is valid
+        if (cleanFile.size === 0) {
+          throw new Error('File copy is empty');
+        }
+        
+        formData.append('file', cleanFile);
+        console.log('FormData created with file:', {
+          name: cleanFile.name,
+          type: cleanFile.type,
+          size: cleanFile.size
+        });
+      } catch (e) {
+        console.error('Error creating FormData with file:', e);
+        toast.error('Error preparing file for upload. Please try a different image.');
+        setIsUploading(false);
+        setUploadType(null);
+        return;
+      }
       
       // Get CSRF token from cookies or sessionStorage
       let csrfToken = '';
@@ -93,23 +139,56 @@ export default function ProfilePage() {
       }
       
       // Log debug info
-      console.log('Uploading file with CSRF token:', csrfToken ? 'Present' : 'Missing');
-      
-      const uploadResponse = await fetch('/api/upload', {
-        method: 'POST',
-        headers,
-        body: formData,
+      console.log('Uploading file:', {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        token: csrfToken ? 'Present' : 'Missing'
       });
+      
+      // Set up a timeout in case the upload hangs
+      const uploadTimeout = setTimeout(() => {
+        console.warn('Upload taking too long - might be stuck');
+      }, 10000); // 10 seconds
+      
+      let uploadResponse;
+      try {
+        console.log('Starting fetch to /api/upload...');
+        uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          headers,
+          body: formData,
+        });
+        clearTimeout(uploadTimeout);
+        console.log('Upload response status:', uploadResponse.status, uploadResponse.statusText);
+      } catch (fetchError) {
+        clearTimeout(uploadTimeout);
+        console.error('Fetch error during upload:', fetchError);
+        throw new Error(`Network error during upload: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`);
+      }
 
       if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json();
-        throw new Error(errorData.error || 'Failed to upload image');
+        let errorMessage = 'Failed to upload image';
+        let errorDetails = '';
+        try {
+          const errorData = await uploadResponse.json();
+          console.error('Upload response error:', errorData);
+          errorMessage = errorData.error || errorMessage;
+          if (errorData.details) {
+            errorDetails = errorData.details;
+          }
+        } catch (e) {
+          // If we can't parse the response, use status text
+          console.error('Failed to parse error response:', e);
+          errorMessage = `${errorMessage}: ${uploadResponse.status} ${uploadResponse.statusText}`;
+        }
+        throw new Error(`${errorMessage}${errorDetails ? ` (${errorDetails})` : ''}`);
       }
 
       const { url: imageUrl } = await uploadResponse.json();
 
       // Now update the user profile with the new image URL
-      const response = await fetch('/api/user/profile', {
+      const updateResponse = await fetch('/api/user/profile', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -120,12 +199,19 @@ export default function ProfilePage() {
         }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update profile');
+      if (!updateResponse.ok) {
+        let errorMessage = 'Failed to update profile';
+        try {
+          const errorData = await updateResponse.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          // If we can't parse the response, use status text
+          errorMessage = `${errorMessage}: ${updateResponse.status} ${updateResponse.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
 
-      const { user } = await response.json();
+      const { user } = await updateResponse.json();
       
       // Force a session update with the new user data but only update what changed
       // to prevent unnecessary rerenders
@@ -148,6 +234,17 @@ export default function ProfilePage() {
       // Update timestamp to bust the cache only for the specific image that changed
       setImageUpdateTimestamp(Date.now());
       
+      // Trigger manual metadata sync to ensure everything is in sync
+      try {
+        await fetch('/api/auth/sync-metadata', {
+          method: 'GET',
+          cache: 'no-store'
+        });
+      } catch (e) {
+        // Silent fail - this is a background sync
+        console.error('Background metadata sync failed:', e);
+      }
+      
       toast.success(`${type === 'profile' ? 'Profile' : 'Cover'} photo updated successfully`);
     } catch (error) {
       console.error('Error uploading image:', error);
@@ -159,10 +256,38 @@ export default function ProfilePage() {
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: 'profile' | 'cover') => {
-    const file = event.target.files?.[0];
-    if (file) {
-      handleImageUpload(file, type);
+    const files = event.target.files;
+    
+    if (!files || files.length === 0) {
+      toast.error("No file selected");
+      return;
     }
+    
+    const file = files[0];
+    console.log(`File selected for ${type}:`, {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      lastModified: new Date(file.lastModified).toISOString()
+    });
+    
+    // Create a temporary blob URL to verify the file can be accessed
+    try {
+      const url = URL.createObjectURL(file);
+      console.log(`Created blob URL for verification: ${url}`);
+      // Clean up the URL after 1 second
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      console.error('Failed to create blob URL:', e);
+      toast.error('Unable to access the selected file. Please try another image.');
+      return;
+    }
+    
+    // Reset the file input so we can select the same file again if needed
+    event.target.value = '';
+    
+    // Process the file
+    handleImageUpload(file, type);
   };
 
   const tabs = [
@@ -269,7 +394,29 @@ export default function ProfilePage() {
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <h1 className="text-3xl font-bold text-white mb-2">
-                  {session.user?.name}
+                  {session.user?.name || 'New User'}
+                  <button 
+                    className="ml-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white p-1 rounded inline-flex items-center"
+                    title="Force sync profile data"
+                    onClick={async () => {
+                      try {
+                        toast.loading('Syncing profile data...');
+                        await fetch('/api/auth/sync-metadata', { 
+                          method: 'GET',
+                          cache: 'no-store'
+                        });
+                        await updateSession({ user: { ...session.user } });
+                        toast.success('Profile data synced successfully');
+                        // Force refresh the page
+                        window.location.reload();
+                      } catch (error) {
+                        console.error('Error syncing profile data:', error);
+                        toast.error('Failed to sync profile data');
+                      }
+                    }}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
                 </h1>
                 <div className="flex items-center gap-4 text-gray-300">
                   <div className="flex items-center gap-1">
