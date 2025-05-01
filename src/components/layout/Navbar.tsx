@@ -308,7 +308,7 @@ export default function Navbar() {
           useTimestamp={false}
           fallback={
             <div className={`w-full h-full flex items-center justify-center ${DEFAULT_AVATAR_BG} text-white font-bold`}>
-              {getInitialLetter(session.user.name)}
+              {getInitialLetter(session.user.name, session.user.email)}
             </div>
           }
         />

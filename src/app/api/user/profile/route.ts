@@ -33,16 +33,18 @@ export async function GET(request: Request) {
           email: user.email,
           name: user.user_metadata?.full_name || user.user_metadata?.name || 'User',
           username: user.user_metadata?.username || user.user_metadata?.preferred_username || user.email?.split('@')[0],
-          image: user.user_metadata?.avatar_url || user.user_metadata?.picture
+          image: user.user_metadata?.avatar_url || user.user_metadata?.picture,
+          coverPhoto: user.user_metadata?.coverPhoto
         }
       });
     }
 
+    // Return the full user profile
     return NextResponse.json({
       user: userData
     });
-  } catch (err) {
-    console.error('Error in profile endpoint:', err);
+  } catch (error) {
+    console.error('Error in GET /api/user/profile:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -62,36 +64,30 @@ export async function POST(request: Request) {
       );
     }
 
-    // Get request body for profile updates
-    const body = await request.json();
-    const { name, username, image, coverPhoto } = body;
-
-    // Prepare update data with only the fields that are provided
+    // Get the request data
+    const requestData = await request.json();
+    
+    // Get the fields to update
+    const { image, coverPhoto, name, username } = requestData;
+    
+    // Build update object with only the provided fields
     const updateData: Record<string, any> = {};
-    if (name !== undefined) updateData.name = name;
-    if (username !== undefined) updateData.username = username;
     if (image !== undefined) updateData.image = image;
     if (coverPhoto !== undefined) updateData.coverPhoto = coverPhoto;
+    if (name !== undefined) updateData.name = name;
+    if (username !== undefined) updateData.username = username;
     
     // Add timestamp
     updateData.updatedAt = new Date().toISOString();
-
-    // Check if there's anything to update
-    if (Object.keys(updateData).length === 1 && updateData.updatedAt) {
-      return NextResponse.json(
-        { error: 'No fields to update' },
-        { status: 400 }
-      );
-    }
-
-    // Update the user profile in the database
-    const { data, error: updateError } = await supabase
+    
+    // Update the user in the database
+    const { data: updatedUser, error: updateError } = await supabase
       .from('User')
       .update(updateData)
       .eq('id', user.id)
       .select('id, name, email, username, image, coverPhoto')
       .single();
-
+    
     if (updateError) {
       console.error('Error updating user profile:', updateError);
       return NextResponse.json(
@@ -100,12 +96,32 @@ export async function POST(request: Request) {
       );
     }
 
+    // Also update user metadata in auth to keep it in sync
+    try {
+      // Only update certain fields in metadata to avoid overwriting other metadata
+      const metadataUpdate: Record<string, any> = {};
+      if (image !== undefined) metadataUpdate.avatar_url = image;
+      if (name !== undefined) metadataUpdate.name = name;
+      if (username !== undefined) metadataUpdate.username = username;
+      if (coverPhoto !== undefined) metadataUpdate.coverPhoto = coverPhoto;
+      
+      // Update metadata only if we have fields to update
+      if (Object.keys(metadataUpdate).length > 0) {
+        await supabase.auth.updateUser({
+          data: metadataUpdate
+        });
+      }
+    } catch (metadataError) {
+      console.error('Failed to update user metadata:', metadataError);
+      // Continue without failing the request
+    }
+
+    // Return the updated user
     return NextResponse.json({
-      user: data,
-      message: 'Profile updated successfully'
+      user: updatedUser
     });
-  } catch (err) {
-    console.error('Error in profile update endpoint:', err);
+  } catch (error) {
+    console.error('Error in POST /api/user/profile:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
