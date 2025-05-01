@@ -1,0 +1,109 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# This rule contains the FULL DATABASE SCHEMA of the BOURBON BUDDY database
+
+| table_schema | table_name         | column_name       | data_type                   | is_nullable | column_default    |
+| ------------ | ------------------ | ----------------- | --------------------------- | ----------- | ----------------- |
+| public       | Account            | id                | text                        | NO          | null              |
+| public       | Account            | userId            | uuid                        | NO          | null              |
+| public       | Account            | type              | text                        | NO          | null              |
+| public       | Account            | provider          | text                        | NO          | null              |
+| public       | Account            | providerAccountId | text                        | NO          | null              |
+| public       | Account            | refresh_token     | text                        | YES         | null              |
+| public       | Account            | access_token      | text                        | YES         | null              |
+| public       | Account            | expires_at        | integer                     | YES         | null              |
+| public       | Account            | token_type        | text                        | YES         | null              |
+| public       | Account            | scope             | text                        | YES         | null              |
+| public       | Account            | id_token          | text                        | YES         | null              |
+| public       | Account            | session_state     | text                        | YES         | null              |
+| public       | Comment            | id                | uuid                        | NO          | gen_random_uuid() |
+| public       | Comment            | content           | text                        | NO          | null              |
+| public       | Comment            | createdAt         | timestamp without time zone | NO          | CURRENT_TIMESTAMP |
+| public       | Comment            | updatedAt         | timestamp without time zone | NO          | CURRENT_TIMESTAMP |
+| public       | Comment            | reviewId          | text                        | YES         | null              |
+| public       | Comment            | userId            | uuid                        | NO          | null              |
+| public       | Comment            | videoId           | text                        | YES         | null              |
+| public       | Follows            | followerId        | uuid                        | NO          | null              |
+| public       | Follows            | followingId       | uuid                        | NO          | null              |
+| public       | Follows            | createdAt         | timestamp without time zone | NO          | CURRENT_TIMESTAMP |
+| public       | Review             | id                | text                        | NO          | null              |
+| public       | Review             | content           | text                        | NO          | null              |
+| public       | Review             | rating            | integer                     | NO          | 0                 |
+| public       | Review             | createdAt         | timestamp without time zone | NO          | CURRENT_TIMESTAMP |
+| public       | Review             | updatedAt         | timestamp without time zone | NO          | null              |
+| public       | Review             | userId            | uuid                        | NO          | null              |
+| public       | Review             | spiritId          | text                        | NO          | null              |
+| public       | Session            | id                | text                        | NO          | null              |
+| public       | Session            | sessionToken      | text                        | NO          | null              |
+| public       | Session            | userId            | uuid                        | NO          | null              |
+| public       | Session            | expires           | timestamp without time zone | NO          | null              |
+| public       | Spirit             | id                | text                        | NO          | null              |
+| public       | Spirit             | name              | text                        | NO          | null              |
+| public       | Spirit             | brand             | text                        | NO          | null              |
+| public       | Spirit             | type              | text                        | NO          | null              |
+| public       | Spirit             | category          | text                        | NO          | 'whiskey'::text   |
+| public       | Spirit             | description       | text                        | YES         | null              |
+| public       | Spirit             | imageUrl          | text                        | YES         | null              |
+| public       | Spirit             | proof             | double precision            | YES         | null              |
+| public       | Spirit             | price             | double precision            | YES         | null              |
+| public       | Spirit             | rating            | integer                     | YES         | null              |
+| public       | Spirit             | nose              | text                        | YES         | null              |
+| public       | Spirit             | palate            | text                        | YES         | null              |
+| public       | Spirit             | finish            | text                        | YES         | null              |
+| public       | Spirit             | notes             | text                        | YES         | null              |
+| public       | Spirit             | dateAcquired      | timestamp without time zone | YES         | null              |
+| public       | Spirit             | bottleSize        | text                        | YES         | null              |
+| public       | Spirit             | distillery        | text                        | YES         | null              |
+| public       | Spirit             | bottleLevel       | integer                     | YES         | 100               |
+| public       | Spirit             | isFavorite        | boolean                     | NO          | false             |
+| public       | Spirit             | createdAt         | timestamp without time zone | NO          | CURRENT_TIMESTAMP |
+| public       | Spirit             | updatedAt         | timestamp without time zone | NO          | null              |
+| public       | Spirit             | deletedAt         | timestamp without time zone | YES         | null              |
+| public       | Spirit             | ownerId           | uuid                        | NO          | null              |
+| public       | Stream             | id                | text                        | NO          | null              |
+| public       | Stream             | title             | text                        | NO          | null              |
+| public       | Stream             | description       | text                        | YES         | null              |
+| public       | Stream             | isLive            | boolean                     | NO          | false             |
+| public       | Stream             | startedAt         | timestamp without time zone | YES         | null              |
+| public       | Stream             | endedAt           | timestamp without time zone | YES         | null              |
+| public       | Stream             | privacy           | text                        | NO          | 'public'::text    |
+| public       | Stream             | createdAt         | timestamp without time zone | NO          | CURRENT_TIMESTAMP |
+| public       | Stream             | updatedAt         | timestamp without time zone | NO          | null              |
+| public       | Stream             | hostId            | uuid                        | NO          | null              |
+| public       | Stream             | spiritId          | text                        | YES         | null              |
+| public       | StreamLike         | id                | text                        | NO          | null              |
+| public       | StreamLike         | streamId          | text                        | NO          | null              |
+| public       | StreamLike         | userId            | uuid                        | NO          | null              |
+| public       | StreamLike         | createdAt         | timestamp without time zone | NO          | CURRENT_TIMESTAMP |
+| public       | StreamReport       | id                | text                        | NO          | null              |
+| public       | StreamReport       | streamId          | text                        | NO          | null              |
+| public       | StreamReport       | userId            | uuid                        | NO          | null              |
+| public       | StreamReport       | reason            | text                        | YES         | null              |
+| public       | StreamReport       | status            | text                        | NO          | 'pending'::text   |
+| public       | StreamReport       | createdAt         | timestamp without time zone | NO          | CURRENT_TIMESTAMP |
+| public       | StreamReport       | updatedAt         | timestamp without time zone | NO          | null              |
+| public       | StreamSubscription | id                | text                        | NO          | null              |
+| public       | StreamSubscription | hostId            | uuid                        | NO          | null              |
+| public       | StreamSubscription | userId            | uuid                        | NO          | null              |
+| public       | StreamSubscription | createdAt         | timestamp without time zone | NO          | CURRENT_TIMESTAMP |
+| public       | StreamTip          | id                | text                        | NO          | null              |
+| public       | StreamTip          | amount            | double precision            | NO          | null              |
+| public       | StreamTip          | message           | text                        | YES         | null              |
+| public       | StreamTip          | streamId          | text                        | NO          | null              |
+| public       | StreamTip          | senderId          | uuid                        | NO          | null              |
+| public       | StreamTip          | hostId            | uuid                        | NO          | null              |
+| public       | StreamTip          | createdAt         | timestamp without time zone | NO          | CURRENT_TIMESTAMP |
+| public       | StreamView         | id                | text                        | NO          | null              |
+| public       | StreamView         | joinedAt          | timestamp without time zone | NO          | CURRENT_TIMESTAMP |
+| public       | StreamView         | leftAt            | timestamp without time zone | YES         | null              |
+| public       | StreamView         | streamId          | text                        | NO          | null              |
+| public       | StreamView         | userId            | uuid                        | NO          | null              |
+| public       | User               | id                | uuid                        | NO          | gen_random_uuid() |
+| public       | User               | name              | text                        | YES         | null              |
+| public       | User               | email             | text                        | NO          | null              |
+| public       | User               | username          | text                        | YES         | null              |
+| public       | User               | password          | text                        | YES         | null              |
+| public       | User               | image             | text                        | YES         | null              |

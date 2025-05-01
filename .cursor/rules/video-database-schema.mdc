@@ -1,0 +1,24 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# This shows the "Video" table schema for database related debugging.
+
+| table_name | column_name    | data_type                   | is_nullable | column_default    |
+| ---------- | -------------- | --------------------------- | ----------- | ----------------- |
+| Video      | id             | text                        | NO          | null              |
+| Video      | title          | text                        | NO          | null              |
+| Video      | description    | text                        | YES         | null              |
+| Video      | status         | text                        | NO          | 'uploading'::text |
+| Video      | muxUploadId    | text                        | YES         | null              |
+| Video      | muxAssetId     | text                        | YES         | null              |
+| Video      | muxPlaybackId  | text                        | YES         | null              |
+| Video      | duration       | double precision            | YES         | null              |
+| Video      | aspectRatio    | text                        | YES         | null              |
+| Video      | thumbnailTime  | double precision            | YES         | 0                 |
+| Video      | userId         | uuid                        | YES         | null              |
+| Video      | createdAt      | timestamp without time zone | NO          | CURRENT_TIMESTAMP |
+| Video      | updatedAt      | timestamp without time zone | NO          | null              |
+| Video      | publiclyListed | boolean                     | NO          | true              |
+| Video      | views          | integer                     | NO          | 0                 |
