@@ -20,7 +20,6 @@ export async function GET(request: Request) {
       );
     }
 
-    // Query the user from the database
     const { data, error: checkError } = await supabase
       .from('User')
       .select('id, name, email, username, image')
@@ -64,7 +63,7 @@ export async function POST(request: Request) {
                  user.email?.split('@')[0] || 
                  'New User';
     
-    const email = user.email || '';
+    const email = user.email;
     const username = user.user_metadata?.username || 
                      user.user_metadata?.preferred_username || 
                      email?.split('@')[0] || 
@@ -77,28 +76,9 @@ export async function POST(request: Request) {
     // Check if user exists in the database
     const { data: existingUser, error: checkError } = await supabase
       .from('User')
-      .select('id, name, email, username, image')
+      .select('id')
       .eq('id', user.id)
       .single();
-
-    // Merge existing data with new data to prevent overriding existing fields
-    let userData = {
-      id: user.id,
-      name,
-      email,
-      username,
-      image,
-    };
-
-    if (existingUser) {
-      userData = {
-        ...userData,
-        // Preserve existing values if they exist and new values are empty/null
-        name: existingUser.name || name, // Keep existing name if it exists
-        username: existingUser.username || username,
-        image: existingUser.image || image,
-      };
-    }
 
     // Update or insert user information
     let result;
@@ -106,13 +86,24 @@ export async function POST(request: Request) {
       // Update existing user
       result = await supabase
         .from('User')
-        .update(userData)
+        .update({
+          name,
+          email,
+          username,
+          image,
+        })
         .eq('id', user.id);
     } else {
       // Insert new user
       result = await supabase
         .from('User')
-        .insert(userData);
+        .insert({
+          id: user.id,
+          name,
+          email,
+          username,
+          image,
+        });
     }
 
     if (result.error) {
@@ -123,28 +114,15 @@ export async function POST(request: Request) {
       );
     }
 
-    // Fetch the updated user record to send back in the response
-    const { data: updatedUser, error: fetchError } = await supabase
-      .from('User')
-      .select('id, name, email, username, image')
-      .eq('id', user.id)
-      .single();
-
-    if (fetchError) {
-      console.error('Error fetching updated user:', fetchError);
-    }
-
     // Use admin client to update user metadata to mark as registered
-    // and keep auth metadata in sync with database
     try {
       await adminClient.auth.admin.updateUserById(user.id, {
         user_metadata: {
           ...user.user_metadata,
           is_registered: true,
           last_synced_at: new Date().toISOString(),
-          name: updatedUser?.name || userData.name, // Use the final name
-          username: updatedUser?.username || userData.username,
-          avatar_url: updatedUser?.image || userData.image
+          name: name,
+          username: username
         }
       });
     } catch (adminError) {
@@ -154,8 +132,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: 'User synced successfully',
-      user: updatedUser || userData
+      message: 'User synced successfully'
     });
   } catch (err) {
     console.error('Error in sync user:', err);

@@ -190,64 +190,58 @@ const validatedTokensCache = new Map<string, boolean>();
 
 // Middleware helper to validate CSRF tokens
 export function validateCsrfToken(req: Request, csrfToken?: string) {
-  // Skip validation in development if enabled - this should be reliable
-  const isDevelopment = process.env.NODE_ENV !== 'production';
-  const hasBypassFlag = process.env.BYPASS_CSRF === 'true';
-  
-  if (isDevelopment || hasBypassFlag) {
-    console.log('CSRF validation bypassed:', {
-      environment: process.env.NODE_ENV,
-      bypassFlag: hasBypassFlag
-    });
-    return true;
+  // Skip validation in development if enabled
+  if (process.env.NODE_ENV !== 'production' && process.env.BYPASS_CSRF === 'true') {
+    console.log('CSRF validation bypassed in development mode')
+    return true
   }
 
-  const url = new URL(req.url);
-  const isProduction = process.env.NODE_ENV === 'production';
-  const debug = process.env.DEBUG_CSRF === 'true' || isProduction;
+  const url = new URL(req.url)
+  const isProduction = process.env.NODE_ENV === 'production'
+  const debug = process.env.DEBUG_CSRF === 'true' || isProduction
   
   // Always log detailed information for CSRF errors in production
-  const enhancedDebug = true;
+  const enhancedDebug = true
   
   // For GET requests, CSRF validation isn't strictly necessary
   if (req.method === 'GET') {
-    console.log('Skipping CSRF validation for GET request');
-    return true;
+    console.log('Skipping CSRF validation for GET request')
+    return true
   }
 
   // Extract CSRF token from header if not provided
   if (!csrfToken) {
     // Try each header variant
-    const xCsrfToken = req.headers.get('x-csrf-token');
-    const csrfTokenHeader = req.headers.get('csrf-token');
-    const xCsrfTokenUpper = req.headers.get('X-CSRF-Token');
+    const xCsrfToken = req.headers.get('x-csrf-token')
+    const csrfTokenHeader = req.headers.get('csrf-token')
+    const xCsrfTokenUpper = req.headers.get('X-CSRF-Token')
     
-    csrfToken = xCsrfToken || csrfTokenHeader || xCsrfTokenUpper || undefined;
+    csrfToken = xCsrfToken || csrfTokenHeader || xCsrfTokenUpper || undefined
     
     if (!csrfToken) {
       console.warn('CSRF token missing from request headers', {
         headers: Array.from(req.headers.keys()),
         url: url.pathname,
-      });
-      return false;
+      })
+      return false
     }
   }
   
   // Check cache first to avoid reprocessing the same token
-  const cacheKey = `${csrfToken}`;
+  const cacheKey = `${csrfToken}`
   if (validatedTokensCache.has(cacheKey)) {
-    return validatedTokensCache.get(cacheKey) as boolean;
+    return validatedTokensCache.get(cacheKey) as boolean
   }
   
   // Get cookies from request
-  const cookieHeader = req.headers.get('cookie');
+  const cookieHeader = req.headers.get('cookie')
   if (!cookieHeader) {
     console.warn('No cookies found in request', {
       url: url.pathname,
       method: req.method,
       headers: Array.from(req.headers.keys()),
-    });
-    return false;
+    })
+    return false
   }
   
   // Extract CSRF secret from cookies

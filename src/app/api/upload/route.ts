@@ -23,95 +23,84 @@ const createSupabaseAdmin = () => {
   return createClient(supabaseUrl, supabaseKey);
 };
 
-// Cache the client to avoid creating new connections on each request
-let supabaseAdminClient: SupabaseClient | null = null;
+// Initialize on demand
+let supabaseClient: SupabaseClient | null = null;
 
-// Get or create the Supabase admin client
 const getSupabase = (): SupabaseClient => {
-  if (!supabaseAdminClient) {
-    supabaseAdminClient = createSupabaseAdmin();
+  if (!supabaseClient) {
+    supabaseClient = createSupabaseAdmin();
   }
-  return supabaseAdminClient;
-};
+  return supabaseClient;
+}
 
 // Define constants
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
-const BUCKET_NAME = 'bourbon-buddy-prod';
+const BUCKET_NAME = 'bourbon-buddy-uploads';
 
 // Simple content type verification - verifies file content against declared MIME type
 function verifyFileType(file: File): Promise<boolean> {
   return new Promise((resolve) => {
-    // Handle empty files
-    if (file.size === 0) {
-      console.error("File is empty, can't verify type");
-      resolve(false);
-      return;
-    }
-    
-    // If the file is too small, we can't reliably detect its type
-    if (file.size < 4) {
-      console.error("File is too small for type verification");
-      resolve(false);
-      return;
-    }
-    
-    try {
-      // For now, trust the declared MIME type for most files
-      // In a production environment, you might want more robust verification
-      resolve(true);
-    } catch (e) {
-      console.error('Error verifying file type:', e);
-      resolve(false);
-    }
+    const reader = new FileReader();
+    reader.onloadend = (e) => {
+      const arr = new Uint8Array(e.target?.result as ArrayBuffer).subarray(0, 4);
+      const header = Array.from(arr).map(b => b.toString(16)).join('');
+      
+      // Check file signatures
+      let isValid = false;
+      
+      if (file.type === 'image/jpeg' && (header.startsWith('ffd8') || header.startsWith('ffd9'))) {
+        isValid = true;
+      } else if (file.type === 'image/png' && header === '89504e47') {
+        isValid = true;
+      } else if (file.type === 'image/gif' && (header === '47494638' || header.startsWith('4749'))) {
+        isValid = true;
+      } else if (file.type === 'image/webp' && header.includes('5745')) {
+        isValid = true;
+      }
+      
+      resolve(isValid);
+    };
+    reader.readAsArrayBuffer(file.slice(0, 4));
   });
 }
 
-// Simple virus scan mock - in a real application, this would use a proper virus scanning service
+// Dummy virus scanner function (in production, connect to a real service)
 async function scanForViruses(file: File): Promise<boolean> {
-  // Basic size check - in a real app, you'd use a proper virus scanning service
-  return file.size > 0 && file.size <= MAX_FILE_SIZE;
+  // In production, use a real virus scanning service
+  // This is a placeholder that just checks if file size is reasonable
+  // and has a proper extension, etc.
+  
+  // Calculate file hash - useful for comparing against known malware hashes
+  // or for deduplication in a real implementation
+  const buffer = await file.arrayBuffer();
+  const hash = createHash('sha256').update(Buffer.from(buffer)).digest('hex');
+  
+  console.log(`File scan completed: ${file.name}, size: ${file.size}, hash: ${hash}`);
+  
+  // For this demo, we're just assuming all valid files are clean
+  return true;
 }
 
-// Generate a hash for a file for deduplication
-async function generateFileHash(file: File): Promise<string> {
-  try {
-    // Get first 1MB of file for quick hashing
-    const sampleSize = Math.min(1024 * 1024, file.size);
-    const fileSample = file.slice(0, sampleSize);
-    const buffer = await fileSample.arrayBuffer();
-    const hash = createHash('sha256').update(Buffer.from(buffer)).digest('hex');
-    return hash;
-  } catch (e) {
-    console.error('Error generating file hash:', e);
-    return `error-${Date.now()}-${Math.random()}`;
-  }
-}
-
-// Check if Supabase storage is available
-async function testSupabaseConnection(): Promise<boolean> {
+// Test Supabase connectivity
+async function testSupabaseConnection() {
   try {
     const supabase = getSupabase();
-    // Try a simple operation
-    const { data, error } = await supabase.storage.listBuckets();
     
-    if (error) {
-      console.error('Supabase connection test failed:', error);
+    // Test storage by listing buckets
+    const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
+    
+    if (bucketsError) {
+      console.error('Supabase storage connection error:', bucketsError);
       return false;
     }
     
     return true;
-  } catch (e) {
-    console.error('Supabase connection test error:', e);
+  } catch (err) {
+    console.error('Supabase connection test exception:', err);
     return false;
   }
-}
-
-export async function GET(request: NextRequest) {
-  return NextResponse.json({
-    message: 'File upload API is running'
-  });
 }
 
 export async function POST(request: NextRequest) {
@@ -147,18 +136,9 @@ export async function POST(request: NextRequest) {
     
     // Get CSRF token from request headers
     const csrfToken = request.headers.get('x-csrf-token');
-    console.log('CSRF token received:', csrfToken ? 'Present' : 'Missing');
     
-    // ALWAYS bypass CSRF in development mode (for real this time)
-    const isDevelopment = process.env.NODE_ENV !== 'production';
-    const hasBypassFlag = process.env.BYPASS_CSRF === 'true';
-    const bypassCsrf = isDevelopment || hasBypassFlag;
-    
-    console.log('CSRF validation status:', {
-      isDevelopment,
-      hasBypassFlag,
-      bypassCsrf
-    });
+    // ALWAYS bypass CSRF in development mode
+    const bypassCsrf = process.env.NODE_ENV !== 'production' || process.env.BYPASS_CSRF === 'true';
     
     // Only validate CSRF in production
     if (!bypassCsrf) {
@@ -180,58 +160,35 @@ export async function POST(request: NextRequest) {
         );
       }
     } else {
-      console.log('CSRF validation bypassed - environment:', process.env.NODE_ENV);
+      console.log('CSRF validation bypassed in development mode');
     }
     
     // Check authentication
     const user = await getCurrentUser();
     if (!user) {
-      console.error('Authentication required for upload API');
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }
       );
     }
 
-    console.log('User authenticated:', user.id);
-
     // Get the user ID for folder structure
     const userId = user.id;
     
     // Parse the form data
     const formData = await request.formData();
-    console.log('FormData entries:', Array.from(formData.entries()).map(([key]) => key));
-    
     const file = formData.get('file') as File;
     
     // Validate the file exists
     if (!file) {
-      console.error('No file provided in upload request');
       return NextResponse.json(
         { error: 'No file provided' },
         { status: 400 }
       );
     }
     
-    console.log('File info:', {
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      lastModified: file.lastModified
-    });
-    
-    // Check if file is empty
-    if (file.size === 0) {
-      console.error('File is empty (0 bytes)');
-      return NextResponse.json(
-        { error: 'File is empty or corrupted' },
-        { status: 400 }
-      );
-    }
-    
     // Check file size
     if (file.size > MAX_FILE_SIZE) {
-      console.error(`File size (${file.size}) exceeds limit (${MAX_FILE_SIZE})`);
       return NextResponse.json(
         { error: `File size exceeds ${MAX_FILE_SIZE / (1024 * 1024)}MB limit` },
         { status: 400 }
@@ -241,7 +198,6 @@ export async function POST(request: NextRequest) {
     // Extract file extension and check against allowed extensions
     const fileExtension = path.extname(file.name).toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(fileExtension)) {
-      console.error(`Invalid file extension: ${fileExtension}`);
       return NextResponse.json(
         { error: `Invalid file extension. Allowed extensions: ${ALLOWED_EXTENSIONS.join(', ')}` },
         { status: 400 }
@@ -250,7 +206,6 @@ export async function POST(request: NextRequest) {
     
     // Check MIME type
     if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-      console.error(`Invalid MIME type: ${file.type}`);
       return NextResponse.json(
         { error: `Invalid file type. Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}` },
         { status: 400 }
@@ -260,7 +215,6 @@ export async function POST(request: NextRequest) {
     // Verify that file content matches its declared type
     const isValidType = await verifyFileType(file);
     if (!isValidType) {
-      console.error('File content validation failed');
       return NextResponse.json(
         { error: 'File content does not match declared type' },
         { status: 400 }
@@ -270,7 +224,6 @@ export async function POST(request: NextRequest) {
     // Scan file for viruses/malware
     const isClean = await scanForViruses(file);
     if (!isClean) {
-      console.error('File failed security scan');
       return NextResponse.json(
         { error: 'File failed security scan' },
         { status: 400 }
@@ -284,36 +237,23 @@ export async function POST(request: NextRequest) {
     if (bucketsError) {
       console.error('Error listing buckets:', bucketsError);
       return NextResponse.json(
-        { error: 'Failed to access storage. Please try again later.' },
+        { error: 'Failed to access storage: ' + bucketsError.message },
         { status: 500 }
       );
     }
     
-    // Check if our bucket exists
     const bucketExists = buckets?.some(bucket => bucket.name === BUCKET_NAME);
     
     if (!bucketExists) {
-      console.log(`Bucket ${BUCKET_NAME} does not exist, creating...`);
+      console.log(`Bucket ${BUCKET_NAME} does not exist. Creating it...`);
+      const { error: createBucketError } = await supabase.storage.createBucket(BUCKET_NAME, {
+        public: true,
+      });
       
-      try {
-        const { data: newBucket, error: createError } = await supabase.storage.createBucket(BUCKET_NAME, {
-          public: true, // Make files publicly accessible
-          fileSizeLimit: MAX_FILE_SIZE
-        });
-        
-        if (createError) {
-          console.error('Error creating bucket:', createError);
-          return NextResponse.json(
-            { error: 'Failed to create storage bucket' },
-            { status: 500 }
-          );
-        }
-        
-        console.log('Bucket created successfully:', newBucket);
-      } catch (e) {
-        console.error('Unexpected error creating bucket:', e);
+      if (createBucketError) {
+        console.error('Error creating bucket:', createBucketError);
         return NextResponse.json(
-          { error: 'Failed to create storage bucket due to an unexpected error' },
+          { error: `Failed to create storage bucket: ${createBucketError.message}` },
           { status: 500 }
         );
       }
@@ -326,12 +266,6 @@ export async function POST(request: NextRequest) {
     
     // The path in the bucket where the file will be stored - user-specific paths for isolation
     const filePath = `user-uploads/${userId}/${fileName}`;
-    
-    console.log('Uploading file to:', {
-      bucket: BUCKET_NAME,
-      path: filePath,
-      contentType: file.type
-    });
     
     // Upload to Supabase Storage
     const { data, error } = await supabase.storage
@@ -355,16 +289,11 @@ export async function POST(request: NextRequest) {
       .getPublicUrl(filePath);
       
     if (!urlData?.publicUrl) {
-      console.error('Failed to get public URL');
       return NextResponse.json(
         { error: 'Failed to get public URL for uploaded file' },
         { status: 500 }
       );
     }
-    
-    console.log('Upload successful:', {
-      publicUrl: urlData.publicUrl
-    });
     
     // Return the URL and path information
     return NextResponse.json({
