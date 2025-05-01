@@ -100,6 +100,25 @@ export async function POST(request: Request) {
       );
     }
 
+    // IMPORTANT: Also update Supabase Auth user metadata to keep both in sync
+    // This ensures the user name appears correctly in the UI from the session
+    const metadataToUpdate: Record<string, any> = {};
+    if (name !== undefined) metadataToUpdate.name = name;
+    if (username !== undefined) metadataToUpdate.username = username;
+    if (image !== undefined) metadataToUpdate.avatar_url = image;
+    
+    // Only update metadata if we have fields to update
+    if (Object.keys(metadataToUpdate).length > 0) {
+      const { error: metadataError } = await supabase.auth.updateUser({
+        data: metadataToUpdate
+      });
+      
+      if (metadataError) {
+        console.error('Error updating user metadata:', metadataError);
+        // Continue despite error - the database update was successful
+      }
+    }
+
     return NextResponse.json({
       user: data,
       message: 'Profile updated successfully'

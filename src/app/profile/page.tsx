@@ -4,10 +4,20 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useSupabaseSession, useSession } from '@/hooks/use-supabase-session';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { Camera, MapPin, Briefcase, Calendar, Edit, Settings, Share2, Wine, Users } from 'lucide-react';
+import { Camera, MapPin, Briefcase, Calendar, Edit, Settings, Share2, Wine, Users, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { getProfileImageUrl, getCoverPhotoUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
 import SafeImage from '@/components/ui/SafeImage';
+import { ensureStorageBucketExists } from '@/lib/supabase';
+import { testFileValidation } from '@/lib/file-validation';
+
+// Add global window type declaration
+declare global {
+  interface Window {
+    _csrfToken?: string;
+    testFileValidation?: typeof testFileValidation;
+  }
+}
 
 // Extend the session user type to support coverPhoto
 type UserWithCoverPhoto = {
@@ -17,6 +27,11 @@ type UserWithCoverPhoto = {
   image?: string | null;
   coverPhoto?: string | null;
 };
+
+// Add testFileValidation to the window object for easy testing in console
+if (typeof window !== 'undefined') {
+  (window as any).testFileValidation = testFileValidation;
+}
 
 export default function ProfilePage() {
   const { data: session, status, update: updateSession } = useSession();
@@ -56,6 +71,10 @@ export default function ProfilePage() {
       setIsUploading(true);
       setUploadType(type);
       
+      // Ensure the storage bucket exists
+      console.log('Ensuring storage bucket exists before upload');
+      await ensureStorageBucketExists('bourbon-buddy-prod');
+      
       // First, upload the file to get a URL
       const formData = new FormData();
       formData.append('file', file);
@@ -94,6 +113,9 @@ export default function ProfilePage() {
       
       // Log debug info
       console.log('Uploading file with CSRF token:', csrfToken ? 'Present' : 'Missing');
+      console.log('Upload type:', type);
+      console.log('File size:', Math.round(file.size / 1024), 'KB');
+      console.log('File type:', file.type);
       
       const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
@@ -102,22 +124,54 @@ export default function ProfilePage() {
       });
 
       if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json();
-        throw new Error(errorData.error || 'Failed to upload image');
+        const errorText = await uploadResponse.text();
+        console.error('Upload failed with status:', uploadResponse.status);
+        console.error('Error response:', errorText);
+        
+        let errorMessage = 'Failed to upload image';
+        let detailedError = '';
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorMessage;
+          
+          // Get detailed error info if available
+          if (errorData.details) {
+            detailedError = `Technical details: ${JSON.stringify(errorData.details)}`;
+            console.error('Detailed error information:', errorData.details);
+          }
+        } catch (e) {
+          // Fallback to text if not valid JSON
+          console.error('Error parsing error response:', e);
+        }
+        
+        // Show friendly message to the user
+        const userMessage = type === 'profile' 
+          ? 'Profile picture upload failed. Please try using a different PNG image file.' 
+          : 'Cover photo upload failed. Please try using a different image file.';
+        
+        throw new Error(`${userMessage} (${errorMessage})`);
       }
 
-      const { url: imageUrl } = await uploadResponse.json();
+      const uploadData = await uploadResponse.json();
+      const imageUrl = uploadData.url;
+      
+      console.log('File uploaded successfully, URL:', imageUrl);
 
       // Now update the user profile with the new image URL
+      const updateData = {
+        ...(type === 'profile' ? { image: imageUrl } : { coverPhoto: imageUrl })
+      };
+      
+      console.log('Updating user profile with:', updateData);
+      
       const response = await fetch('/api/user/profile', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
         },
-        body: JSON.stringify({
-          ...(type === 'profile' ? { image: imageUrl } : { coverPhoto: imageUrl })
-        }),
+        body: JSON.stringify(updateData),
       });
 
       if (!response.ok) {
@@ -126,10 +180,11 @@ export default function ProfilePage() {
       }
 
       const { user } = await response.json();
+      console.log('Profile updated successfully:', user);
       
       // Force a session update with the new user data but only update what changed
       // to prevent unnecessary rerenders
-      const updateData = {
+      const updateSessionData = {
         user: {
           ...session.user,
         }
@@ -137,13 +192,14 @@ export default function ProfilePage() {
 
       // Add the updated field based on type
       if (type === 'profile') {
-        updateData.user.image = imageUrl;
+        updateSessionData.user.image = imageUrl;
       } else {
         // Handle coverPhoto by using type assertion
-        (updateData.user as any).coverPhoto = imageUrl;
+        (updateSessionData.user as any).coverPhoto = imageUrl;
       }
       
-      await updateSession(updateData);
+      console.log('Updating session with:', updateSessionData);
+      await updateSession(updateSessionData);
       
       // Update timestamp to bust the cache only for the specific image that changed
       setImageUpdateTimestamp(Date.now());
@@ -160,9 +216,117 @@ export default function ProfilePage() {
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: 'profile' | 'cover') => {
     const file = event.target.files?.[0];
-    if (file) {
-      handleImageUpload(file, type);
+    if (!file) return;
+    
+    console.log(`File selected for ${type}:`, {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      lastModified: new Date(file.lastModified).toISOString()
+    });
+    
+    // Process file based on its extension and MIME type
+    let processedFile = file;
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
+    
+    // Ensure the correct MIME type for common image formats
+    if (fileExt === 'png' && file.type !== 'image/png') {
+      console.log(`Fixing MIME type for PNG file: ${file.name} - current type: ${file.type}`);
+      processedFile = new File([file], file.name, { type: 'image/png' });
+      console.log('Created new File object with corrected MIME type: image/png');
+    } else if ((fileExt === 'jpg' || fileExt === 'jpeg') && file.type !== 'image/jpeg') {
+      console.log(`Fixing MIME type for JPEG file: ${file.name} - current type: ${file.type}`);
+      processedFile = new File([file], file.name, { type: 'image/jpeg' });
+      console.log('Created new File object with corrected MIME type: image/jpeg');
+    } else if (fileExt === 'gif' && file.type !== 'image/gif') {
+      console.log(`Fixing MIME type for GIF file: ${file.name} - current type: ${file.type}`);
+      processedFile = new File([file], file.name, { type: 'image/gif' });
+      console.log('Created new File object with corrected MIME type: image/gif');
+    } else if (fileExt === 'webp' && file.type !== 'image/webp') {
+      console.log(`Fixing MIME type for WebP file: ${file.name} - current type: ${file.type}`);
+      processedFile = new File([file], file.name, { type: 'image/webp' });
+      console.log('Created new File object with corrected MIME type: image/webp');
     }
+    
+    // Read the file header to verify the format (for debug purposes)
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (e.target?.result) {
+        const arr = new Uint8Array(e.target.result as ArrayBuffer);
+        const header = Array.from(arr.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join('');
+        console.log(`File header: ${header}`);
+        
+        // Validate common image signatures
+        let format = '';
+        // Check PNG signature: 89 50 4E 47 0D 0A 1A 0A
+        if (arr.length >= 8 &&
+            arr[0] === 0x89 &&
+            arr[1] === 0x50 &&
+            arr[2] === 0x4E &&
+            arr[3] === 0x47 &&
+            arr[4] === 0x0D &&
+            arr[5] === 0x0A &&
+            arr[6] === 0x1A &&
+            arr[7] === 0x0A) {
+          format = 'PNG';
+        }
+        // Check JPEG signature: FF D8 FF
+        else if (arr.length >= 3 &&
+                arr[0] === 0xFF &&
+                arr[1] === 0xD8 &&
+                arr[2] === 0xFF) {
+          format = 'JPEG';
+        }
+        // Check GIF signatures: GIF87a or GIF89a
+        else if (arr.length >= 6 &&
+                arr[0] === 0x47 && // G
+                arr[1] === 0x49 && // I
+                arr[2] === 0x46 && // F
+                arr[3] === 0x38 && // 8
+                (arr[4] === 0x37 || arr[4] === 0x39) && // 7 or 9
+                arr[5] === 0x61) { // a
+          format = 'GIF';
+        }
+        // Check WebP signature (RIFF....WEBP)
+        else if (arr.length >= 12 &&
+                arr[0] === 0x52 && // R
+                arr[1] === 0x49 && // I
+                arr[2] === 0x46 && // F
+                arr[3] === 0x46 && // F
+                arr[8] === 0x57 && // W
+                arr[9] === 0x45 && // E
+                arr[10] === 0x42 && // B
+                arr[11] === 0x50) { // P
+          format = 'WebP';
+        }
+        
+        console.log(`Detected file format from header: ${format || 'Unknown'}`);
+        
+        // Final verification for PNG format specifically
+        if (fileExt === 'png') {
+          const isPngSignature = arr.length >= 8 &&
+                         arr[0] === 0x89 &&
+                         arr[1] === 0x50 &&
+                         arr[2] === 0x4E &&
+                         arr[3] === 0x47 &&
+                         arr[4] === 0x0D &&
+                         arr[5] === 0x0A &&
+                         arr[6] === 0x1A &&
+                         arr[7] === 0x0A;
+                         
+          console.log(`PNG validation result: ${isPngSignature ? 'Valid PNG signature' : 'INVALID PNG SIGNATURE'}`);
+          
+          // If file extension is PNG but no PNG signature, warn user
+          if (!isPngSignature) {
+            console.warn(`⚠️ File has .png extension but lacks PNG signature. Upload may fail.`);
+          }
+        }
+      }
+    };
+    reader.readAsArrayBuffer(processedFile.slice(0, 16));
+    
+    // Upload the processed file
+    handleImageUpload(processedFile, type);
   };
 
   const tabs = [
@@ -196,7 +360,7 @@ export default function ProfilePage() {
         type="file"
         ref={profileInputRef}
         className="hidden"
-        accept="image/*"
+        accept="image/png, image/jpeg, image/jpg, image/webp, image/gif"
         onChange={(e) => handleFileChange(e, 'profile')}
       />
       <input
@@ -250,18 +414,28 @@ export default function ProfilePage() {
                 }
               />
             </div>
-            <button 
-              className="absolute bottom-2 right-2 bg-white/10 hover:bg-white/20 p-2 rounded-full backdrop-blur-sm transition-all disabled:opacity-50"
-              onClick={() => profileInputRef.current?.click()}
-              disabled={isUploading}
-            >
-              <Camera size={20} className="text-white" />
-              {isUploading && uploadType === 'profile' && (
-                <span className="absolute inset-0 flex items-center justify-center bg-gray-900/60 rounded-full">
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                </span>
-              )}
-            </button>
+            <div className="flex items-center gap-2 absolute bottom-2 right-2">
+              <button 
+                className="bg-white/10 hover:bg-white/20 p-2 rounded-full backdrop-blur-sm transition-all disabled:opacity-50"
+                onClick={() => profileInputRef.current?.click()}
+                disabled={isUploading}
+                title="Quick upload"
+              >
+                <Camera size={20} className="text-white" />
+                {isUploading && uploadType === 'profile' && (
+                  <span className="absolute inset-0 flex items-center justify-center bg-gray-900/60 rounded-full">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  </span>
+                )}
+              </button>
+              <Link
+                href="/profile/photo"
+                className="bg-amber-600 hover:bg-amber-700 p-2 rounded-full backdrop-blur-sm transition-all"
+                title="Advanced photo upload with validation"
+              >
+                <Upload size={20} className="text-white" />
+              </Link>
+            </div>
           </div>
 
           {/* Profile Info */}
@@ -387,6 +561,35 @@ export default function ProfilePage() {
           )}
         </div>
       </div>
+
+      {/* Add a debug section to the profile page layout with a button to run tests
+      // This will be hidden in production */}
+
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mt-8 p-6 bg-slate-800 rounded-xl border border-slate-700">
+          <h3 className="text-xl font-semibold text-white mb-4">Developer Tools</h3>
+          
+          <div className="space-y-4">
+            <div>
+              <h4 className="text-md font-medium text-white mb-2">File Validation Test</h4>
+              <button
+                type="button"
+                onClick={async () => {
+                  console.log("Running file validation tests...");
+                  const results = await testFileValidation();
+                  toast.success(`Tests completed: ${results.passed.length} passed, ${results.failed.length} failed`);
+                }}
+                className="px-4 py-2 bg-green-700 hover:bg-green-600 text-white rounded-lg"
+              >
+                Run File Validation Tests
+              </button>
+              <p className="text-gray-400 text-sm mt-2">
+                Run tests for file type validation. Results appear in browser console.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

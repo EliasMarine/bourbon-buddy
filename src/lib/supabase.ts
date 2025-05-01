@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { cache } from 'react';
+import { cookies as nextCookies } from 'next/headers';
 
 // Avoid direct imports from next/headers to make this file compatible with pages router
 // Instead, have functions accept cookies as parameters
@@ -141,21 +142,22 @@ export function createBrowserSupabaseClient() {
 /**
  * Creates a Supabase client for server components
  */
-export const createServerSupabaseClient = cache(() => {
+export const createServerSupabaseClient = cache(async () => {
+  const cookieStore = await nextCookies();
+  
   return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        async getAll() {
-          return (await cookies()).getAll();
+        getAll() {
+          return cookieStore.getAll();
         },
-        async setAll(cookiesToSet) {
+        setAll(cookiesToSet) {
           try {
-            const cookieStore = await cookies();
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
-            });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
           } catch (error) {
             // The `setAll` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing
@@ -323,6 +325,49 @@ export async function safeSupabaseQuery<T>(
   }
 
   throw lastError || new Error(`Failed to execute Supabase query after ${maxAttempts} attempts.`);
+}
+
+/**
+ * Ensures the specified storage bucket exists
+ */
+export async function ensureStorageBucketExists(bucketName: string) {
+  console.log(`Ensuring storage bucket exists: ${bucketName}`);
+  
+  try {
+    const client = createBrowserSupabaseClient();
+    
+    // Check if bucket exists
+    const { data: buckets, error: listError } = await client.storage.listBuckets();
+    
+    if (listError) {
+      console.error('Error listing storage buckets:', listError);
+      return false;
+    }
+    
+    // Check if our bucket exists
+    const bucketExists = buckets.some(bucket => bucket.name === bucketName);
+    
+    if (!bucketExists) {
+      console.log(`Creating bucket: ${bucketName}`);
+      const { error: createError } = await client.storage.createBucket(bucketName, {
+        public: true
+      });
+      
+      if (createError) {
+        console.error(`Error creating bucket ${bucketName}:`, createError);
+        return false;
+      }
+      
+      console.log(`Bucket ${bucketName} created successfully`);
+    } else {
+      console.log(`Bucket ${bucketName} already exists`);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error ensuring storage bucket exists:', error);
+    return false;
+  }
 }
 
 // Default export for convenience

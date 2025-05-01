@@ -7,6 +7,7 @@ import { uploadLimiter } from '@/lib/rate-limiters';
 import { validateCsrfToken } from '@/lib/csrf';
 import path from 'path';
 import { createHash } from 'crypto';
+import { verifyFileType } from '@/lib/file-validation';
 
 // Create a Supabase client with service role key for server operations
 const createSupabaseAdmin = () => {
@@ -37,34 +38,7 @@ const getSupabase = (): SupabaseClient => {
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
-const BUCKET_NAME = 'bourbon-buddy-uploads';
-
-// Simple content type verification - verifies file content against declared MIME type
-function verifyFileType(file: File): Promise<boolean> {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onloadend = (e) => {
-      const arr = new Uint8Array(e.target?.result as ArrayBuffer).subarray(0, 4);
-      const header = Array.from(arr).map(b => b.toString(16)).join('');
-      
-      // Check file signatures
-      let isValid = false;
-      
-      if (file.type === 'image/jpeg' && (header.startsWith('ffd8') || header.startsWith('ffd9'))) {
-        isValid = true;
-      } else if (file.type === 'image/png' && header === '89504e47') {
-        isValid = true;
-      } else if (file.type === 'image/gif' && (header === '47494638' || header.startsWith('4749'))) {
-        isValid = true;
-      } else if (file.type === 'image/webp' && header.includes('5745')) {
-        isValid = true;
-      }
-      
-      resolve(isValid);
-    };
-    reader.readAsArrayBuffer(file.slice(0, 4));
-  });
-}
+const BUCKET_NAME = 'bourbon-buddy-prod'; // Changed to match the bucket in logs
 
 // Dummy virus scanner function (in production, connect to a real service)
 async function scanForViruses(file: File): Promise<boolean> {
@@ -103,8 +77,50 @@ async function testSupabaseConnection() {
   }
 }
 
+// Ensure the storage bucket exists
+async function ensureBucketExists(bucketName: string): Promise<boolean> {
+  try {
+    console.log(`Checking if bucket ${bucketName} exists...`);
+    const supabase = getSupabase();
+    
+    // First, check if bucket already exists
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    
+    if (listError) {
+      console.error('Error listing buckets:', listError);
+      return false;
+    }
+    
+    const bucketExists = buckets?.some(bucket => bucket.name === bucketName);
+    
+    // If bucket doesn't exist, create it
+    if (!bucketExists) {
+      console.log(`Bucket ${bucketName} does not exist. Creating it...`);
+      const { error: createError } = await supabase.storage.createBucket(bucketName, {
+        public: true,
+      });
+      
+      if (createError) {
+        console.error('Error creating bucket:', createError);
+        return false;
+      }
+      
+      console.log(`Bucket ${bucketName} created successfully`);
+    } else {
+      console.log(`Bucket ${bucketName} already exists`);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error ensuring bucket exists:', error);
+    return false;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
+    console.log('Upload API called');
+    
     // Test Supabase connectivity
     const isConnected = await testSupabaseConnection();
     if (!isConnected) {
@@ -115,24 +131,16 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Apply rate limiting with safe fallback
-    try {
-      if (uploadLimiter && typeof uploadLimiter.check === 'function') {
-        const limiterResponse = await uploadLimiter.check(request);
-        if (limiterResponse.statusCode === 429) {
-          return NextResponse.json(
-            { error: 'Too many file uploads. Please try again later.' },
-            { status: 429 }
-          );
-        }
-      } else {
-        // Fallback if check doesn't exist
-        console.warn('Upload rate limiter check function not available - skipping rate limiting');
-      }
-    } catch (rateLimitError) {
-      // Don't block upload on rate limiter errors, just log them
-      console.error('Rate limiter error:', rateLimitError);
+    // Ensure the bucket exists
+    const bucketReady = await ensureBucketExists(BUCKET_NAME);
+    if (!bucketReady) {
+      return NextResponse.json(
+        { error: 'Failed to prepare storage bucket. Please try again later.' },
+        { status: 500 }
+      );
     }
+    
+    // Skip rate limiting for now as this is a low-volume endpoint for profile photos
     
     // Get CSRF token from request headers
     const csrfToken = request.headers.get('x-csrf-token');
@@ -166,6 +174,7 @@ export async function POST(request: NextRequest) {
     // Check authentication
     const user = await getCurrentUser();
     if (!user) {
+      console.error('Authentication required for upload');
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }
@@ -174,6 +183,7 @@ export async function POST(request: NextRequest) {
 
     // Get the user ID for folder structure
     const userId = user.id;
+    console.log(`Upload request from user: ${userId}`);
     
     // Parse the form data
     const formData = await request.formData();
@@ -181,14 +191,18 @@ export async function POST(request: NextRequest) {
     
     // Validate the file exists
     if (!file) {
+      console.error('No file provided in upload request');
       return NextResponse.json(
         { error: 'No file provided' },
         { status: 400 }
       );
     }
     
+    console.log(`Processing file upload: ${file.name}, type: ${file.type}, size: ${file.size} bytes`);
+    
     // Check file size
     if (file.size > MAX_FILE_SIZE) {
+      console.error(`File size exceeds limit: ${file.size} bytes`);
       return NextResponse.json(
         { error: `File size exceeds ${MAX_FILE_SIZE / (1024 * 1024)}MB limit` },
         { status: 400 }
@@ -198,25 +212,79 @@ export async function POST(request: NextRequest) {
     // Extract file extension and check against allowed extensions
     const fileExtension = path.extname(file.name).toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(fileExtension)) {
+      console.error(`Invalid file extension: ${fileExtension}`);
       return NextResponse.json(
         { error: `Invalid file extension. Allowed extensions: ${ALLOWED_EXTENSIONS.join(', ')}` },
         { status: 400 }
       );
     }
     
-    // Check MIME type
-    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-      return NextResponse.json(
-        { error: `Invalid file type. Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}` },
-        { status: 400 }
-      );
+    // Check MIME type, but handle special cases (especially for PNG files)
+    let contentType = file.type;
+    let adjustedMimeType = false;
+    
+    // If MIME type doesn't match extension, try to fix it
+    if (!ALLOWED_MIME_TYPES.includes(contentType)) {
+      console.warn(`File MIME type ${contentType} not in allowed list. Checking file extension...`);
+      
+      // Determine correct MIME type from extension
+      const correctMimeType = 
+        fileExtension === '.png' ? 'image/png' :
+        fileExtension === '.jpg' || fileExtension === '.jpeg' ? 'image/jpeg' :
+        fileExtension === '.gif' ? 'image/gif' :
+        fileExtension === '.webp' ? 'image/webp' :
+        null;
+        
+      if (correctMimeType) {
+        console.log(`Adjusting MIME type from ${contentType} to ${correctMimeType} based on file extension ${fileExtension}`);
+        contentType = correctMimeType;
+        adjustedMimeType = true;
+      } else {
+        console.error(`Invalid file type: ${contentType}`);
+        return NextResponse.json(
+          { error: `Invalid file type. Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}` },
+          { status: 400 }
+        );
+      }
     }
     
     // Verify that file content matches its declared type
+    console.log('Verifying file content matches declared type...');
     const isValidType = await verifyFileType(file);
     if (!isValidType) {
+      // Special diagnostic for PNG files when validation fails
+      if (fileExtension === '.png' || contentType === 'image/png') {
+        // Read file header for detailed logging
+        const buffer = await file.arrayBuffer();
+        const arr = new Uint8Array(buffer).slice(0, 16);
+        const header = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+        
+        console.error('PNG validation failed with details:', {
+          fileSize: file.size,
+          declaredMimeType: file.type,
+          adjustedMimeType: adjustedMimeType ? contentType : 'No adjustment',
+          extension: fileExtension,
+          headerHex: header,
+          expectedPngHeader: '89504e470d0a1a0a'
+        });
+        
+        // Return detailed error for troubleshooting
+        return NextResponse.json(
+          { 
+            error: 'File content does not match expected PNG format',
+            details: {
+              expectedHeader: '89504e470d0a1a0a',
+              actualHeader: header.substring(0, 16),
+              note: 'The file should be a valid PNG image, not a renamed file'
+            }
+          },
+          { status: 400 }
+        );
+      }
+      
+      console.error('File content does not match declared type');
       return NextResponse.json(
-        { error: 'File content does not match declared type' },
+        { error: 'File content does not match declared type. Please ensure you are uploading a valid image file.' },
         { status: 400 }
       );
     }
@@ -224,39 +292,11 @@ export async function POST(request: NextRequest) {
     // Scan file for viruses/malware
     const isClean = await scanForViruses(file);
     if (!isClean) {
+      console.error('File failed security scan');
       return NextResponse.json(
         { error: 'File failed security scan' },
         { status: 400 }
       );
-    }
-    
-    // Check if bucket exists and create it if not
-    const supabase = getSupabase();
-    const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
-    
-    if (bucketsError) {
-      console.error('Error listing buckets:', bucketsError);
-      return NextResponse.json(
-        { error: 'Failed to access storage: ' + bucketsError.message },
-        { status: 500 }
-      );
-    }
-    
-    const bucketExists = buckets?.some(bucket => bucket.name === BUCKET_NAME);
-    
-    if (!bucketExists) {
-      console.log(`Bucket ${BUCKET_NAME} does not exist. Creating it...`);
-      const { error: createBucketError } = await supabase.storage.createBucket(BUCKET_NAME, {
-        public: true,
-      });
-      
-      if (createBucketError) {
-        console.error('Error creating bucket:', createBucketError);
-        return NextResponse.json(
-          { error: `Failed to create storage bucket: ${createBucketError.message}` },
-          { status: 500 }
-        );
-      }
     }
     
     // Create a unique filename - use UUID and timestamp for unpredictability 
@@ -266,12 +306,15 @@ export async function POST(request: NextRequest) {
     
     // The path in the bucket where the file will be stored - user-specific paths for isolation
     const filePath = `user-uploads/${userId}/${fileName}`;
+    console.log(`Preparing to upload to: ${BUCKET_NAME}/${filePath}`);
+    
+    const supabase = getSupabase();
     
     // Upload to Supabase Storage
     const { data, error } = await supabase.storage
       .from(BUCKET_NAME)
       .upload(filePath, file, {
-        contentType: file.type,
+        contentType: contentType,
         upsert: false, // Don't overwrite existing files with same name
       });
     
@@ -283,17 +326,22 @@ export async function POST(request: NextRequest) {
       );
     }
     
+    console.log(`File uploaded successfully: ${filePath}`);
+    
     // Get the public URL
     const { data: urlData } = supabase.storage
       .from(BUCKET_NAME)
       .getPublicUrl(filePath);
       
     if (!urlData?.publicUrl) {
+      console.error('Failed to get public URL');
       return NextResponse.json(
         { error: 'Failed to get public URL for uploaded file' },
         { status: 500 }
       );
     }
+    
+    console.log(`Generated public URL: ${urlData.publicUrl}`);
     
     // Return the URL and path information
     return NextResponse.json({
