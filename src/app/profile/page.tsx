@@ -9,6 +9,15 @@ import { toast } from 'sonner';
 import { getProfileImageUrl, getCoverPhotoUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
 import SafeImage from '@/components/ui/SafeImage';
 
+// Extend the session user type to support coverPhoto
+type UserWithCoverPhoto = {
+  id: string;
+  email: string;
+  name?: string | null;
+  image?: string | null;
+  coverPhoto?: string | null;
+};
+
 export default function ProfilePage() {
   const { data: session, status, update: updateSession } = useSession();
   const [activeTab, setActiveTab] = useState('collection');
@@ -51,8 +60,44 @@ export default function ProfilePage() {
       const formData = new FormData();
       formData.append('file', file);
       
+      // Get CSRF token from cookies or sessionStorage
+      let csrfToken = '';
+      try {
+        // Check for global CSRF token first (from window._csrfToken)
+        if (typeof window !== 'undefined' && window._csrfToken) {
+          csrfToken = window._csrfToken;
+        } else {
+          // Try to get from sessionStorage
+          csrfToken = sessionStorage.getItem('csrfToken') || '';
+          
+          // If not found, try to parse from cookie
+          if (!csrfToken) {
+            const cookies = document.cookie.split(';');
+            for (const cookie of cookies) {
+              const [name, value] = cookie.trim().split('=');
+              if (name === 'csrf_secret') {
+                csrfToken = decodeURIComponent(value).split('|')[0];
+                break;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to get CSRF token:', e);
+      }
+      
+      // Prepare headers with CSRF token if available
+      const headers: Record<string, string> = {};
+      if (csrfToken) {
+        headers['x-csrf-token'] = csrfToken;
+      }
+      
+      // Log debug info
+      console.log('Uploading file with CSRF token:', csrfToken ? 'Present' : 'Missing');
+      
       const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
+        headers,
         body: formData,
       });
 
@@ -64,14 +109,14 @@ export default function ProfilePage() {
       const { url: imageUrl } = await uploadResponse.json();
 
       // Now update the user profile with the new image URL
-      const response = await fetch('/api/user/upload-image', {
+      const response = await fetch('/api/user/profile', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
         },
         body: JSON.stringify({
-          imageUrl,
-          type,
+          ...(type === 'profile' ? { image: imageUrl } : { coverPhoto: imageUrl })
         }),
       });
 
@@ -87,9 +132,16 @@ export default function ProfilePage() {
       const updateData = {
         user: {
           ...session.user,
-          ...(type === 'profile' ? { image: imageUrl } : { coverPhoto: imageUrl })
         }
       };
+
+      // Add the updated field based on type
+      if (type === 'profile') {
+        updateData.user.image = imageUrl;
+      } else {
+        // Handle coverPhoto by using type assertion
+        (updateData.user as any).coverPhoto = imageUrl;
+      }
       
       await updateSession(updateData);
       
@@ -122,18 +174,20 @@ export default function ProfilePage() {
 
   // Prepare profile and cover image URLs using memoization to prevent regeneration on each render
   const profileImageUrl = React.useMemo(() => {
-    if (!session.user?.image) return '';
+    if (!session?.user?.image) return '';
     // Only use timestamp for cache busting when the profile image was just updated
     const useTimestamp = uploadType === 'profile' && imageUpdateTimestamp !== null;
     return getProfileImageUrl(session.user.image, useTimestamp);
-  }, [session.user?.image, uploadType, imageUpdateTimestamp]);
+  }, [session?.user?.image, uploadType, imageUpdateTimestamp]);
   
   const coverPhotoUrl = React.useMemo(() => {
-    if (!session.user?.coverPhoto) return '';
+    // Cast session.user to the extended type that includes coverPhoto
+    const userWithCoverPhoto = session?.user as UserWithCoverPhoto;
+    if (!userWithCoverPhoto?.coverPhoto) return '';
     // Only use timestamp for cache busting when the cover photo was just updated
     const useTimestamp = uploadType === 'cover' && imageUpdateTimestamp !== null;
-    return getCoverPhotoUrl(session.user.coverPhoto, useTimestamp);
-  }, [session.user?.coverPhoto, uploadType, imageUpdateTimestamp]);
+    return getCoverPhotoUrl(userWithCoverPhoto.coverPhoto, useTimestamp);
+  }, [session?.user, uploadType, imageUpdateTimestamp]);
 
   return (
     <div className="min-h-screen bg-gray-900">

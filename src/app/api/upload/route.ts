@@ -134,15 +134,33 @@ export async function POST(request: NextRequest) {
       console.error('Rate limiter error:', rateLimitError);
     }
     
-    // Verify CSRF token with more lenient validation for debugging
+    // Get CSRF token from request headers
     const csrfToken = request.headers.get('x-csrf-token');
-    // Skip CSRF validation in development or if explicitly bypassed
+    
+    // ALWAYS bypass CSRF in development mode
     const bypassCsrf = process.env.NODE_ENV !== 'production' || process.env.BYPASS_CSRF === 'true';
-    if (!bypassCsrf && (!csrfToken || !validateCsrfToken(request, csrfToken))) {
-      return NextResponse.json(
-        { error: 'Invalid CSRF token' },
-        { status: 403 }
-      );
+    
+    // Only validate CSRF in production
+    if (!bypassCsrf) {
+      // Check for CSRF token
+      if (!csrfToken) {
+        console.warn('Missing CSRF token in upload request');
+        return NextResponse.json(
+          { error: 'Missing CSRF token' },
+          { status: 403 }
+        );
+      }
+      
+      // Validate CSRF token
+      if (!validateCsrfToken(request, csrfToken)) {
+        console.error('Invalid CSRF token for upload request');
+        return NextResponse.json(
+          { error: 'Invalid CSRF token' },
+          { status: 403 }
+        );
+      }
+    } else {
+      console.log('CSRF validation bypassed in development mode');
     }
     
     // Check authentication

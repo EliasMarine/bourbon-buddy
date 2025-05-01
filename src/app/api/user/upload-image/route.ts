@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUser } from '@/lib/supabase-auth';
-// Removed authOptions import - not needed with Supabase Auth;
-import { createClient } from '@/utils/supabase/server';
+import { createServerComponentClient } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
-  // Initialize Supabase client
-  const supabase = await createClient();
-
   try {
+    // Initialize Supabase client
+    const supabase = await createServerComponentClient();
+    
     // Check authentication
-    const user = await getCurrentUser();
-    if (!user) {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }
@@ -36,47 +34,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update user in database
-    const updateData = type === 'profile' 
+    // Update user in database based on type
+    const updateData: Record<string, any> = type === 'profile' 
       ? { image: imageUrl } 
       : { coverPhoto: imageUrl };
+    
+    // Add timestamp
+    updateData.updatedAt = new Date().toISOString();
 
-    // Find user in database by email
-    const { data: dbUser, error: dbUserError } = await supabase
-  .from('User')
-  .select('*')
-  .eq('email', user.email)
-  .single();
+    // Update user in database
+    const { data: updatedUser, error: updateError } = await supabase
+      .from('User')
+      .update(updateData)
+      .eq('id', user.id)
+      .select('id, name, email, username, image, coverPhoto')
+      .single();
 
-    if (!dbUser) {
+    if (updateError) {
+      console.error('Error updating user image:', updateError);
       return NextResponse.json(
-        { error: 'User not found in database' },
-        { status: 404 }
-      );
-    }
-
-    const updatedUser = await prisma.user.update({
-      where: { id: dbUser.id },
-      data: updateData,
-    });
-
-    if (!updatedUser) {
-      return NextResponse.json(
-        { error: 'Failed to update user' },
+        { error: 'Failed to update user profile' },
         { status: 500 }
       );
     }
 
-    // Return success
+    // Return success with updated user
     return NextResponse.json({
       success: true,
-      user: {
-        id: updatedUser.id,
-        name: updatedUser.name,
-        email: updatedUser.email,
-        image: updatedUser.image,
-        coverPhoto: updatedUser.coverPhoto
-      }
+      user: updatedUser
     });
   } catch (error) {
     console.error('Error updating user image:', error);
