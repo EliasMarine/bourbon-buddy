@@ -3,7 +3,6 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { cache } from 'react';
-import { cookies as nextCookies } from 'next/headers';
 
 // Avoid direct imports from next/headers to make this file compatible with pages router
 // Instead, have functions accept cookies as parameters
@@ -140,34 +139,54 @@ export function createBrowserSupabaseClient() {
 }
 
 /**
- * Creates a Supabase client for server components
+ * Creates a Supabase client for server components - modified to accept cookies
+ * For App Router components, use the specialized functions in supabase-app-router.ts
  */
-export const createServerSupabaseClient = cache(async () => {
-  const cookieStore = await nextCookies();
+export function createServerSupabaseClient(
+  cookieStore?: { getAll: () => any[]; set?: (name: string, value: string, options?: any) => void }
+) {
+  // If no cookieStore is provided, return a basic client
+  if (!cookieStore && typeof window !== 'undefined') {
+    // Return browser client if we're on the client side
+    return createBrowserSupabaseClient();
+  }
   
+  // We're in a server environment without cookies, just return a basic client
+  // This is useful for direct server usage (not handling auth)
+  if (!cookieStore) {
+    return createClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+  }
+  
+  // We have cookies, create a server client with them
   return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll();
+          return cookieStore.getAll() || [];
         },
         setAll(cookiesToSet) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
+            if (cookieStore && typeof cookieStore.set === 'function') {
+              cookiesToSet.forEach(({ name, value, options }) => {
+                cookieStore.set!(name, value, options);
+              });
+            }
           } catch (error) {
             // The `setAll` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing
             // user sessions.
+            console.warn('Could not set cookies in server component', error);
           }
         }
       }
     }
   );
-});
+}
 
 /**
  * Creates a Supabase client for middleware
