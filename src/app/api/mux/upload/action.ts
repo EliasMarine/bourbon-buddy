@@ -241,153 +241,97 @@ export async function createVideoUpload(formData: FormData): Promise<ActionRespo
 }
 
 /**
- * Mark a video upload as complete
+ * Mark a video upload as complete - Attempts to find the video record with retries.
  */
 export async function markUploadComplete(uploadId: string): Promise<{ success: boolean; error?: string; videoId?: string }> {
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 1500;
+
   try {
-    console.log(`🏁 Marking upload complete for upload ID: ${uploadId}`)
-    
-    // Check for empty uploadId
+    console.log(`🏁 Marking upload complete for upload ID: ${uploadId}`);
+
     if (!uploadId) {
-      console.error('❌ uploadId is empty or undefined')
-      return {
-        success: false, 
-        error: 'Upload ID is required'
-      }
-    }
-    
-    // Additional validation for service role key
-    if (!process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY.length < 10) {
-      console.error('❌ Missing or invalid SUPABASE_SERVICE_ROLE_KEY environment variable')
-      return {
-        success: false,
-        error: 'Server configuration error: Missing service role key',
-      }
-    }
-    
-    // Get the video ID first - IMPORTANT: Always use 'Video' with capital V to match database
-    console.log(`Querying for video with muxUploadId: ${uploadId}`)
-    
-    // Try to find the video in the database
-    const { data: video, error: findError } = await supabaseAdmin
-      .from('Video') // Use 'Video' with capital V to match your database schema
-      .select('id, title')
-      .eq('muxUploadId', uploadId)
-      .single()
-      
-    if (findError || !video) {
-      console.error(`❌ Error finding video with upload ID ${uploadId}:`, findError)
-      
-      // Try to query the database directly to see if the video exists with any ID
-      console.log('Attempting direct database query to diagnose issue...')
-      
-      // First, check if any videos exist at all
-      const { data: allVideos, error: allVideosError } = await supabaseAdmin
-        .from('Video')
-        .select('id, title, muxUploadId')
-        .limit(5)
-      
-      if (allVideosError) {
-        console.error('❌ Error querying all videos:', allVideosError)
-      } else {
-        console.log(`Found ${allVideos.length} videos in the database:`, allVideos)
-      }
-      
-      // Try to create a new video record for this upload ID as a recovery measure
-      console.log('Creating recovery video record for upload ID:', uploadId)
-      const newVideoId = `video_${Date.now()}_${Math.random().toString(36).substring(2, 7)}_recovery` // Provide unique text ID
-      
-      const { data: recoveryVideo, error: recoveryError } = await supabaseAdmin
-        .from('Video')
-        .insert({
-          id: newVideoId, // Provide unique text ID
-          title: `Recovered Upload ${uploadId.substring(0, 8)}`, 
-          status: 'processing',
-          muxUploadId: uploadId,
-          publiclyListed: true,
-          views: 0,
-          updatedAt: new Date().toISOString(), // Provide required updatedAt
-          // userId is unknown here, so let it be null if allowed, or handle appropriately
-        })
-        .select()
-        .single()
-        
-      if (recoveryError) {
-        console.error('❌ Failed to create recovery video record:', recoveryError)
-        return {
-          success: false,
-          error: `Video not found for upload ID: ${uploadId}`
-        }
-      }
-      
-      console.log(`✅ Created recovery video record with ID: ${recoveryVideo?.id || 'unknown'}`)
-      
-      // Return success with the recovery video ID
-      return { 
-        success: true, 
-        videoId: recoveryVideo.id,
-        error: 'Used recovery video record'
-      }
-    }
-    
-    console.log(`📋 Found video ${video.id} "${video.title}" for upload ID: ${uploadId}`)
-    
-    // Update the video status in the database
-    const { error: updateError } = await supabaseAdmin
-      .from('Video') // Use 'Video' with capital V to match your database schema
-      .update({ 
-        status: 'processing',
-        updatedAt: new Date().toISOString()
-      })
-      .eq('muxUploadId', uploadId)
-    
-    if (updateError) {
-      console.error(`❌ Failed to update video status for upload ID: ${uploadId}`, updateError)
-      // Return success anyway since we found the video
-      return { success: true, videoId: video.id, error: 'Failed to update status' }
-    }
-    
-    console.log(`✅ Successfully updated video ${video.id} status to 'processing'`)
-    
-    // Trigger sync to update video status from Mux
-    try {
-      console.log(`🔄 Triggering sync for video ID: ${video.id}`)
-      
-      // We need to wait a bit before syncing to make sure Mux has processed the video
-      // This will run asynchronously and not block the response
-      setTimeout(async () => {
-        try {
-          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-          const syncResponse = await fetch(`${baseUrl}/api/videos/sync-status?videoId=${video.id}`, {
-            method: 'POST',
-          })
-          
-          if (!syncResponse.ok) {
-            console.error(`❌ Failed to sync video status for video ID: ${video.id}`, await syncResponse.text())
-          } else {
-            console.log(`✅ Successfully triggered sync for video ID: ${video.id}`)
-          }
-        } catch (syncError) {
-          console.error(`❌ Error triggering sync for video ID: ${video.id}`, syncError)
-        }
-      }, 5000) // Wait 5 seconds before syncing
-      
-    } catch (syncError) {
-      // Don't fail the whole process if sync fails
-      console.error(`⚠️ Warning: Failed to trigger sync for video ID: ${video.id}`, syncError)
+      console.error('❌ uploadId is empty or undefined');
+      return { success: false, error: 'Upload ID is required' };
     }
 
-    // Revalidate any relevant paths
-    revalidatePath('/past-tastings')
-    revalidatePath(`/watch/${video.id}`)
-    
-    return { success: true, videoId: video.id }
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY.length < 10) {
+      console.error('❌ Missing or invalid SUPABASE_SERVICE_ROLE_KEY');
+      return { success: false, error: 'Server configuration error: Missing service role key' };
+    }
+
+    let video: { id: string; title: string } | null = null;
+    let findError: any = null;
+
+    // Retry loop to find the video record
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      console.log(`Attempt ${attempt}/${MAX_RETRIES}: Querying for video with muxUploadId: ${uploadId}`);
+      const result = await supabaseAdmin
+        .from('Video')
+        .select('id, title')
+        .eq('muxUploadId', uploadId)
+        .single();
+
+      if (result.data) {
+        video = result.data;
+        findError = null;
+        console.log(`✅ Found video on attempt ${attempt}: ${video.id}`);
+        break; // Exit loop if found
+      } else {
+        findError = result.error;
+        console.warn(`⚠️ Video not found on attempt ${attempt}. Error:`, findError?.message);
+        if (attempt < MAX_RETRIES) {
+          console.log(`Waiting ${RETRY_DELAY_MS}ms before retrying...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+        }
+      }
+    }
+
+    // If still not found after retries, handle error (maybe create recovery record)
+    if (!video) {
+      console.error(`❌ Failed to find video with upload ID ${uploadId} after ${MAX_RETRIES} attempts. Last error:`, findError);
+      
+      // Optionally: Add recovery logic here if needed, similar to before
+      // For now, we just return an error indicating it wasn't found.
+      return {
+        success: false,
+        error: `Video record not found for upload ID ${uploadId} after retries.`,
+      };
+    }
+
+    console.log(`📋 Found video ${video.id} "${video.title}" for upload ID: ${uploadId}`);
+
+    // Update the video status in the database - Set to 'processing' as MUX will handle 'ready'
+    const { error: updateError } = await supabaseAdmin
+      .from('Video')
+      .update({
+        status: 'processing', // Keep as processing, webhook will set to ready
+        updatedAt: new Date().toISOString(),
+      })
+      .eq('muxUploadId', uploadId);
+
+    if (updateError) {
+      console.error(`❌ Failed to update video status for upload ID: ${uploadId}`, updateError);
+      // Return success because we found the video, but note the update error
+      return { success: true, videoId: video.id, error: 'Failed to update status to processing' };
+    }
+
+    console.log(`✅ Successfully updated video ${video.id} status to 'processing'`);
+
+    // No need to trigger sync here, the webhook handles the final status update
+    // Removed setTimeout and fetch call for sync-status
+
+    // Revalidate paths
+    revalidatePath('/past-tastings');
+    revalidatePath(`/watch/${video.id}`);
+
+    return { success: true, videoId: video.id };
   } catch (error) {
-    console.error('Error marking upload complete:', error)
+    console.error('Error in markUploadComplete:', error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-    }
+      error: error instanceof Error ? error.message : 'Unknown error in markUploadComplete',
+    };
   }
 }
 
