@@ -169,9 +169,9 @@ export default function VideoPlaybackPage({ video, comments, formattedDate }: Vi
         <div className="w-full max-w-4xl mx-auto">
           <h1 className="text-2xl md:text-3xl font-bold mb-3 text-white">{video.title}</h1>
           
-          {/* MuxPlayer */}
+          {/* MuxPlayer with a proper container */}
           {video.muxPlaybackId && (
-            <div className="overflow-hidden rounded-xl shadow-xl">
+            <div className="relative w-full aspect-video rounded-xl overflow-hidden shadow-xl">
               <MuxPlayer
                 playbackId={video.muxPlaybackId}
                 accentColor="#d97706" // Amber-600
@@ -180,7 +180,7 @@ export default function VideoPlaybackPage({ video, comments, formattedDate }: Vi
                   console.error('MuxPlayer error:', error);
                   setPlaybackError('Playback error: ' + (error?.message || 'Unknown error'));
                 }}
-                className="w-full"
+                className="w-full h-full"
                 hideTryFallbackButton={true}
               />
             </div>
