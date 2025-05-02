@@ -3,10 +3,6 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { cache } from 'react';
-import { cookies } from 'next/headers';
-
-// Avoid direct imports from next/headers to make this file compatible with pages router
-// Instead, have functions accept cookies as parameters
 
 // Storage bucket configuration
 const STORAGE_BUCKET = 'spirits';
@@ -148,6 +144,8 @@ export function createBrowserSupabaseClient(): SupabaseClient<Database> {
 
 /**
  * Creates a Supabase client for server components
+ * This is a basic client that doesn't use cookie handling
+ * Use createAppRouterSupabaseClient for App Router components
  */
 export const createServerSupabaseClient = cache((): SupabaseClient<Database> => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -157,29 +155,7 @@ export const createServerSupabaseClient = cache((): SupabaseClient<Database> => 
     throw new Error('Missing required environment variables for Supabase client');
   }
   
-  return createServerClient<Database>(
-    supabaseUrl,
-    supabaseAnonKey,
-    {
-      cookies: {
-        async getAll() {
-          return (await cookies()).getAll();
-        },
-        async setAll(cookiesToSet) {
-          try {
-            const cookieStore = await cookies();
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
-            });
-          } catch (error: unknown) {
-            // The `setAll` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
-          }
-        }
-      }
-    }
-  );
+  return createClient<Database>(supabaseUrl, supabaseAnonKey);
 });
 
 /**
