@@ -1,0 +1,77 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# This is a reference of the Bourbon Buddy app database schema. This Schema should be refrenced when building new features and debugging:
+
+[
+  {
+    "table_name": "Account",
+    "columns": "id text NOT NULL, userId uuid NOT NULL, type text NOT NULL, provider text NOT NULL, providerAccountId text NOT NULL, refresh_token text, access_token text, expires_at integer, token_type text, scope text, id_token text, session_state text"
+  },
+  {
+    "table_name": "Comment",
+    "columns": "id uuid NOT NULL DEFAULT gen_random_uuid(), content text NOT NULL, createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP, reviewId text, userId uuid NOT NULL, videoId text"
+  },
+  {
+    "table_name": "Follows",
+    "columns": "followerId uuid NOT NULL, followingId uuid NOT NULL, createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP"
+  },
+  {
+    "table_name": "Review",
+    "columns": "id text NOT NULL, content text NOT NULL, rating integer NOT NULL DEFAULT 0, createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt timestamp without time zone NOT NULL, userId uuid NOT NULL, spiritId text NOT NULL"
+  },
+  {
+    "table_name": "Session",
+    "columns": "id text NOT NULL, sessionToken text NOT NULL, userId uuid NOT NULL, expires timestamp without time zone NOT NULL"
+  },
+  {
+    "table_name": "Spirit",
+    "columns": "id text NOT NULL, name text NOT NULL, brand text NOT NULL, type text NOT NULL, category text NOT NULL DEFAULT 'whiskey'::text, description text, imageUrl text, proof double precision, price double precision, rating integer, nose text, palate text, finish text, notes text, dateAcquired timestamp without time zone, bottleSize text, distillery text, bottleLevel integer DEFAULT 100, isFavorite boolean NOT NULL DEFAULT false, createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt timestamp without time zone NOT NULL, deletedAt timestamp without time zone, ownerId uuid NOT NULL"
+  },
+  {
+    "table_name": "Stream",
+    "columns": "id text NOT NULL, title text NOT NULL, description text, isLive boolean NOT NULL DEFAULT false, startedAt timestamp without time zone, endedAt timestamp without time zone, privacy text NOT NULL DEFAULT 'public'::text, createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt timestamp without time zone NOT NULL, hostId uuid NOT NULL, spiritId text"
+  },
+  {
+    "table_name": "StreamLike",
+    "columns": "id text NOT NULL, streamId text NOT NULL, userId uuid NOT NULL, createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP"
+  },
+  {
+    "table_name": "StreamReport",
+    "columns": "id text NOT NULL, streamId text NOT NULL, userId uuid NOT NULL, reason text, status text NOT NULL DEFAULT 'pending'::text, createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt timestamp without time zone NOT NULL"
+  },
+  {
+    "table_name": "StreamSubscription",
+    "columns": "id text NOT NULL, hostId uuid NOT NULL, userId uuid NOT NULL, createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP"
+  },
+  {
+    "table_name": "StreamTip",
+    "columns": "id text NOT NULL, amount double precision NOT NULL, message text, streamId text NOT NULL, senderId uuid NOT NULL, hostId uuid NOT NULL, createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP"
+  },
+  {
+    "table_name": "StreamView",
+    "columns": "id text NOT NULL, joinedAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP, leftAt timestamp without time zone, streamId text NOT NULL, userId uuid NOT NULL"
+  },
+  {
+    "table_name": "User",
+    "columns": "id uuid NOT NULL DEFAULT gen_random_uuid(), name text, email text NOT NULL, username text, password text, image text, coverPhoto text, location text, occupation text, education text, bio text, emailVerified timestamp without time zone, resetToken text, resetTokenExpiry timestamp without time zone, createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt timestamp without time zone NOT NULL, publicProfile boolean NOT NULL DEFAULT true"
+  },
+  {
+    "table_name": "User_backup",
+    "columns": "id text, name text, email text, username text, password text, image text, coverPhoto text, location text, occupation text, education text, bio text, emailVerified timestamp without time zone, resetToken text, resetTokenExpiry timestamp without time zone, createdAt timestamp without time zone, updatedAt timestamp without time zone, publicProfile boolean"
+  },
+  {
+    "table_name": "User_id_backup",
+    "columns": "original_id text, new_uuid uuid, changed_at timestamp with time zone"
+  },
+  {
+    "table_name": "VerificationToken",
+    "columns": "identifier text NOT NULL, token text NOT NULL, expires timestamp without time zone NOT NULL"
+  },
+  {
+    "table_name": "Video",
+    "columns": "id text NOT NULL, title text NOT NULL, description text, status text NOT NULL DEFAULT 'uploading'::text, muxUploadId text, muxAssetId text, muxPlaybackId text, duration double precision, aspectRatio text, thumbnailTime double precision DEFAULT 0, userId uuid, createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt timestamp without time zone NOT NULL, publiclyListed boolean NOT NULL DEFAULT true, views integer NOT NULL DEFAULT 0"
+  }
+]
