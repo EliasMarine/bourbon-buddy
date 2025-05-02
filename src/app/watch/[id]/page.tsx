@@ -8,7 +8,7 @@ import { ErrorBoundary } from 'react-error-boundary'
 import { useTransition, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { deleteVideoAction } from './delete-video-action'
-import DeleteVideoButton from './DeleteVideoButton'
+import DeleteVideoButtonComponent from './DeleteVideoButton'
 import VideoPlaybackPage from './video-playback-page'
 import Mux from '@mux/mux-node'
 
@@ -93,36 +93,83 @@ async function getVideo(id: string): Promise<Video | null> {
   }
 }
 
-// Get video comments
+// Get video comments - REVISED to handle missing FK relationship
 async function getVideoComments(videoId: string): Promise<Comment[]> {
+  console.log(`Fetching comments for videoId: ${videoId}`)
   try {
-    // Query comments with Supabase
-    const { data: comments, error } = await safeSupabaseQuery(async () => {
-      // Join with user table to get user info
-      const { data, error } = await supabaseAdmin
-        .from('comment')
-        .select(`
-          *,
-          user:userId (
-            name,
-            image
-          )
-        `)
+    // 1. Fetch comments for the video
+    const { data: commentsData, error: commentsError } = await safeSupabaseQuery(async () => {
+      return supabaseAdmin
+        .from('Comment') // Use capital 'C' based on schema list
+        .select('id, content, userId, videoId, createdAt')
         .eq('videoId', videoId)
         .order('createdAt', { ascending: false });
-      
-      return { data, error };
     });
-    
-    if (error) {
-      console.error(`Error fetching comments: ${error.message}`);
+
+    if (commentsError) {
+      console.error(`Error fetching comments data: ${commentsError.message}`);
+      return []; // Return empty array on error
+    }
+
+    if (!commentsData || commentsData.length === 0) {
+      console.log(`No comments found for videoId: ${videoId}`);
       return [];
     }
     
-    return comments || [];
+    console.log(`Found ${commentsData.length} comments.`);
+
+    // 2. Get unique user IDs from comments
+    const userIds = Array.from(new Set(commentsData.map(comment => comment.userId).filter(id => id))); // Convert Set to Array
+    
+    if (userIds.length === 0) {
+        console.log('No valid user IDs found in comments.');
+        // Return comments without user info if necessary, or handle as appropriate
+        return commentsData.map(c => ({ ...c, user: { name: 'Unknown User', image: null } }));
+    }
+
+    console.log(`Fetching user data for ${userIds.length} unique user IDs:`, userIds);
+
+    // 3. Fetch user data for those IDs
+    const { data: usersData, error: usersError } = await safeSupabaseQuery(async () => {
+      return supabaseAdmin
+        .from('User') // Use capital 'U' based on schema list
+        .select('id, name, image')
+        .in('id', userIds);
+    });
+
+    if (usersError) {
+      console.error(`Error fetching user data: ${usersError.message}`);
+      // Return comments without user info if user fetch fails
+      return commentsData.map(c => ({ ...c, user: { name: 'User Error', image: null } }));
+    }
+    
+    if (!usersData) {
+        console.warn('User data fetch returned null/undefined.')
+        return commentsData.map(c => ({ ...c, user: { name: 'User Not Found', image: null } }));
+    }
+
+    console.log(`Fetched data for ${usersData.length} users.`);
+
+    // 4. Map users to a lookup object
+    const userMap = usersData.reduce((acc, user) => {
+      acc[user.id] = { name: user.name, image: user.image };
+      return acc;
+    }, {} as Record<string, { name: string | null; image: string | null }>);
+
+    // 5. Combine comments with user data
+    const combinedComments = commentsData.map(comment => ({
+      ...comment,
+      user: userMap[comment.userId] || { name: 'Unknown User', image: null },
+      // Ensure date types are correct if necessary
+      createdAt: new Date(comment.createdAt),
+    }));
+    
+    console.log(`Successfully combined ${combinedComments.length} comments with user data.`);
+    return combinedComments;
+
   } catch (error) {
-    console.error(`Error fetching comments for video ${videoId}:`, error);
-    return [];
+    console.error(`Unhandled error in getVideoComments for video ${videoId}:`, error);
+    return []; // Return empty on unexpected errors
   }
 }
 
@@ -293,18 +340,8 @@ export default async function VideoPage(props: {
       if (error) console.error(`Error incrementing view count: ${error.message}`);
     });
 
-  // Fetch comments
-  const { data: comments } = await supabaseAdmin
-    .from('comment')
-    .select(`
-      *,
-      user:userId (
-        name,
-        image
-      )
-    `)
-    .eq('videoId', id)
-    .order('createdAt', { ascending: false });
+  // Fetch comments using the revised function
+  const comments = await getVideoComments(id);
   
   // Format the date for display
   const formattedDate = new Date(video.createdAt).toLocaleDateString('en-US', {
@@ -314,7 +351,7 @@ export default async function VideoPage(props: {
   });
 
   // Use the server component wrapper for client components
-  return <VideoWrapper video={video} comments={comments || []} formattedDate={formattedDate} />
+  return <VideoWrapper video={video} comments={comments} formattedDate={formattedDate} />
 }
 
 // Add a loading state component
@@ -332,21 +369,6 @@ export function Loading() {
   );
 }
 
-// Simple DeleteVideoButton component
-function DeleteVideoButton({ id }: { id: string }) {
-  return (
-    <form action={deleteVideoAction}>
-      <input type="hidden" name="id" value={id} />
-      <button 
-        type="submit"
-        className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm mb-4"
-      >
-        Delete Video
-      </button>
-    </form>
-  );
-}
-
 // Use a server component to import and load the client component
 async function VideoWrapper({ video, comments, formattedDate }: { 
   video: Video; 
@@ -354,9 +376,9 @@ async function VideoWrapper({ video, comments, formattedDate }: {
   formattedDate: string;
 }) {
   // Dynamic import for client component
-  const VideoPlaybackPage = (await import('./video-playback-page')).default;
+  const VideoPlaybackPageComponent = (await import('./video-playback-page')).default;
   
-  return <VideoPlaybackPage 
+  return <VideoPlaybackPageComponent 
     video={video} 
     comments={comments} 
     formattedDate={formattedDate} 
