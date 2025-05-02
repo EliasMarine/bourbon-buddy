@@ -167,7 +167,7 @@ export async function setMuxAssetIdAndCreatePlaybackId(videoId: string, muxAsset
     
     // Update the video record in Supabase with the asset ID and playback ID
     const { data: updatedVideo, error } = await supabase
-      .from('video')
+      .from('Video')
       .update({
         muxAssetId,
         muxPlaybackId: playbackId,

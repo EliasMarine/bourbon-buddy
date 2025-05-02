@@ -109,23 +109,38 @@ export function MuxUploader({
       const response = await createVideoUpload(formData)
       
       if (!response.success || !response.data) {
-        throw new Error(response.error || 'Failed to create upload')
+        console.error('Failed to create upload URL:', response.error)
+        throw new Error(response.error || 'Failed to create upload URL')
       }
       
       console.log('Upload URL created:', response.data.uploadId)
       
       // Upload the file directly to MUX
-      await uploadFileToMux(file, response.data.uploadUrl)
-      console.log('File uploaded to Mux successfully')
-      
-      // Mark the upload as complete
-      const completeResponse = await markUploadComplete(response.data.uploadId)
-      
-      if (!completeResponse.success) {
-        throw new Error(completeResponse.error || 'Failed to mark upload as complete')
+      try {
+        await uploadFileToMux(file, response.data.uploadUrl)
+        console.log('File uploaded to Mux successfully')
+      } catch (uploadError) {
+        console.error('Error uploading file to MUX:', uploadError)
+        throw new Error(`Error uploading to MUX: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`)
       }
       
-      console.log('Upload marked as complete:', completeResponse)
+      // Mark the upload as complete
+      try {
+        console.log('Marking upload as complete with ID:', response.data.uploadId)
+        const completeResponse = await markUploadComplete(response.data.uploadId)
+        
+        if (!completeResponse.success) {
+          console.error('Failed to mark upload as complete:', completeResponse.error)
+          // Even if this fails, we'll still show success since the upload worked
+          setError(`Warning: Video uploaded but not properly linked: ${completeResponse.error}`)
+        } else {
+          console.log('Upload marked as complete. Video ID:', completeResponse.videoId)
+        }
+      } catch (completeError) {
+        console.error('Error marking upload as complete:', completeError)
+        setError('Video uploaded but not properly processed. Please check "Past Tastings" in a few minutes.')
+        // Don't rethrow here - we want to show partial success
+      }
       
       // Show success message
       setUploadProgress(100)

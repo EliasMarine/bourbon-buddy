@@ -175,31 +175,33 @@ export default function PastTastingsPage() {
     return (
       <div className="flex items-center gap-2">
         <div
-          className={`relative px-1 py-1 bg-gray-800 rounded-full border border-gray-700/50 shadow-md ${
+          className={`relative px-0.5 py-0.5 bg-gray-800 rounded-full border border-gray-700/50 shadow-md ${
             isDisabled ? 'opacity-50' : ''
           }`}
         >
-          <button
-            onClick={() => !isDisabled && setShowOnlyMyVideos(false)}
-            className={`relative z-10 px-4 py-1.5 rounded-full text-sm font-medium transition-colors min-w-[80px] ${
-              !showOnlyMyVideos ? 'text-white' : 'text-gray-400 hover:text-white'
-            } ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-            disabled={isDisabled || !showOnlyMyVideos}
-          >
-            All Videos
-          </button>
-          <button
-            onClick={() => !isDisabled && setShowOnlyMyVideos(true)}
-            className={`relative z-10 px-4 py-1.5 rounded-full text-sm font-medium transition-colors min-w-[80px] ${
-              showOnlyMyVideos ? 'text-white' : 'text-gray-400 hover:text-white'
-            } ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-            disabled={isDisabled || showOnlyMyVideos}
-          >
-            My Videos
-          </button>
+          <div className="flex">
+            <button
+              onClick={() => !isDisabled && setShowOnlyMyVideos(false)}
+              className={`relative z-10 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                !showOnlyMyVideos ? 'text-white' : 'text-gray-400 hover:text-white'
+              } ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+              disabled={isDisabled || !showOnlyMyVideos}
+            >
+              All Videos
+            </button>
+            <button
+              onClick={() => !isDisabled && setShowOnlyMyVideos(true)}
+              className={`relative z-10 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                showOnlyMyVideos ? 'text-white' : 'text-gray-400 hover:text-white'
+              } ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+              disabled={isDisabled || showOnlyMyVideos}
+            >
+              My Videos
+            </button>
+          </div>
           <div 
-            className={`absolute inset-y-1 w-[80px] bg-gradient-to-r from-amber-600 to-amber-700 rounded-full shadow-md transition-all duration-300 ${
-              showOnlyMyVideos ? 'right-1' : 'left-1'
+            className={`absolute inset-y-0.5 bg-gradient-to-r from-amber-600 to-amber-700 rounded-full shadow-md transition-all duration-300 ${
+              showOnlyMyVideos ? 'right-0.5 left-[calc(50%+0.5px)]' : 'left-0.5 right-[calc(50%+0.5px)]'
             }`} 
             aria-hidden="true"
           />
