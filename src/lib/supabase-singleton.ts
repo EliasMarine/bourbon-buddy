@@ -1,6 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createBrowserClient } from '@supabase/ssr';
-import type { Database } from './supabase';  // Import the Database type
 
 // Type to ensure consistent client configuration
 type SupabaseClientOptions = {
@@ -22,10 +21,436 @@ let reconnectTimeout: NodeJS.Timeout | null = null;
  * - In the browser: Returns the global singleton instance
  */
 export function getSupabaseClient(options?: SupabaseClientOptions): SupabaseClient {
-  console.log('⚠️ Legacy getSupabaseClient function called, using createBrowserSupabaseClient instead');
-  // Import dynamically to avoid circular dependency
-  const { createBrowserSupabaseClient } = require('./supabase');
-  return createBrowserSupabaseClient();
+  const supabaseUrl = options?.supabaseUrl || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = options?.supabaseKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  // Ensure we have the required config
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Missing required Supabase configuration. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.');
+  }
+
+  // Validate URL format
+  try {
+    // This will throw if the URL is invalid
+    new URL(supabaseUrl);
+  } catch (error) {
+    console.error('Invalid Supabase URL:', error);
+    throw new Error(`Invalid Supabase URL: ${supabaseUrl}. Please check your environment variables.`);
+  }
+
+  // In a server context, always create a fresh instance
+  if (typeof window === 'undefined') {
+    return createClient(supabaseUrl, supabaseKey);
+  }
+
+  // In browser, use singleton pattern
+  if (!browserInstance) {
+    console.log('🔑 Creating new Supabase browser client instance');
+    
+    // Get the domain for cookie config
+    const domain = typeof window !== 'undefined' ? window.location.hostname : undefined;
+    // Don't use localhost as domain for cookies to avoid issues
+    const cookieDomain = domain && !domain.includes('localhost') ? domain : undefined;
+    
+    browserInstance = createBrowserClient(
+      supabaseUrl,
+      supabaseKey,
+      {
+        // Enhanced realtime config with more robust settings
+        realtime: {
+          params: {
+            eventsPerSecond: 2, // Reduced rate to avoid limits
+            heartbeatIntervalMs: 40000, // Longer heartbeat interval
+            timeout: 120000 // Longer timeout (2 minutes)
+          }
+        },
+        auth: {
+          // Ensure cookies are used for auth
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: false,
+          flowType: 'pkce' // Use PKCE flow for better security
+        },
+        // Use cookieOptions instead of cookies for domain
+        ...(cookieDomain ? {
+          cookieOptions: {
+            domain: cookieDomain,
+            secure: true,
+            sameSite: 'lax',
+            path: '/'
+          }
+        } : {}),
+        global: {
+          // Properly handles credentials for CORS
+          fetch: (url, options = {}) => {
+            try {
+              const headers = new Headers(options.headers || {});
+              headers.set('X-Client-Info', 'supabase-js/browser/singleton');
+              
+              // Create a new AbortController with a longer timeout
+              const timeoutMs = 90000; // 90 seconds
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+              
+              // Get URL as string for easier pattern matching
+              const urlString = url.toString();
+              
+              console.log(`Supabase fetch: ${options.method || 'GET'} ${urlString.split('?')[0]}`);
+              
+              // Detect browser
+              const userAgent = typeof window !== 'undefined' ? window.navigator.userAgent : '';
+              const isFirefox = userAgent.includes('Firefox');
+              const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+              
+              // ========================
+              // AUTH REQUEST INTERCEPTION
+              // ========================
+              
+              // Handle auth-related requests to avoid CORS issues
+              if (urlString.includes('/auth/v1/')) {
+                // For ALL browsers, use proxy for logout (not just Firefox)
+                if (urlString.includes('/auth/v1/logout')) {
+                  clearTimeout(timeoutId);
+                  console.log('Intercepting logout request to use proxy');
+                  
+                  // Get the authorization header safely
+                  const authHeader = typeof options.headers === 'object' && options.headers !== null 
+                    ? (options.headers as Record<string, string>)['Authorization'] || ''
+                    : '';
+                  
+                  return fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': authHeader
+                    },
+                    credentials: 'include'
+                  });
+                }
+                
+                // Handle user info requests to avoid CORS issues
+                if (urlString.includes('/auth/v1/user')) {
+                  clearTimeout(timeoutId);
+                  console.log('Intercepting user info request to use proxy');
+                  
+                  // Get the authorization header safely
+                  const authHeader = typeof options.headers === 'object' && options.headers !== null 
+                    ? (options.headers as Record<string, string>)['Authorization'] || ''
+                    : '';
+                  
+                  return fetch('/api/auth/user', {
+                    method: 'GET',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': authHeader
+                    },
+                    credentials: 'include',
+                    mode: 'same-origin'
+                  }).catch(error => {
+                    console.error('Error using auth user proxy:', error);
+                    throw error;
+                  });
+                }
+                
+                // Handle token requests with URL parameters (GET requests with refresh_token)
+                if (urlString.includes('/auth/v1/token') && urlString.includes('grant_type=refresh_token')) {
+                  clearTimeout(timeoutId);
+                  console.log('Intercepting refresh token URL request to use proxy');
+                  
+                  // Extract the refresh token from URL
+                  const url = new URL(urlString);
+                  const refreshToken = url.searchParams.get('refresh_token');
+                  
+                  // Get CSRF token if available
+                  let csrfToken = '';
+                  try {
+                    if (typeof window !== 'undefined' && window.sessionStorage) {
+                      csrfToken = window.sessionStorage.getItem('csrfToken') || '';
+                    }
+                  } catch (error) {
+                    console.warn('Unable to retrieve CSRF token from sessionStorage:', error);
+                  }
+                  
+                  return fetch('/api/auth/token-refresh', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
+                    },
+                    body: JSON.stringify({
+                      refresh_token: refreshToken
+                    }),
+                    credentials: 'include',
+                    mode: 'same-origin'
+                  }).catch(error => {
+                    console.error('Error using refresh token proxy (URL params):', error);
+                    throw error;
+                  });
+                }
+                
+                // Handle token requests
+                if (urlString.includes('/auth/v1/token')) {
+                  // Parse body data - handle both string and other formats
+                  let body: Record<string, any> = {};
+                  try {
+                    if (options.body) {
+                      if (typeof options.body === 'string') {
+                        body = JSON.parse(options.body);
+                      } else if (options.body instanceof FormData) {
+                        // Convert FormData to object
+                        const formData = options.body;
+                        formData.forEach((value, key) => {
+                          body[key] = value;
+                        });
+                      } else if (options.body instanceof URLSearchParams) {
+                        // Convert URLSearchParams to object
+                        const params = options.body;
+                        params.forEach((value, key) => {
+                          body[key] = value;
+                        });
+                      } else if (typeof options.body === 'object') {
+                        // Already an object
+                        body = options.body as Record<string, any>;
+                      }
+                    }
+                  } catch (err) {
+                    console.error('Error parsing request body:', err);
+                  }
+                  
+                  // Password sign-in
+                  if ('email' in body && 'password' in body && body.grant_type === 'password') {
+                    clearTimeout(timeoutId);
+                    console.log('Intercepting sign-in request to use proxy');
+                    
+                    return fetch('/api/auth/token', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        email: body.email,
+                        password: body.password
+                      }),
+                      credentials: 'include',
+                      mode: 'same-origin' // Set to same-origin to avoid CORS
+                    }).catch(error => {
+                      console.error('Error using auth token proxy:', error);
+                      throw error;
+                    });
+                  }
+                  
+                  // Token refresh - ALWAYS use our proxy for all browsers
+                  if ('refresh_token' in body && body.grant_type === 'refresh_token') {
+                    clearTimeout(timeoutId);
+                    console.log('Intercepting refresh token request to use proxy');
+                    
+                    // Check if we've been explicitly signed out
+                    let isSignedOut = false;
+                    try {
+                      isSignedOut = localStorage.getItem('auth_state') === 'SIGNED_OUT';
+                    } catch (e) {
+                      // Ignore storage errors
+                    }
+                    
+                    // Abort token refresh if user was signed out
+                    if (isSignedOut) {
+                      console.log('Aborting token refresh - user was explicitly signed out');
+                      return Promise.resolve(new Response(JSON.stringify({ 
+                        error: 'User is signed out',
+                        error_description: 'Authentication has been terminated'
+                      }), { 
+                        status: 401,
+                        headers: { 'Content-Type': 'application/json' }
+                      }));
+                    }
+                    
+                    // If refresh token is invalid or missing, don't attempt the refresh
+                    // This prevents the 400 error that requires a second click
+                    if (!body.refresh_token || typeof body.refresh_token !== 'string' || body.refresh_token.length < 10) {
+                      console.log('Invalid or missing refresh token - skipping refresh attempt');
+                      return Promise.resolve(new Response(JSON.stringify({ 
+                        error: 'Invalid refresh token',
+                        error_description: 'Session expired or invalid'
+                      }), { 
+                        status: 401,
+                        headers: { 'Content-Type': 'application/json' }
+                      }));
+                    }
+                    
+                    // Get CSRF token if available
+                    let csrfToken = '';
+                    try {
+                      if (typeof window !== 'undefined' && window.sessionStorage) {
+                        csrfToken = window.sessionStorage.getItem('csrfToken') || '';
+                      }
+                    } catch (error) {
+                      console.warn('Unable to retrieve CSRF token from sessionStorage:', error);
+                    }
+                    
+                    // Extract refresh token from request
+                    const refreshToken = body.refresh_token;
+                    
+                    return fetch('/api/auth/token-refresh', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
+                      },
+                      body: JSON.stringify({
+                        refresh_token: refreshToken
+                      }),
+                      credentials: 'include',
+                      mode: 'same-origin'
+                    }).then(response => {
+                      if (!response.ok) {
+                        console.error(`Refresh token proxy error: ${response.status} ${response.statusText}`);
+                        // Let the Supabase client handle this error
+                      } else {
+                        console.log('Refresh token proxy successful');
+                      }
+                      return response;
+                    }).catch(error => {
+                      console.error('Error using refresh token proxy:', error);
+                      throw error;
+                    });
+                  }
+                }
+                
+                // For signup specifically, use our proxy instead of direct Supabase API
+                if (urlString.includes('/auth/v1/signup')) {
+                  clearTimeout(timeoutId);
+                  console.log('Intercepting signup request to use proxy');
+                  
+                  // Parse body data
+                  let body: Record<string, any> = {};
+                  try {
+                    if (options.body) {
+                      if (typeof options.body === 'string') {
+                        body = JSON.parse(options.body);
+                      } else if (typeof options.body === 'object') {
+                        body = options.body as Record<string, any>;
+                      }
+                    }
+                  } catch (err) {
+                    console.error('Error parsing request body:', err);
+                  }
+                  
+                  // Validate required fields for signup
+                  const { email, password, options: signupOptions } = body;
+                  const userData = signupOptions?.data || {};
+                  
+                  if (!email || !password) {
+                    console.error('Missing required fields for signup:', { 
+                      hasEmail: !!email, 
+                      hasPassword: !!password,
+                      userData,
+                    });
+                    return Promise.reject(new Error('Email and password are required for signup'));
+                  }
+                  
+                  // Ensure we have a username
+                  // Extract from metadata if it exists, or use email as fallback
+                  const username = userData.username || email.split('@')[0];
+                  
+                  // Create enhanced body with all required fields
+                  const enhancedBody = {
+                    ...body,
+                    username,
+                    email,
+                    password,
+                    // Add any user metadata from options
+                    name: userData.name || userData.full_name || '',
+                  };
+                  
+                  console.log('Signup request fields:', {
+                    hasEmail: !!enhancedBody.email,
+                    hasPassword: !!enhancedBody.password,
+                    hasUsername: !!enhancedBody.username,
+                    hasName: !!enhancedBody.name,
+                  });
+                  
+                  // Get CSRF token if available
+                  let csrfToken = '';
+                  try {
+                    if (typeof window !== 'undefined' && window.sessionStorage) {
+                      csrfToken = window.sessionStorage.getItem('csrfToken') || '';
+                    }
+                  } catch (error) {
+                    console.warn('Unable to retrieve CSRF token from sessionStorage:', error);
+                  }
+                  
+                  return fetch('/api/auth/signup', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
+                    },
+                    body: JSON.stringify(enhancedBody),
+                    credentials: 'include',
+                    mode: 'same-origin'
+                  }).catch(error => {
+                    console.error('Error using signup proxy:', error);
+                    throw error;
+                  });
+                }
+                
+                // For any other auth endpoint, add CORS mode explicitly
+                console.log(`Auth request: ${urlString} with credentials`);
+              }
+              
+              // For all other requests, add CORS mode and credentials
+              const fetchPromise = fetch(url, {
+                ...options,
+                headers,
+                // Always include credentials for Supabase requests
+                credentials: 'include',
+                signal: controller.signal,
+                mode: 'cors'
+              });
+              
+              // Add timeout cleanup
+              return fetchPromise.finally(() => {
+                clearTimeout(timeoutId);
+              });
+            } catch (error) {
+              console.error('Error in Supabase fetch interceptor:', error);
+              // Re-throw to maintain expected error handling
+              throw error;
+            }
+          }
+        }
+      }
+    );
+    
+    // Add robust error handling for WebSocket connections
+    if (typeof window !== 'undefined') {
+      // Setup global unhandled promise rejection handler for WebSocket issues
+      window.addEventListener('unhandledrejection', (event) => {
+        if (
+          event.reason && 
+          (event.reason.message?.includes('WebSocket connection') || 
+           event.reason.message?.includes('Connection closed'))
+        ) {
+          console.warn('WebSocket connection issue detected:', event.reason.message);
+          handleWebSocketReconnection();
+        }
+      });
+      
+      // Monitor for WebSocket errors using a global handler
+      window.addEventListener('error', (event) => {
+        if (
+          event.message && 
+          (event.message.includes('WebSocket') || 
+           event.message.includes('Connection closed'))
+        ) {
+          console.warn('WebSocket connection issue detected:', event.message);
+          handleWebSocketReconnection();
+        }
+      });
+    }
+  }
+
+  return browserInstance;
 }
 
 /**

@@ -10,10 +10,25 @@ const USE_DIRECT_URLS = false;
 
 /**
  * Gets the first letter of a name for avatar fallback
+ * Supports fallback to email or a default character
  */
-export function getInitialLetter(name?: string | null): string {
-  if (!name) return '?';
-  return name.charAt(0).toUpperCase();
+export function getInitialLetter(name?: string | null, email?: string | null): string {
+  // Try to use the name first
+  if (name && name.trim().length > 0) {
+    return name.trim().charAt(0).toUpperCase();
+  }
+  
+  // If no name, try to use the email
+  if (email && email.trim().length > 0) {
+    // Use the first character of the email local part (before @)
+    const localPart = email.trim().split('@')[0];
+    if (localPart && localPart.length > 0) {
+      return localPart.charAt(0).toUpperCase();
+    }
+  }
+  
+  // Default fallback
+  return '?';
 }
 
 /**

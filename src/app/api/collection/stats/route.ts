@@ -1,4 +1,3 @@
-import { createAppRouterSupabaseClient } from '@/lib/supabase';
 import { getSupabaseClient } from '@/lib/supabase-singleton';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
@@ -11,9 +10,7 @@ export async function GET(req: Request) {
   
   try {
     // Get cookies for auth
-    // Cookies are now handled internally by createAppRouterSupabaseClient
-// // Cookies are now handled internally by createAppRouterSupabaseClient
-// const cookieStore = cookies();;;
+    const cookieStore = await cookies();
     
     // Create a Supabase client
     console.log(`[${debugId}] 🔨 Creating Supabase API client`);

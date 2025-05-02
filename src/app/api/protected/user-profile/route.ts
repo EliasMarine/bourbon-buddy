@@ -12,10 +12,10 @@ export async function GET(request: Request) {
     );
   }
 
-  // Fetch the user data from the User table
+  // Fetch the user data from the User table with all profile fields
   const { data: userData, error: userError } = await supabase
     .from('User')
-    .select('id, name, email, username, image')
+    .select('id, name, email, username, image, coverPhoto')
     .eq('id', user.id)
     .single();
 
@@ -29,7 +29,8 @@ export async function GET(request: Request) {
         email: user.email,
         name: user.user_metadata?.full_name || user.user_metadata?.name || 'User',
         username: user.user_metadata?.username || user.user_metadata?.preferred_username || user.email?.split('@')[0],
-        image: user.user_metadata?.avatar_url || user.user_metadata?.picture
+        image: user.user_metadata?.avatar_url || user.user_metadata?.picture,
+        coverPhoto: user.user_metadata?.coverPhoto,
       }
     });
   }

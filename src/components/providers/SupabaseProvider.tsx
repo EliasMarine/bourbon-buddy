@@ -2,11 +2,11 @@
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
 import { Session, User, AuthError } from '@supabase/supabase-js';
-import { createBrowserSupabaseClient } from '@/lib/supabase';
+import { getSupabaseClient } from '@/lib/supabase-singleton';
 
 // Create a context for Supabase
 interface SupabaseContextType {
-  supabase: ReturnType<typeof createBrowserSupabaseClient>;
+  supabase: ReturnType<typeof getSupabaseClient>;
   isLoading: boolean;
   isAuthenticated: boolean;
   session: Session | null;
@@ -58,7 +58,7 @@ export function SupabaseProvider({
   nonce?: string; 
 }) {
   // Get the singleton Supabase client
-  const supabase = useMemo(() => createBrowserSupabaseClient(), []);
+  const supabase = useMemo(() => getSupabaseClient(), []);
   
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);

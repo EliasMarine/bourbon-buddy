@@ -1,8 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import crypto from 'crypto'
-import { createMiddlewareClient } from "@/lib/auth";
-import { nanoid } from "nanoid";
 
 // List of protected routes (require authentication)
 const protectedRoutes = [
@@ -113,7 +111,7 @@ function createCSPHeader(nonce: string): string {
     return `
       ${baseDirectives}
       script-src 'self' 'nonce-${nonce}' 'unsafe-eval' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com;
-      style-src 'self' 'unsafe-inline' https://vercel.com https://fonts.googleapis.com;
+      style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://vercel.com https://fonts.googleapis.com;
     `;
   }
   
@@ -122,15 +120,15 @@ function createCSPHeader(nonce: string): string {
     return `
       ${baseDirectives}
       script-src 'self' 'nonce-${nonce}' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com 'unsafe-inline';
-      style-src 'self' 'unsafe-inline' https://vercel.com https://fonts.googleapis.com;
+      style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://vercel.com https://fonts.googleapis.com;
     `;
   }
   
-  // Production: allow unsafe-inline for styles to fix upload component issues
+  // Production: strict CSP with nonces and allow essential MUX domains
   return `
     ${baseDirectives}
     script-src 'self' 'nonce-${nonce}' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com;
-    style-src 'self' 'unsafe-inline' https://vercel.com https://fonts.googleapis.com;
+    style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://vercel.com https://fonts.googleapis.com;
   `;
 }
 

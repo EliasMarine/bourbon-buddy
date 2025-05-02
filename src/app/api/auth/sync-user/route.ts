@@ -20,6 +20,7 @@ export async function GET(request: Request) {
       );
     }
 
+    // Query the user from the database
     const { data, error: checkError } = await supabase
       .from('User')
       .select('id, name, email, username, image')
@@ -57,78 +58,45 @@ export async function POST(request: Request) {
 
     console.log('Syncing user to database:', user.id);
 
-    // Get user profile data from auth metadata with better fallbacks
-    const getName = () => {
-      const metadata = user.user_metadata || {};
-      return metadata.full_name || 
-             metadata.name || 
-             user.email?.split('@')[0] || 
-             'New User';
-    };
+    // Get user profile data from auth metadata
+    const name = user.user_metadata?.full_name || 
+                 user.user_metadata?.name || 
+                 user.email?.split('@')[0] || 
+                 'New User';
     
-    const getUsername = () => {
-      const metadata = user.user_metadata || {};
-      return metadata.username || 
-             metadata.preferred_username || 
-             user.email?.split('@')[0] || 
-             `user_${user.id.substring(0, 8)}`;
-    };
+    const email = user.email || '';
+    const username = user.user_metadata?.username || 
+                     user.user_metadata?.preferred_username || 
+                     email?.split('@')[0] || 
+                     `user_${user.id.substring(0, 8)}`;
     
-    const getImage = () => {
-      const metadata = user.user_metadata || {};
-      return metadata.avatar_url || 
-             metadata.picture || 
-             null;
-    };
-    
-    // Prepare new user data with proper fallbacks
-    const name = getName();
-    const email = user.email;
-    const username = getUsername();
-    const image = getImage();
+    const image = user.user_metadata?.avatar_url || 
+                  user.user_metadata?.picture || 
+                  null;
 
-    // Check if user exists in the database and get current values
+    // Check if user exists in the database
     const { data: existingUser, error: checkError } = await supabase
       .from('User')
       .select('id, name, email, username, image')
       .eq('id', user.id)
       .single();
 
-    // Prepare the data to update, preserving existing values when new values are empty
-    let userData: Record<string, any> = {};
-    
+    // Merge existing data with new data to prevent overriding existing fields
+    let userData = {
+      id: user.id,
+      name,
+      email,
+      username,
+      image,
+    };
+
     if (existingUser) {
-      // For existing users, only update fields that have values and preserve existing data
       userData = {
-        // Preserve existing name if new name is empty or 'New User' or matches email username
-        name: name && name !== 'New User' && name !== user.email?.split('@')[0] 
-          ? name 
-          : existingUser.name || name,
-          
-        // Always keep email up to date
-        email: email || existingUser.email,
-        
-        // Preserve existing username if new username is empty or matches email username
-        username: username && username !== user.email?.split('@')[0] 
-          ? username 
-          : existingUser.username || username,
-          
-        // Preserve existing image if new image is empty
+        ...userData,
+        // Preserve existing values if new values are empty
+        name: name || existingUser.name,
+        username: username || existingUser.username,
         image: image || existingUser.image,
-        
-        // Add updated timestamp
-        updated_at: new Date().toISOString()
-      };
-    } else {
-      // For new users, use all available data
-      userData = {
-        id: user.id,
-        name,
-        email,
-        username,
-        image,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
       };
     }
 
@@ -155,35 +123,30 @@ export async function POST(request: Request) {
       );
     }
 
-    // Get the final user data to ensure we have the most up-to-date information
-    const { data: finalUserData, error: finalUserError } = await supabase
+    // Fetch the updated user record to send back in the response
+    const { data: updatedUser, error: fetchError } = await supabase
       .from('User')
       .select('id, name, email, username, image')
       .eq('id', user.id)
       .single();
-      
-    if (finalUserError) {
-      console.error('Error fetching updated user profile:', finalUserError);
-    }
-    
-    // Final user data to use for auth metadata sync
-    const finalUser = finalUserError ? userData : finalUserData;
 
-    // Use admin client to update user metadata to mark as registered and sync back to auth
+    if (fetchError) {
+      console.error('Error fetching updated user:', fetchError);
+    }
+
+    // Use admin client to update user metadata to mark as registered
+    // and keep auth metadata in sync with database
     try {
       await adminClient.auth.admin.updateUserById(user.id, {
         user_metadata: {
           ...user.user_metadata,
           is_registered: true,
           last_synced_at: new Date().toISOString(),
-          // Sync database values back to auth metadata for consistency
-          name: finalUser.name,
-          username: finalUser.username,
-          avatar_url: finalUser.image
+          name: updatedUser?.name || name,
+          username: updatedUser?.username || username,
+          avatar_url: updatedUser?.image || image
         }
       });
-      
-      console.log('User metadata updated in Auth');
     } catch (adminError) {
       console.error('Admin client error:', adminError);
       // Continue even if admin update fails
@@ -192,7 +155,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       message: 'User synced successfully',
-      user: finalUser
+      user: updatedUser || userData
     });
   } catch (err) {
     console.error('Error in sync user:', err);

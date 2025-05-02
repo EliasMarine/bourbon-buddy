@@ -19,7 +19,7 @@ async function setupSupabaseStorage() {
 
   try {
     // Create bucket if it doesn't exist
-    const bucketName = 'bourbon-buddy-uploads';
+    const bucketName = 'bourbon-buddy-prod';
     
     // Get list of existing buckets
     const { data: buckets, error: listError } = await supabase.storage.listBuckets();

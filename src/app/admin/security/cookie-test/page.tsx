@@ -1,4 +1,3 @@
-import { createAppRouterSupabaseClient } from '@/lib/supabase';
 import { cookies } from 'next/headers'
 import { getCsrfCookieName } from '@/lib/csrf'
 
@@ -12,9 +11,7 @@ interface CookieInfo {
 }
 
 export default async function CookieTestPage() {
-  // Cookies are now handled internally by createAppRouterSupabaseClient
-// // Cookies are now handled internally by createAppRouterSupabaseClient
-// const cookieStore = cookies();;
+  const cookieStore = await cookies()
   const allCookies = cookieStore.getAll()
   const csrfCookieName = getCsrfCookieName()
   const hasCsrfCookie = cookieStore.has(csrfCookieName)
@@ -29,9 +26,7 @@ export default async function CookieTestPage() {
   
   const setPrefixedCookieTest = async () => {
     'use server'
-    // Cookies are now handled internally by createAppRouterSupabaseClient
-// // Cookies are now handled internally by createAppRouterSupabaseClient
-// const cookieStore = cookies();;
+    const cookieStore = await cookies()
     
     // Set a __Host- prefixed cookie for testing
     cookieStore.set('__Host-test-cookie', 'test-value', {

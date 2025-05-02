@@ -174,32 +174,36 @@ export default function PastTastingsPage() {
     
     return (
       <div className="flex items-center gap-2">
-        <button
-          onClick={() => !isDisabled && setShowOnlyMyVideos(!showOnlyMyVideos)}
-          className={`relative flex items-center bg-gray-800/90 rounded-full p-1 transition-all border border-gray-700/50 shadow-md ${
-            isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-700/90'
+        <div
+          className={`relative px-1 py-1 bg-gray-800 rounded-full border border-gray-700/50 shadow-md ${
+            isDisabled ? 'opacity-50' : ''
           }`}
-          aria-label={showOnlyMyVideos ? 'Show all videos' : 'Show only my videos'}
-          role="switch"
-          aria-checked={showOnlyMyVideos}
-          disabled={isDisabled}
         >
-          <div className="relative flex items-center">
-            <div className="flex w-[160px] h-8">
-              <span className={`z-10 flex-1 flex items-center justify-center text-sm font-medium px-2 ${!showOnlyMyVideos ? 'text-white' : 'text-gray-400'}`}>
-                All Videos
-              </span>
-              <span className={`z-10 flex-1 flex items-center justify-center text-sm font-medium px-2 ${showOnlyMyVideos ? 'text-white' : 'text-gray-400'}`}>
-                My Videos
-              </span>
-            </div>
-            <div 
-              className={`absolute bg-gradient-to-r from-amber-600 to-amber-700 w-[80px] h-7 rounded-full shadow-md transition-transform transform duration-300 ease-in-out ${
-                showOnlyMyVideos ? 'translate-x-[78px]' : 'translate-x-0'
-              }`} 
-            />
-          </div>
-        </button>
+          <button
+            onClick={() => !isDisabled && setShowOnlyMyVideos(false)}
+            className={`relative z-10 px-4 py-1.5 rounded-full text-sm font-medium transition-colors min-w-[80px] ${
+              !showOnlyMyVideos ? 'text-white' : 'text-gray-400 hover:text-white'
+            } ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+            disabled={isDisabled || !showOnlyMyVideos}
+          >
+            All Videos
+          </button>
+          <button
+            onClick={() => !isDisabled && setShowOnlyMyVideos(true)}
+            className={`relative z-10 px-4 py-1.5 rounded-full text-sm font-medium transition-colors min-w-[80px] ${
+              showOnlyMyVideos ? 'text-white' : 'text-gray-400 hover:text-white'
+            } ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+            disabled={isDisabled || showOnlyMyVideos}
+          >
+            My Videos
+          </button>
+          <div 
+            className={`absolute inset-y-1 w-[80px] bg-gradient-to-r from-amber-600 to-amber-700 rounded-full shadow-md transition-all duration-300 ${
+              showOnlyMyVideos ? 'right-1' : 'left-1'
+            }`} 
+            aria-hidden="true"
+          />
+        </div>
         
         {/* Refresh button only shown when "My Videos" is selected */}
         {showOnlyMyVideos && (

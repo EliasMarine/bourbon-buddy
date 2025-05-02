@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSupabaseSession } from '@/hooks/use-supabase-session';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import Image from 'next/image';
 import { 
   Menu, X, User, LogOut, Home, BookOpen, 
@@ -20,9 +20,7 @@ import { toast } from 'react-hot-toast';
 export default function Navbar() {
   const { data: session, status, signOut } = useSupabaseSession();
   const { supabase } = useSupabase();
-  const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [isScrolled, setIsScrolled] = useState(false);
   const [showFloatingNav, setShowFloatingNav] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -31,39 +29,6 @@ export default function Navbar() {
   const profileButtonRef = useRef<HTMLButtonElement>(null);
   const lastScrollY = useRef(0);
   const [isLoading, setIsLoading] = useState(false);
-
-  // Get user name with better fallback handling
-  const displayName = React.useMemo(() => {
-    // Check if session user exists
-    if (!session?.user) return 'User';
-
-    // Try multiple sources for the name in order of preference
-    
-    // 1. Check the direct name property from the database User table
-    if (session.user.name && session.user.name !== 'User') {
-      return session.user.name;
-    }
-    
-    // 2. Check user_metadata with different possible fields
-    // @ts-ignore - user_metadata might exist in Supabase Auth sessions
-    const metadata = session.user.user_metadata;
-    if (metadata) {
-      // Check specific metadata fields in order of preference
-      if (metadata.name && metadata.name !== 'User') return metadata.name;
-      if (metadata.full_name) return metadata.full_name;
-      if (metadata.preferred_username) return metadata.preferred_username;
-      if (metadata.username) return metadata.username;
-      if (metadata.given_name) return metadata.given_name;
-    }
-    
-    // 3. Fallback to email username part if available
-    if (session.user.email) {
-      return session.user.email.split('@')[0];
-    }
-    
-    // Last resort
-    return 'User';
-  }, [session?.user]);
 
   // Handle scroll for navbar background and floating navigation
   useEffect(() => {
@@ -229,7 +194,7 @@ export default function Navbar() {
           <ProfileAvatar size="large" />
           <div className="overflow-hidden">
             <p className="text-sm text-white font-medium truncate max-w-[180px]">
-              {displayName}
+              {session.user?.name || 'User'}
             </p>
             <p className="text-xs text-gray-400 truncate max-w-[180px]">
               {session.user?.email || ''}
@@ -335,7 +300,7 @@ export default function Navbar() {
       <div className={`${sizeClasses[size]} relative overflow-hidden rounded-full`}>
         <SafeImage 
           src={profileImageUrl}
-          alt={`${displayName}'s profile`}
+          alt={`${session.user.name || 'User'}'s profile`}
           width={dimensions[size].width}
           height={dimensions[size].height}
           className={`${sizeClasses[size]} object-cover`}
@@ -343,11 +308,291 @@ export default function Navbar() {
           useTimestamp={false}
           fallback={
             <div className={`w-full h-full flex items-center justify-center ${DEFAULT_AVATAR_BG} text-white font-bold`}>
-              {getInitialLetter(displayName)}
+              {getInitialLetter(session.user.name, session.user.email)}
             </div>
           }
         />
       </div>
     );
   }
+
+  // Mobile menu profile section
+  function MobileProfileSection() {
+    if (!session) return null;
+    
+    return (
+      <div className="mt-4 border-t border-gray-800 pt-4">
+        <div className="flex items-center gap-3 px-3 py-2 mb-4">
+          <ProfileAvatar size="mobile" />
+          <div className="overflow-hidden max-w-[70%]">
+            <p className="font-medium text-white truncate max-w-full">{session.user?.name}</p>
+            <p className="text-xs text-gray-400 truncate max-w-full">{session.user?.email}</p>
+            <Link 
+              href="/profile"
+              className="text-xs text-amber-500 hover:text-amber-400 mt-1 inline-block"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              View Full Profile
+            </Link>
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <h3 className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Profile Settings
+          </h3>
+          
+          <MobileMenuLink href="/profile/edit" icon={<Edit size={18} />} label="Edit Profile Details" />
+          <MobileMenuLink href="/profile/about" icon={<UserCircle size={18} />} label="Customize Bio & Info" />
+          <MobileMenuLink href="/profile/photo" icon={<Camera size={18} />} label="Change Profile Picture" />
+          <MobileMenuLink href="/profile/appearance" icon={<Palette size={18} />} label="Profile Appearance" />
+        </div>
+        
+        <div className="mb-3">
+          <h3 className="px-3 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            Account & Security
+          </h3>
+          
+          <MobileMenuLink href="/profile/security" icon={<Shield size={18} />} label="Security Settings" />
+          <MobileMenuLink href="/profile/reset-credentials" icon={<RefreshCw size={18} />} label="Reset Credentials" />
+        </div>
+        
+        <button
+          className="w-full mt-2 px-3 py-2.5 rounded-lg font-medium flex items-center text-red-400 hover:text-red-300 hover:bg-gray-800/50"
+          onClick={handleSignOut}
+          data-prefetch="false"
+        >
+          <LogOut className="mr-3" size={18} />
+          Sign Out
+        </button>
+      </div>
+    );
+  }
+
+  // Mobile menu link component
+  function MobileMenuLink({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
+    // Determine if this is a sensitive link that shouldn't be prefetched
+    const isSensitiveLink = href.includes('security') || 
+                          href.includes('reset-credentials') ||
+                          href.includes('password');
+
+    return (
+      <Link
+        href={href}
+        className="px-3 py-2.5 rounded-lg font-medium flex items-center text-gray-300 hover:text-white hover:bg-gray-800/50"
+        onClick={() => setIsMobileMenuOpen(false)}
+        prefetch={isSensitiveLink ? false : undefined}
+      >
+        <span className="mr-3">{icon}</span>
+        {label}
+      </Link>
+    );
+  }
+
+  return (
+    <>
+      {/* Main Navbar */}
+      <header 
+        className={`fixed w-full top-0 z-[9999] transition-all duration-300 ${
+          isScrolled || isMobileMenuOpen 
+            ? 'bg-gray-900/95 backdrop-blur-md shadow-md' 
+            : 'bg-gray-900/0'
+        }`}
+      >
+        <div className="container mx-auto px-4">
+          <div className="flex items-center justify-between h-16">
+            {/* Logo */}
+            <Link href="/" className="text-white font-bold text-xl flex items-center">
+              <div className="flex items-center">
+                <Image
+                  src="/images/svg%20logo%20icon/Glencairn/Bourbon%20Budy%20(200%20x%2050%20px)%20(Logo)(1).svg"
+                  alt="Bourbon Buddy Logo"
+                  width={48}
+                  height={48}
+                  priority
+                />
+                <span className="pl-0 -ml-2">Bourbon Buddy</span>
+              </div>
+            </Link>
+
+            {/* Desktop Navigation */}
+            <nav className="hidden md:flex items-center space-x-2">
+              {navLinks.map((link) => (
+                <Link
+                  key={link.name}
+                  href={link.href}
+                  className={`px-3 py-1.5 rounded-lg text-base font-medium flex items-center ${
+                    isActive(link.href)
+                      ? isScrolled 
+                        ? 'text-amber-500 bg-gray-800' 
+                        : 'text-amber-500 bg-gray-900/50'
+                      : 'text-gray-300 hover:text-white hover:bg-gray-800/50'
+                  }`}
+                >
+                  <span className="mr-2">{link.icon}</span>
+                  {link.name}
+                </Link>
+              ))}
+            </nav>
+
+            {/* Authentication/Profile Section */}
+            <div className="hidden md:flex items-center">
+              {status === 'loading' ? (
+                // Show a smoother loading state
+                <div className="flex items-center gap-2 bg-gray-800/80 px-4 py-2 rounded-lg animate-pulse">
+                  <div className="w-8 h-8 rounded-full bg-gray-700"></div>
+                  <div className="w-20 h-4 bg-gray-700 rounded"></div>
+                </div>
+              ) : session ? (
+                <div className="relative">
+                  <button
+                    ref={profileButtonRef}
+                    className={`flex items-center gap-2 ${
+                      isScrolled 
+                        ? 'bg-gray-800 hover:bg-gray-700' 
+                        : 'bg-gray-900/50 hover:bg-gray-800/70'
+                    } px-3 py-1.5 rounded-lg text-sm font-medium transition-colors`}
+                    onClick={() => setIsProfileOpen(!isProfileOpen)}
+                    aria-expanded={isProfileOpen}
+                    aria-haspopup="true"
+                  >
+                    <ProfileAvatar />
+                    <span className="text-white max-w-[120px] truncate">
+                      {session.user?.name || 'User'}
+                    </span>
+                    <ChevronDown 
+                      size={16} 
+                      className={`transition-transform ${isProfileOpen ? 'rotate-180' : ''}`} 
+                    />
+                  </button>
+
+                  {isProfileOpen && <ProfileMenu />}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/login"
+                    className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${
+                      isScrolled 
+                        ? 'bg-gray-800 hover:bg-gray-700' 
+                        : 'bg-gray-900/50 hover:bg-gray-800/70'
+                    } transition-colors`}
+                  >
+                    Sign In
+                  </Link>
+                  <Link
+                    href="/signup"
+                    className="px-4 py-2 text-sm font-medium text-white rounded-lg bg-amber-600 hover:bg-amber-700 transition-colors"
+                  >
+                    Sign Up
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            {/* Mobile Menu Button */}
+            <button
+              className={`md:hidden p-2 rounded-lg text-gray-400 hover:text-white ${
+                isScrolled 
+                  ? 'hover:bg-gray-800' 
+                  : 'hover:bg-gray-800/50'
+              }`}
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-expanded={isMobileMenuOpen}
+              aria-label="Toggle menu"
+            >
+              {isMobileMenuOpen ? <X size={28} /> : <Menu size={28} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Menu */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden bg-gray-900 border-t border-gray-800">
+            <div className="container mx-auto px-4 py-3">
+              <nav className="grid gap-2">
+                {navLinks.map((link) => (
+                  <Link
+                    key={link.name}
+                    href={link.href}
+                    className={`px-4 py-3 rounded-lg text-base font-medium flex items-center ${
+                      isActive(link.href)
+                        ? 'text-amber-500 bg-gray-800'
+                        : 'text-gray-300 hover:text-white hover:bg-gray-800/50'
+                    }`}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    <span className="mr-3">{link.icon}</span>
+                    {link.name}
+                  </Link>
+                ))}
+
+                {/* Mobile Authentication */}
+                {status === 'loading' ? (
+                  // Show a nicer loading state for mobile
+                  <div className="mt-4 px-3 py-3 bg-gray-800/50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gray-700 animate-pulse"></div>
+                      <div className="space-y-2">
+                        <div className="w-24 h-4 bg-gray-700 rounded animate-pulse"></div>
+                        <div className="w-32 h-3 bg-gray-700/70 rounded animate-pulse"></div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {!session ? (
+                      <div className="mt-4 grid gap-2">
+                        <Link
+                          href="/login"
+                          className="px-3 py-2.5 rounded-lg text-center font-medium text-white bg-gray-800 hover:bg-gray-700"
+                        >
+                          Sign In
+                        </Link>
+                        <Link
+                          href="/signup"
+                          className="px-3 py-2.5 rounded-lg text-center font-medium text-white bg-amber-600 hover:bg-amber-700"
+                        >
+                          Sign Up
+                        </Link>
+                      </div>
+                    ) : (
+                      <MobileProfileSection />
+                    )}
+                  </>
+                )}
+              </nav>
+            </div>
+          </div>
+        )}
+      </header>
+
+      {/* Floating Navigation */}
+      <div 
+        className={`fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[9998] transition-all duration-500 ${
+          showFloatingNav 
+            ? 'translate-y-0 opacity-100' 
+            : 'translate-y-20 opacity-0 pointer-events-none'
+        }`}
+      >
+        <nav className="flex items-center bg-gray-800/95 backdrop-blur-md rounded-full px-2 py-1.5 shadow-lg border border-gray-700">
+          {navLinks.map((link) => (
+            <Link
+              key={link.name}
+              href={link.href}
+              className={`p-2 rounded-full mx-1 flex items-center justify-center transition-colors ${
+                isActive(link.href) 
+                  ? 'bg-amber-600 text-white' 
+                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+              }`}
+              title={link.name}
+            >
+              {React.cloneElement(link.icon, { size: 22 })}
+              <span className="sr-only">{link.name}</span>
+            </Link>
+          ))}
+        </nav>
+      </div>
+    </>
+  );
 }

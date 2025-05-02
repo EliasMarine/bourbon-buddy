@@ -1,4 +1,3 @@
-import { createAppRouterSupabaseClient } from '@/lib/supabase';
 import { createBrowserClient, createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
@@ -18,9 +17,7 @@ export function createClient() {
  * Creates a Supabase client for server components
  */
 export async function createServerComponentClient() {
-  // Cookies are now handled internally by createAppRouterSupabaseClient
-// // Cookies are now handled internally by createAppRouterSupabaseClient
-// const cookieStore = cookies();;
+  const cookieStore = await cookies()
   
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -50,9 +47,7 @@ export async function createServerComponentClient() {
  * Creates a Supabase client for server actions
  */
 export async function createActionClient() {
-  // Cookies are now handled internally by createAppRouterSupabaseClient
-// // Cookies are now handled internally by createAppRouterSupabaseClient
-// const cookieStore = cookies();;
+  const cookieStore = await cookies()
   
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
