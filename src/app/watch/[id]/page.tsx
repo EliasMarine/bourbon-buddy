@@ -29,6 +29,10 @@ interface Video {
   updatedAt: Date
   publiclyListed: boolean
   views: number
+  user?: {
+    name: string | null
+    image: string | null
+  }
 }
 
 // Define the Comment interface
@@ -58,38 +62,50 @@ async function getVideo(id: string): Promise<Video | null> {
     const { data: video, error } = await safeSupabaseQuery(async () => {
       const { data, error } = await supabaseAdmin
         .from('Video') // Table name is Video (capital V, no quotes)
-        .select('*')
+        .select('*, user:userId(name, image)')
         .eq('id', id)
         .single();
       
       return { data, error };
     });
     
-    if (error || !video || !video.muxPlaybackId || video.status !== 'ready') {
-      console.error(`Error finding video or video not ready: ${error?.message}`);
+    if (error || !video) {
+      console.error(`Error finding video: ${error?.message}`);
       return null;
-    }
-    
-    // Increment view count
-    const { error: updateError } = await safeSupabaseQuery(async () => {
-      // Use an atomic increment operation
-      const { error } = await supabaseAdmin
-        .from('Video') // Table name is Video (capital V, no quotes)
-        .update({ views: (video.views || 0) + 1 })
-        .eq('id', id);
-      
-      return { error };
-    });
-    
-    if (updateError) {
-      console.error(`Error incrementing view count: ${updateError.message}`);
-      // Continue even if view count update fails
     }
     
     return video;
   } catch (error) {
     console.error(`Error fetching video with ID ${id}:`, error);
     return null;
+  }
+}
+
+// Get additional videos from the same user
+async function getUserVideos(userId: string, currentVideoId: string, limit = 8): Promise<Video[]> {
+  if (!userId) return [];
+  
+  try {
+    const { data, error } = await safeSupabaseQuery(async () => {
+      return supabaseAdmin
+        .from('Video')
+        .select('*, user:userId(name, image)')
+        .eq('userId', userId)
+        .eq('status', 'ready')
+        .neq('id', currentVideoId) // Exclude current video
+        .order('createdAt', { ascending: false })
+        .limit(limit);
+    });
+    
+    if (error) {
+      console.error(`Error fetching user videos: ${error.message}`);
+      return [];
+    }
+    
+    return data || [];
+  } catch (error) {
+    console.error(`Error fetching user videos: ${error}`);
+    return [];
   }
 }
 
@@ -296,15 +312,11 @@ export default async function VideoPage(props: {
   await syncVideoStatus(id);
   
   // Fetch video data using Supabase with correct table name 'Video' (capital V, no quotes)
-  const { data: video, error } = await supabaseAdmin
-    .from('Video') // Table name is Video (capital V, no quotes)
-    .select('*')
-    .eq('id', id)
-    .single();
+  const video = await getVideo(id);
   
-  // If video is missing, not ready, or missing playbackId, show appropriate UI
-  if (error || !video) {
-    console.warn(`[watch/${id}] Video not found: ${error?.message}`);
+  // If video is missing, show not found
+  if (!video) {
+    console.warn(`[watch/${id}] Video not found`);
     return notFound();
   }
   
@@ -343,6 +355,9 @@ export default async function VideoPage(props: {
   // Fetch comments using the revised function
   const comments = await getVideoComments(id);
   
+  // Fetch related videos from the same user
+  const relatedVideos = video.userId ? await getUserVideos(video.userId, id, 8) : [];
+  
   // Format the date for display
   const formattedDate = new Date(video.createdAt).toLocaleDateString('en-US', {
     year: 'numeric',
@@ -351,7 +366,12 @@ export default async function VideoPage(props: {
   });
 
   // Use the server component wrapper for client components
-  return <VideoWrapper video={video} comments={comments} formattedDate={formattedDate} />
+  return <VideoWrapper 
+    video={video} 
+    comments={comments} 
+    formattedDate={formattedDate} 
+    relatedVideos={relatedVideos}
+  />
 }
 
 // Add a loading state component
@@ -370,10 +390,16 @@ export function Loading() {
 }
 
 // Use a server component to import and load the client component
-async function VideoWrapper({ video, comments, formattedDate }: { 
+async function VideoWrapper({ 
+  video, 
+  comments, 
+  formattedDate,
+  relatedVideos 
+}: { 
   video: Video; 
   comments: Comment[];
   formattedDate: string;
+  relatedVideos: Video[];
 }) {
   // Dynamic import for client component
   const VideoPlaybackPageComponent = (await import('./video-playback-page')).default;
@@ -381,6 +407,7 @@ async function VideoWrapper({ video, comments, formattedDate }: {
   return <VideoPlaybackPageComponent 
     video={video} 
     comments={comments} 
-    formattedDate={formattedDate} 
+    formattedDate={formattedDate}
+    relatedVideos={relatedVideos}
   />;
 } 
