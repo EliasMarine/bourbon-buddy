@@ -62,6 +62,13 @@ export default async function RootLayout({
         {/* Make nonce available to client components if it exists */}
         {nonce && <meta property="csp-nonce" content={nonce} />}
         
+        {/* Preload MUX player script */}
+        <Script
+          src="https://cdn.jsdelivr.net/npm/@mux/mux-player"
+          strategy="afterInteractive"
+          nonce={nonce}
+        />
+        
         {/* Properly preload the debug scripts with correct attributes */}
         {process.env.NODE_ENV !== 'production' && (
           <>

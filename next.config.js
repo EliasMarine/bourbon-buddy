@@ -100,6 +100,21 @@ const nextConfig = {
         hostname: 'bdliquorwine.com',
         pathname: '**',
       },
+      {
+        protocol: 'https',
+        hostname: '**.mux.com',
+        pathname: '**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'image.mux.com',
+        pathname: '**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'stream.mux.com',
+        pathname: '**',
+      },
     ],
     domains: [
       'localhost',
@@ -117,6 +132,9 @@ const nextConfig = {
       'woodencork.com',
       'whiskeycaviar.com',
       'bdliquorwine.com',
+      'mux.com',
+      'image.mux.com',
+      'stream.mux.com',
     ]
   },
   // Set a custom webpack config for Socket.IO
