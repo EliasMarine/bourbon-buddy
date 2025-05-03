@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { MuxPlayer } from '@/components/ui/mux-player'
+import MuxPlayer from '@/components/ui/mux-player'
 import DeleteVideoButton from './DeleteVideoButton'
 import VideoComments from '@/components/video-comments'
 import { ErrorBoundary } from 'react-error-boundary'
@@ -162,12 +162,17 @@ export default function VideoPlaybackPage({ video, comments, formattedDate, rela
                     playbackId={video.muxPlaybackId}
                     accentColor="#d97706" // Amber-600
                     metadataVideoTitle={video.title}
+                    metadataViewerUserId={video.userId || "anonymous"}
+                    autoPlay="muted"
+                    playsInline={true}
+                    loop={false}
+                    streamType="on-demand"
                     onError={(error) => {
                       console.error('MuxPlayer error:', error);
                       setPlaybackError('Playback error: ' + (error?.message || 'Unknown error'));
                     }}
                     className="w-full h-full"
-                    hideTryFallbackButton={true}
+                    hideControls={false}
                   />
                 </div>
               )}

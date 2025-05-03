@@ -85,6 +85,17 @@ function generateCSPNonce(): string {
   return Buffer.from(crypto.randomUUID()).toString('base64');
 }
 
+// Expanded for MUX Player Compatibility
+// The connect-src, media-src, and img-src directives need to include all required MUX domains
+// to prevent Cross-Origin Resource Sharing (CORS) issues and ensure the player works correctly
+const expandedMuxDirectives = `
+  img-src 'self' data: blob: https://*.mux.com https://image.mux.com https://mux.com https://vercel.live https://vercel.com https://*.pusher.com/ https://*.amazonaws.com https://*.supabase.co https://avatars.githubusercontent.com https://lh3.googleusercontent.com https://*.redd.it https://preview.redd.it https://i.redd.it https://www.buffalotracedistillery.com https://www.blantonsbourbon.com https://barbank.com https://woodencork.com https://whiskeycaviar.com https://bdliquorwine.com https://bourbonbuddy.s3.ca-west-1.s4.mega.io;
+  media-src 'self' blob: https://*.mux.com https://mux.com https://stream.mux.com https://assets.mux.com https://image.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://*.litix.io;
+  connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.mux.com https://mux.com https://inferred.litix.io https://*.litix.io https://stream.mux.com https://assets.mux.com https://*.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://storage.googleapis.com https://vercel.live https://vercel.com https://*.pusher.com wss://*.pusher.com https://vitals.vercel-insights.com;
+  frame-src 'self' https://vercel.live https://vercel.com https://*.mux.com;
+  script-src-elem 'self' 'unsafe-inline' https://www.gstatic.com https://assets.mux.com https://mux.com https://cdn.jsdelivr.net;
+`;
+
 // Create Content Security Policy with nonce
 function createCSPHeader(nonce: string): string {
   const isDevelopment = process.env.NODE_ENV !== 'production';
@@ -99,10 +110,7 @@ function createCSPHeader(nonce: string): string {
     base-uri 'self';
     form-action 'self';
     frame-ancestors 'none';
-    img-src 'self' data: blob: https://*.mux.com https://image.mux.com https://vercel.live https://vercel.com https://*.pusher.com/ https://*.amazonaws.com https://*.supabase.co https://avatars.githubusercontent.com https://lh3.googleusercontent.com https://*.redd.it https://preview.redd.it https://i.redd.it https://www.buffalotracedistillery.com https://www.blantonsbourbon.com https://barbank.com https://woodencork.com https://whiskeycaviar.com https://bdliquorwine.com https://bourbonbuddy.s3.ca-west-1.s4.mega.io;
-    media-src 'self' blob: https://*.mux.com https://stream.mux.com https://assets.mux.com https://image.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://*.litix.io;
-    connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.mux.com https://inferred.litix.io https://stream.mux.com https://assets.mux.com https://*.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://storage.googleapis.com https://vercel.live https://vercel.com https://*.pusher.com wss://*.pusher.com https://vitals.vercel-insights.com;
-    frame-src 'self' https://vercel.live https://vercel.com https://*.mux.com;
+    ${expandedMuxDirectives}
     upgrade-insecure-requests;
   `;
 

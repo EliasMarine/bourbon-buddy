@@ -1,118 +1,167 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import MuxPlayerElement from '@mux/mux-player-react'
+import React, { useState, useEffect, useRef } from 'react'
 
 // MuxPlayer requires the following CSP settings:
-//   img-src: https://image.mux.com
-//   media-src: https://stream.mux.com blob:
-//   connect-src: https://api.mux.com https://inferred.litix.io https://stream.mux.com
+//   connect-src: https://*.mux.com https://mux.com https://*.litix.io
+//   img-src: https://*.mux.com https://mux.com
+//   media-src: https://*.mux.com https://mux.com
 //   script-src: https://www.gstatic.com (for Chromecast)
 // Ensure these are present in your Content Security Policy for playback and analytics to work.
 
-interface MuxPlayerProps {
-  playbackId: string
-  metadataVideoTitle?: string
-  metadataViewerUserId?: string
-  accentColor?: string
-  className?: string
-  onError?: (error: any) => void
-  onPlaying?: () => void
-  hideTryFallbackButton?: boolean
+// Import the MuxPlayer web component (dynamically in useEffect)
+function loadMuxPlayerScript() {
+  if (typeof window !== 'undefined') {
+    // Check if script is already loaded
+    if (!document.querySelector('script[src*="@mux/mux-player"]')) {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@mux/mux-player';
+      script.async = true;
+      script.defer = true;
+      
+      // Get the nonce from meta tag if available
+      const nonceMeta = document.querySelector('meta[property="csp-nonce"]');
+      const nonce = nonceMeta ? nonceMeta.getAttribute('content') : '';
+      if (nonce) {
+        script.setAttribute('nonce', nonce);
+      }
+      
+      document.body.appendChild(script);
+      
+      return () => {
+        // Cleanup is optional since scripts usually stay in the DOM
+      };
+    }
+  }
 }
 
-export function MuxPlayer({
+// Define interface for all possible props
+interface MuxPlayerProps {
+  playbackId: string;
+  streamType?: 'on-demand' | 'live';
+  className?: string;
+  customDomain?: string;
+  startTime?: number;
+  muted?: boolean;
+  loop?: boolean;
+  autoPlay?: boolean | 'muted' | 'any'; // Support string options for autoPlay
+  accentColor?: string;
+  thumbnailTime?: string;
+  playsInline?: boolean;
+  hideControls?: boolean;
+  comfortLevelZones?: string;
+  metadataVideoTitle?: string;
+  metadataViewerUserId?: string;
+  onDataReady?: () => void;
+  onPlay?: () => void;
+  onPause?: () => void;
+  onError?: (error: any) => void;
+  onEnd?: () => void;
+  onTimeUpdate?: (e: CustomEvent<any>) => void;
+  maxResolution?: string;
+}
+
+// Export Mux Player component
+export default function MuxPlayer({
   playbackId,
-  metadataVideoTitle,
-  metadataViewerUserId,
-  accentColor = '#d97706', // Amber-600 for bourbon theme
+  streamType = 'on-demand',
   className = '',
+  customDomain,
+  startTime,
+  muted = false,
+  loop = false,
+  autoPlay = false,
+  accentColor = '#d97706', // Amber-600 from Tailwind
+  thumbnailTime,
+  metadataVideoTitle = '',
+  metadataViewerUserId = '',
+  playsInline = true,
+  hideControls = false,
+  comfortLevelZones,
+  maxResolution,
+  onDataReady,
+  onPlay,
+  onPause,
   onError,
-  onPlaying,
-  hideTryFallbackButton = false
+  onEnd,
+  onTimeUpdate,
 }: MuxPlayerProps) {
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
   const [fallbackMode, setFallbackMode] = useState(false)
   const [videoStalled, setVideoStalled] = useState(false)
-  const playerRef = useRef<HTMLElement | null>(null)
+  const [componentMounted, setComponentMounted] = useState(false);
+  const playerContainerRef = useRef<HTMLDivElement>(null)
   const videoMonitorRef = useRef<number | null>(null)
-
-  // Reset state when playback ID changes
+  
+  // Load the MuxPlayer script when the component mounts
   useEffect(() => {
-    setError(null)
-    setIsLoading(true)
-    setFallbackMode(false)
-    setVideoStalled(false)
+    loadMuxPlayerScript();
+    setComponentMounted(true);
     
-    // Check if the playback ID looks valid
-    if (!playbackId || playbackId.startsWith('placeholder-')) {
-      console.warn(`MuxPlayer: Invalid playbackId: "${playbackId}"`);
-      setError('Invalid playback ID');
-      setIsLoading(false);
-      if (onError) onError(new Error('Invalid playback ID'));
-    }
-    
-    // Cleanup any existing monitoring
     return () => {
+      // Clear any intervals on unmount
       if (videoMonitorRef.current) {
         window.clearInterval(videoMonitorRef.current);
         videoMonitorRef.current = null;
       }
     };
+  }, []);
+
+  // Reset state when playback ID changes
+  useEffect(() => {
+    setError(null)
+    setLoading(true)
+    setFallbackMode(false)
+    setVideoStalled(false)
+
+    if (!playerContainerRef.current) return;
+
+    // Check if playbackId is valid
+    if (!playbackId || playbackId.trim() === '') {
+      console.warn(`MuxPlayer: Invalid playbackId: "${playbackId}"`);
+      setError('Invalid playback ID');
+      setLoading(false);
+      if (onError) onError(new Error('Invalid playback ID'));
+    }
+    
+    // Clear any existing video monitoring
+    if (videoMonitorRef.current) {
+      window.clearInterval(videoMonitorRef.current);
+      videoMonitorRef.current = null;
+    }
   }, [playbackId, onError])
 
   // Function to monitor video rendering
   const startVideoMonitoring = () => {
-    // Clear any existing monitoring
     if (videoMonitorRef.current) {
       window.clearInterval(videoMonitorRef.current);
     }
     
-    // Reset stalled state
-    setVideoStalled(false);
+    const checkFrameProgression = () => {
+      // Logic to detect stalled video would go here
+      // For now, this is a placeholder
+    };
     
-    // Start monitoring the video element for rendering issues
-    videoMonitorRef.current = window.setInterval(() => {
-      const muxPlayerElement = playerRef.current;
-      if (!muxPlayerElement) return;
-      
-      try {
-        // Access the underlying video element
-        const videoElement = muxPlayerElement.querySelector('video');
-        if (!videoElement) return;
-        
-        // Check if the video is playing but has a black screen or rendering issues
-        // videoHeight will be 0 if the video is not rendering correctly
-        if (
-          !videoElement.paused && 
-          !videoElement.ended && 
-          videoElement.currentTime > 0 && 
-          videoElement.readyState >= 3 && // HAVE_FUTURE_DATA or HAVE_ENOUGH_DATA
-          (videoElement.videoWidth === 0 || videoElement.videoHeight === 0 || videoElement.getVideoPlaybackQuality?.()?.totalVideoFrames === 0)
-        ) {
-          console.warn('MuxPlayer: Video stalled - black screen detected');
-          setVideoStalled(true);
-          
-          // Stop the monitoring interval
-          if (videoMonitorRef.current) {
-            window.clearInterval(videoMonitorRef.current);
-            videoMonitorRef.current = null;
-          }
-          
-          // Auto-switch to fallback mode
-          setFallbackMode(true);
-        }
-      } catch (e) {
-        console.error('Error monitoring video playback:', e);
-      }
-    }, 2000); // Check every 2 seconds
+    videoMonitorRef.current = window.setInterval(checkFrameProgression, 5000);
   };
 
   // Apply custom styling to the Mux player volume slider and quality menu
   useEffect(() => {
+    if (!componentMounted) return;
+    
     // This CSS is needed to fix the volume slider and resolution menu background
-    const style = document.createElement('style')
+    const style = document.createElement('style');
+    
+    // Get the nonce from the CSP meta tag if available
+    const nonceMeta = document.querySelector('meta[property="csp-nonce"]');
+    const nonce = nonceMeta ? nonceMeta.getAttribute('content') : '';
+    
+    // Apply the nonce if available to comply with CSP
+    if (nonce) {
+      style.setAttribute('nonce', nonce);
+    }
+    
     style.textContent = `
       /* Fix for volume slider having transparent background */
       mux-player .volume-slider,
@@ -220,194 +269,218 @@ export function MuxPlayer({
         margin-bottom: 8px !important;
         padding-bottom: 12px !important;
       }
-    `
-    document.head.appendChild(style)
+      
+      /* Make sure controls are properly contained within the player */
+      mux-player {
+        display: block !important;
+        position: relative !important;
+        width: 100% !important;
+        height: 100% !important;
+      }
+      
+      /* Ensure control UI elements remain inside the player */
+      mux-player::part(vertical-layer),
+      mux-player::part(centered-layer),
+      mux-player::part(gesture-layer) {
+        position: absolute !important;
+        inset: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        overflow: hidden !important;
+      }
+      
+      /* Fix controls positioning */
+      mux-player::part(top),
+      mux-player::part(center),
+      mux-player::part(bottom) {
+        position: absolute !important;
+        left: 0 !important;
+        right: 0 !important;
+        z-index: 2 !important;
+      }
+      
+      mux-player::part(top) {
+        top: 0 !important;
+      }
+      
+      mux-player::part(center) {
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+      }
+      
+      mux-player::part(bottom) {
+        bottom: 0 !important;
+      }
+    `;
+    document.head.appendChild(style);
     
     return () => {
-      document.head.removeChild(style)
-    }
-  }, [accentColor])
+      document.head.removeChild(style);
+    };
+  }, [accentColor, componentMounted]);
 
   const handleError = (err: any) => {
     console.error('MUX player error:', err)
     setError('Failed to load video. Please try again later.')
-    setIsLoading(false)
+    setLoading(false)
     if (onError) onError(err)
-  }
-
-  const handleStalled = () => {
-    console.warn('MuxPlayer: Video stalled event detected');
-    // We don't immediately switch to fallback, but let the monitor handle it
-    // This helps avoid false positives from brief network hiccups
   }
 
   const handlePlaying = () => {
     console.log('MuxPlayer: Video is now playing');
-    setIsLoading(false)
+    setLoading(false)
     
     // Start monitoring for video rendering issues
     startVideoMonitoring();
     
-    if (onPlaying) onPlaying()
+    if (onPlay) onPlay()
   }
   
-  const toggleFallbackMode = () => {
-    // Stop any existing monitoring when manually toggling
-    if (videoMonitorRef.current) {
-      window.clearInterval(videoMonitorRef.current);
-      videoMonitorRef.current = null;
+  // If player is in fallback mode (native HTML5 video)
+  if (fallbackMode) {
+    if (error) {
+      return (
+        <div className={`relative rounded-lg overflow-hidden flex justify-center items-center bg-zinc-900 ${className}`} style={{ aspectRatio: '16/9' }}>
+          <div className="p-4 text-center">
+            <p className="text-red-400 text-sm mb-4">{error}</p>
+            <div className="flex gap-2 justify-center">
+              <button 
+                className="px-4 py-2 bg-amber-800 text-white rounded-md hover:bg-amber-700 transition-colors"
+                onClick={() => {
+                  setVideoStalled(false)
+                  setLoading(true)
+                  setFallbackMode(false)
+                }}
+              >
+                Try Again
+              </button>
+              {!hideControls && (
+                <button 
+                  className="px-4 py-2 bg-amber-700 text-white rounded-md hover:bg-amber-600 transition-colors"
+                  onClick={() => {
+                    setError(null)
+                    setLoading(true)
+                    setFallbackMode(false)
+                  }}
+                >
+                  Use HTML5 Player
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )
     }
     
-    setFallbackMode(prev => !prev);
-    setError(null);
-    setVideoStalled(false);
-  }
-
-  if (videoStalled) {
-    return (
-      <div className={`bg-zinc-900 flex flex-col items-center justify-center ${className}`} style={{ aspectRatio: '16/9' }}>
-        <div className="text-center p-6">
-          <p className="text-amber-400 font-medium mb-4">Video playback issue detected</p>
-          <p className="text-zinc-300 mb-4">The video has encountered a rendering issue, but the audio may still be working.</p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <button 
-              className="px-4 py-2 bg-zinc-800 text-white rounded-md hover:bg-zinc-700 transition-colors"
-              onClick={() => {
-                setVideoStalled(false)
-                setIsLoading(true)
-                setFallbackMode(false)
-              }}
-            >
-              Try Again
-            </button>
-            <button 
-              className="px-4 py-2 bg-amber-700 text-white rounded-md hover:bg-amber-600 transition-colors"
-              onClick={() => {
-                setFallbackMode(true);
-                setVideoStalled(false);
-              }}
-            >
-              Switch to Alternate Player
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className={`bg-zinc-900 flex flex-col items-center justify-center ${className}`} style={{ aspectRatio: '16/9' }}>
-        <div className="text-center p-6">
-          <p className="text-red-400 font-medium mb-4">{error}</p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <button 
-              className="px-4 py-2 bg-zinc-800 text-white rounded-md hover:bg-zinc-700 transition-colors"
-              onClick={() => {
-                setError(null)
-                setIsLoading(true)
-                setFallbackMode(false)
-              }}
-            >
-              Try Again
-            </button>
-            {!hideTryFallbackButton && (
-              <button 
-                className="px-4 py-2 bg-amber-700 text-white rounded-md hover:bg-amber-600 transition-colors"
-                onClick={toggleFallbackMode}
-              >
-                Try Direct HLS
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    )
-  }
-  
-  if (fallbackMode) {
+    // Render fallback HTML5 video player
     return (
       <div className={`relative ${className}`} style={{ aspectRatio: '16/9' }}>
-        {!hideTryFallbackButton && (
+        {!hideControls && (
           <p className="absolute top-0 left-0 right-0 bg-amber-700 text-white text-xs p-1.5 text-center z-10">Alternate Player Mode</p>
         )}
         <video 
-          controls
           src={`https://stream.mux.com/${playbackId}.m3u8`}
-          className="w-full h-full bg-black" 
-          style={{ aspectRatio: '16/9' }}
+          controls
+          className="w-full h-full"
           onError={handleError}
-          onPlaying={handlePlaying}
-          onStalled={handleStalled}
           autoPlay
-          muted
           playsInline
         />
-        {!hideTryFallbackButton && (
+        {!hideControls && (
           <button 
             className="absolute bottom-3 left-3 px-3 py-1.5 bg-black/80 text-white text-xs rounded-md hover:bg-black/90 transition-colors z-10"
-            onClick={toggleFallbackMode}
+            onClick={() => setFallbackMode(false)}
           >
-            Switch to Main Player
+            Try MUX Player
           </button>
         )}
       </div>
     )
   }
 
+  // Default: Render MUX Player
   return (
-    <div className={`relative rounded-lg overflow-hidden ${className}`}>
-      {isLoading && (
+    <div className={`relative rounded-lg overflow-hidden ${className}`} ref={playerContainerRef}>
+      {loading && (
         <div className="absolute inset-0 bg-zinc-900 flex items-center justify-center z-10">
           <div className="animate-spin rounded-full h-14 w-14 border-t-2 border-b-2 border-amber-500"></div>
         </div>
       )}
-      <MuxPlayerElement
-        ref={playerRef}
-        playbackId={playbackId}
-        metadata={{
-          video_title: metadataVideoTitle || '',
-          viewer_user_id: metadataViewerUserId || '',
-        }}
-        streamType="on-demand"
-        accentColor={accentColor}
-        primaryColor={accentColor}
-        secondaryColor="#000000"
-        className={className}
-        onError={handleError}
-        onPlaying={handlePlaying}
-        onStalled={handleStalled}
-        style={{ 
-          '--controls-background-color': 'rgba(0, 0, 0, 0.8)',
-          '--seek-backward-button': 'rgba(0, 0, 0, 0.8)',
-          '--seek-forward-button': 'rgba(0, 0, 0, 0.8)',
-          '--play-button': 'rgba(0, 0, 0, 0.8)',
-          '--volume-range': '#000000',
-          '--mute-button': 'rgba(0, 0, 0, 0.8)',
-          '--time-display': 'rgba(0, 0, 0, 0.8)',
-          '--time-range': 'rgba(0, 0, 0, 0.8)',
-          '--live-button': 'rgba(0, 0, 0, 0.8)',
-          '--casting-button': 'rgba(0, 0, 0, 0.8)',
-          '--airplay-button': 'rgba(0, 0, 0, 0.8)',
-          '--pip-button': 'rgba(0, 0, 0, 0.8)',
-          '--fullscreen-button': 'rgba(0, 0, 0, 0.8)',
-          '--rendition-selectmenu': 'rgba(0, 0, 0, 0.8)',
-          '--playback-rate-selectmenu': 'rgba(0, 0, 0, 0.8)',
-          '--volume-slider': '#000000',
-          '--cast-button': 'none',
-          '--dialog-background-color': '#1f1f1f',
-          'margin': '0',
-          'background-color': '#000000'
-        } as React.CSSProperties}
-        autoPlay
-        muted
-      />
-      {!hideTryFallbackButton && (
+      
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center z-20 bg-black/80">
+          <div className="bg-zinc-900 p-5 max-w-md rounded-lg text-center">
+            <p className="text-red-400 mb-4">{error}</p>
+            <div className="flex gap-2 justify-center">
+              <button 
+                className="px-4 py-2 bg-amber-800 text-white rounded-md hover:bg-amber-700 transition-colors"
+                onClick={() => {
+                  setError(null)
+                  setLoading(true)
+                }}
+              >
+                Try Again
+              </button>
+              <button 
+                className="px-4 py-2 bg-amber-700 text-white rounded-md hover:bg-amber-600 transition-colors"
+                onClick={() => {
+                  setError(null)
+                  setLoading(true)
+                  setFallbackMode(true)
+                }}
+              >
+                Try HTML5 Player
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {videoStalled && (
+        <div className="absolute bottom-0 left-0 right-0 p-3 text-center bg-black/80 text-white text-sm">
+          <p>Video playback seems to be stalled. <button className="text-amber-400 underline" onClick={() => setFallbackMode(true)}>Try alternate player?</button></p>
+        </div>
+      )}
+      
+      {componentMounted && (
+        <div className="w-full h-full">
+          {/* @ts-ignore - Web component is defined globally */}
+          <mux-player
+            playback-id={playbackId}
+            metadata-video-title={metadataVideoTitle}
+            metadata-viewer-user-id={metadataViewerUserId}
+            stream-type={streamType}
+            accent-color={accentColor}
+            primary-color={accentColor}
+            start-time={startTime}
+            thumbnail-time={thumbnailTime}
+            max-resolution={maxResolution}
+            onloadstart={() => console.log('MuxPlayer: load started')}
+            oncanplay={handlePlaying}
+            onplaying={handlePlaying}
+            onerror={handleError}
+            onended={onEnd}
+            ontimeupdate={onTimeUpdate}
+            style={{
+              height: '100%',
+              width: '100%',
+              'background-color': '#000000',
+              '--controls-backdrop-color': 'rgba(0, 0, 0, 0.7)'
+            } as React.CSSProperties}
+            autoplay={autoPlay}
+            muted={muted}
+            loop={loop}
+            playsinline={playsInline}
+          ></mux-player>
+        </div>
+      )}
+      
+      {!hideControls && (
         <button 
           className="absolute bottom-3 right-3 px-2.5 py-1.5 bg-black/80 text-white text-xs rounded-md opacity-50 hover:opacity-100 z-10 transition-opacity"
-          onClick={toggleFallbackMode}
+          onClick={() => setFallbackMode(true)}
         >
-          Try Fallback
+          Use HTML5 Player
         </button>
       )}
     </div>
