@@ -167,6 +167,10 @@ export default function VideoPlaybackPage({ video, comments, formattedDate, rela
                     playsInline={true}
                     loop={false}
                     streamType="on-demand"
+                    controls={true} 
+                    hideControls={false}
+                    thumbnailTime="0"
+                    maxResolution="720p"
                     onError={(error) => {
                       console.error('MuxPlayer error:', error);
                       setPlaybackError('Playback error: ' + (error?.message || 'Unknown error'));
@@ -184,9 +188,7 @@ export default function VideoPlaybackPage({ video, comments, formattedDate, rela
                         console.error('Failed to record view:', e);
                       }
                     }}
-                    className="w-full h-full"
-                    hideControls={false}
-                    controls={true}
+                    className="w-full h-full rounded-none"
                   />
                 </div>
               )}
