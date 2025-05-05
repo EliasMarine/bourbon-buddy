@@ -8,6 +8,7 @@
   overflow: hidden;
   background-color: #000;
   z-index: 1;
+  display: flex; /* Add this to ensure proper flex layout */
 }
 
 .muxPlayer {
@@ -27,13 +28,22 @@
   width: 100% !important;
   height: 100% !important;
   display: block !important;
+  --media-object-fit: cover !important;
+  --media-object-position: center !important;
+  --controls-backdrop-color: rgba(0, 0, 0, 0.7) !important;
+  --media-primary-color: #d97706 !important;
+  --media-secondary-color: #FFFFFF !important;
 }
 
-.muxPlayer :global(mux-player::part(video)) {
+.muxPlayer :global(mux-player::part(video)),
+.muxPlayer :global(mux-player video) {
   z-index: 3;
   object-fit: cover !important; /* Ensure video covers the container */
   width: 100% !important;
   height: 100% !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
 }
 
 /* Explicitly hide poster/thumbnail parts */
@@ -45,10 +55,23 @@
 
 /* Ensure controls are visible */
 .muxPlayer :global(mux-player::part(controls)) {
-  display: block !important; /* Or flex, depending on Mux's internal structure */
+  display: block !important;
   opacity: 1 !important;
   visibility: visible !important;
   z-index: 10 !important; /* Keep controls above video */
+  position: absolute !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  height: auto !important;
+  width: 100% !important;
+  border-radius: 0 0 0.75rem 0.75rem !important;
+}
+
+/* Ensure media layer takes full size */
+.muxPlayer :global(mux-player::part(media-layer)) {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 /* This class will be applied to parent elements containing the mux player */

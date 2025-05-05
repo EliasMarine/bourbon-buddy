@@ -114,6 +114,20 @@ mux-player {
   display: block !important;
 }
 
+/* Fix for proper full-size playback */
+.mux-player-full-size {
+  height: 100%;
+  width: 100%;
+  background-color: #000000;
+  --controls-backdrop-color: rgba(0, 0, 0, 0.7);
+  --media-primary-color: var(--accent-color, #d97706);
+  --media-secondary-color: #FFFFFF;
+  --media-object-fit: cover;
+  aspect-ratio: 16/9;
+  overflow: hidden;
+  display: block;
+}
+
 /* Ensure the video covers the area */
 mux-player video {
   border-radius: 0.75rem !important;

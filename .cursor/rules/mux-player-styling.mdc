@@ -1,0 +1,134 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Mux Player Styling Guide
+
+This guide outlines the correct way to style and implement Mux Player in our application to prevent Content Security Policy (CSP) violations and ensure proper video display.
+
+## Key Components
+
+- The main Mux Player component: [src/components/ui/mux-player.tsx](mdc:src/components/ui/mux-player.tsx)
+- Video playback page: [src/app/watch/[id]/video-playback-page.tsx](mdc:src/app/watch/[id]/video-playback-page.tsx)
+- CSS Module for Mux Player: [src/app/watch/[id]/mux-player.module.css](mdc:src/app/watch/[id]/mux-player.module.css)
+- Global CSS rules: [src/app/globals.css](mdc:src/app/globals.css)
+
+## Critical Rules to Follow
+
+### 1. Never Use Inline Styles with Mux Player
+
+❌ **AVOID USING INLINE STYLES**:
+
+```jsx
+<mux-player
+  style={{
+    height: '100%',
+    width: '100%',
+    backgroundColor: '#000000',
+    '--controls-backdrop-color': 'rgba(0, 0, 0, 0.7)',
+    '--media-primary-color': accentColor,
+  } as React.CSSProperties}
+/>
+```
+
+### 2. Use CSS Modules for Page-Specific Styling
+
+✅ **USE CSS MODULES**:
+
+```jsx
+// In TSX file
+<div className={styles.videoContainer}>
+  <MuxPlayer
+    className={styles.muxPlayer}
+    // other props...
+  />
+</div>
+```
+
+```css
+/* In mux-player.module.css */
+.videoContainer {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  display: flex;
+}
+
+.muxPlayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+```
+
+### 3. Customize Web Component Properties with CSS Variables
+
+For global customizations, use CSS variables in your global CSS file or CSS modules:
+
+```css
+/* Global styling for mux-player custom element */
+.mux-player-full-size {
+  height: 100%;
+  width: 100%;
+  background-color: #000000;
+  --controls-backdrop-color: rgba(0, 0, 0, 0.7);
+  --media-primary-color: var(--accent-color, #d97706);
+  --media-secondary-color: #FFFFFF;
+  --media-object-fit: cover;
+}
+```
+
+### 4. Style Media Element with ::part selectors
+
+When needed, use CSS ::part selectors to style specific parts of the player:
+
+```css
+.muxPlayer :global(mux-player::part(video)) {
+  object-fit: cover !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.muxPlayer :global(mux-player::part(controls)) {
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 10 !important;
+}
+```
+
+### 5. Media Object Fit & Positioning
+
+Always set these properties in CSS, not inline:
+
+```css
+mux-player {
+  --media-object-fit: cover !important;
+  --media-object-position: center !important;
+}
+```
+
+## CSP Compliance
+
+Our application uses a strict Content Security Policy that disallows inline styles. The error:
+
+```
+Refused to apply inline style because it violates the following Content Security Policy directive: "style-src 'self' 'nonce-x' 'unsafe-inline' <URL>"
+```
+
+Appears when we use inline styles in React components. Always use CSS classes and modules instead.
+
+## Container Sizing
+
+For proper video sizing, ensure:
+
+1. The container element has a specific aspect ratio
+2. The Mux Player element has position: absolute and fills its container
+3. The video element uses object-fit: cover to fill its container
+
+This approach ensures video content displays properly while maintaining CSP compliance.

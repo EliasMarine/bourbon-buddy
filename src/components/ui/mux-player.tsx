@@ -317,15 +317,7 @@ export default function MuxPlayer({
             default-show-remaining-time=""
             keyboard-shortcuts="true"
             playback-rates="[0.5, 0.75, 1, 1.25, 1.5, 2]"
-            style={{
-              height: '100%',
-              width: '100%',
-              backgroundColor: '#000000',
-              '--controls-backdrop-color': 'rgba(0, 0, 0, 0.7)',
-              '--media-primary-color': accentColor,
-              '--media-secondary-color': '#FFFFFF',
-              '--media-object-fit': 'cover'
-            } as React.CSSProperties}
+            className="mux-player-full-size"
             autoplay={autoPlay}
             muted={muted}
             loop={loop}

@@ -180,8 +180,7 @@ export default function VideoPlaybackPage({
                     }}
                     onPlay={handlePlay}
                     onLoadedData={() => {
-                      // Removed JS style manipulation to avoid CSP issues
-                      // Rely on CSS for styling
+                      // No inline styling needed - CSS modules will handle it
                     }}
                     defaultHiddenCaptions
                     forwardSeekOffset={10}
