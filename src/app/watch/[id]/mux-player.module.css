@@ -1,0 +1,25 @@
+/* Custom styles for Mux Player using CSS modules for better CSP support */
+
+.videoContainer {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.muxPlayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+/* This class will be applied to parent elements containing the mux player */
+.playerWrapper {
+  width: 100%;
+  margin-bottom: 1rem;
+} 

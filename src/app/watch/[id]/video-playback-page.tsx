@@ -12,6 +12,7 @@ import {
 import VideoComments from '@/components/video-comments'
 import DeleteVideoButton from './DeleteVideoButton'
 import MuxPlayer from '@mux/mux-player-react'
+import styles from './mux-player.module.css'
 
 // Video and Comment interfaces 
 interface Video {
@@ -151,14 +152,11 @@ export default function VideoPlaybackPage({
           {/* Left column (video player + primary info) - takes 8/12 on xl screens */}
           <div className="xl:col-span-8 lg:col-span-2">
             {/* Video player area */}
-            <div className="w-full">
+            <div className={styles.playerWrapper}>
               {video.muxPlaybackId && (
-                <div className="relative w-full aspect-video rounded-lg overflow-hidden" style={{ borderRadius: '12px' }}>
+                <div className={styles.videoContainer}>
                   <MuxPlayer
                     playbackId={video.muxPlaybackId}
-                    accentColor="#d97706" // Amber-600
-                    primaryColor="#d97706"
-                    secondaryColor="#d6e6f1"
                     streamType="on-demand"
                     metadata={{
                       video_id: video.id,
@@ -172,12 +170,7 @@ export default function VideoPlaybackPage({
                     loop={false}
                     playbackRates={[0.5, 0.75, 1, 1.25, 1.5, 2]}
                     placeholder=""
-                    style={{
-                      borderRadius: '12px',
-                      overflow: 'hidden',
-                      height: '100%',
-                      width: '100%'
-                    }}
+                    className={styles.muxPlayer}
                     onError={(evt: ErrorEvent) => {
                       console.error('MuxPlayer error:', evt);
                       setPlaybackError('Sorry, there was a problem playing this video. Please try again later.');
@@ -187,9 +180,6 @@ export default function VideoPlaybackPage({
                     forwardSeekOffset={10}
                     backwardSeekOffset={10}
                     startTime={0}
-                    themeProps={{
-                      '--controls-backdrop-color': 'rgba(0, 0, 0, 0.7)'
-                    }}
                   />
                 </div>
               )}
