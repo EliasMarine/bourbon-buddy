@@ -8,7 +8,7 @@
   overflow: hidden;
   background-color: #000;
   z-index: 1;
-  display: flex; /* Add this to ensure proper flex layout */
+  display: flex;
 }
 
 .muxPlayer {
@@ -23,18 +23,34 @@
   background-color: #000;
 }
 
-/* Fix the video size to cover the full player area */
+/* Use CSS variables to pass styling to Shadow DOM */
 .muxPlayer :global(mux-player) {
-  width: 100% !important;
+  --media-object-fit: cover;
+  --media-object-position: center;
   height: 100% !important;
+  width: 100% !important;
   display: block !important;
-  --media-object-fit: cover !important;
-  --media-object-position: center !important;
-  --controls-backdrop-color: rgba(0, 0, 0, 0.7) !important;
-  --media-primary-color: #d97706 !important;
-  --media-secondary-color: #FFFFFF !important;
 }
 
+/* Player wrapper */
+.playerWrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  background-color: #000;
+}
+
+/* Fix for video positioning */
+.videoFit {
+  object-fit: cover;
+  width: 100%;
+  height: 100%;
+}
+
+/* Fix the video size to cover the full player area */
 .muxPlayer :global(mux-player::part(video)),
 .muxPlayer :global(mux-player video) {
   z-index: 3;
@@ -72,12 +88,4 @@
 .muxPlayer :global(mux-player::part(media-layer)) {
   width: 100% !important;
   height: 100% !important;
-}
-
-/* This class will be applied to parent elements containing the mux player */
-.playerWrapper {
-  width: 100%;
-  margin-bottom: 1rem;
-  position: relative;
-  z-index: 1;
 } 

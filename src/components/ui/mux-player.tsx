@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
+import { cn } from '@/lib/utils'
 
 // MuxPlayer requires the following CSP settings:
 //   connect-src: https://*.mux.com https://mux.com https://*.litix.io
@@ -15,10 +16,44 @@ function isMuxPlayerAvailable() {
   return window.customElements && window.customElements.get('mux-player') !== undefined;
 }
 
+// Simple loading spinner icon
+const Icons = {
+  spinner: (props: React.SVGProps<SVGSVGElement>) => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </svg>
+  ),
+  warning: (props: React.SVGProps<SVGSVGElement>) => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  )
+}
+
 // Define interface for all possible props
 interface MuxPlayerProps {
   playbackId: string;
-  streamType?: 'on-demand' | 'live';
+  streamType?: 'on-demand' | 'live' | 'll-live';
   className?: string;
   customDomain?: string;
   startTime?: number;
@@ -36,7 +71,7 @@ interface MuxPlayerProps {
   onDataReady?: () => void;
   onPlay?: () => void;
   onPause?: () => void;
-  onError?: (error: any) => void;
+  onError?: () => void;
   onEnd?: () => void;
   onTimeUpdate?: (e: CustomEvent<any>) => void;
   maxResolution?: string;
@@ -69,289 +104,116 @@ export default function MuxPlayer({
   onTimeUpdate,
 }: MuxPlayerProps) {
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [fallbackMode, setFallbackMode] = useState(false)
-  const [videoStalled, setVideoStalled] = useState(false)
-  const [componentMounted, setComponentMounted] = useState(false);
-  const [isMuxAvailable, setIsMuxAvailable] = useState(false);
-  const playerContainerRef = useRef<HTMLDivElement>(null)
-  const videoMonitorRef = useRef<number | null>(null)
-  
-  // Set default value for controls based on hideControls if not explicitly provided
-  const showControls = controls !== undefined ? controls : !hideControls;
-  
-  // Check for MuxPlayer availability when component mounts
-  useEffect(() => {
-    setComponentMounted(true);
-    
-    // Check if MuxPlayer is available, otherwise fall back
-    const checkMuxAvailability = () => {
-      const available = isMuxPlayerAvailable();
-      console.log(`MuxPlayer: Web component is ${available ? 'available' : 'not available'}`);
-      setIsMuxAvailable(available);
-      
-      if (!available) {
-        // If not available after 2 seconds, fall back to HTML5 player
-        setTimeout(() => {
-          if (!isMuxPlayerAvailable()) {
-            console.warn('MuxPlayer: Web component not available after timeout, falling back to HTML5 player');
-            setFallbackMode(true);
-          }
-        }, 2000);
+  const [error, setError] = useState(false)
+  const playerRef = useRef<any>(null)
+
+  // Set custom CSS variable for accent color
+  const playerStyle = useMemo(() => {
+    const style = document.createElement('style')
+    style.textContent = `
+      :root {
+        --accent-color: ${accentColor};
       }
+    `
+    return style
+  }, [accentColor])
+
+  useEffect(() => {
+    // Add the style element to document head
+    if (playerStyle) {
+      document.head.appendChild(playerStyle)
+    }
+    
+    // Clean up
+    return () => {
+      if (playerStyle && document.head.contains(playerStyle)) {
+        document.head.removeChild(playerStyle)
+      }
+    }
+  }, [playerStyle])
+
+  useEffect(() => {
+    if (!playbackId) return;
+    
+    // Handle player events
+    const handleLoadStart = () => setLoading(true);
+    const handleCanPlay = () => setLoading(false);
+    const handleError = () => {
+      setError(true);
+      setLoading(false);
+      if (onError) onError();
     };
     
-    checkMuxAvailability();
+    const player = playerRef.current;
+    if (player) {
+      player.addEventListener('loadstart', handleLoadStart);
+      player.addEventListener('canplay', handleCanPlay);
+      player.addEventListener('error', handleError);
+      
+      if (onPlay) player.addEventListener('play', onPlay);
+      if (onPause) player.addEventListener('pause', onPause);
+      if (onEnd) player.addEventListener('ended', onEnd);
+      if (onTimeUpdate) player.addEventListener('timeupdate', onTimeUpdate);
+      if (onDataReady) player.addEventListener('loadedmetadata', onDataReady);
+    }
     
     return () => {
-      // Clear any intervals on unmount
-      if (videoMonitorRef.current) {
-        window.clearInterval(videoMonitorRef.current);
-        videoMonitorRef.current = null;
+      if (player) {
+        player.removeEventListener('loadstart', handleLoadStart);
+        player.removeEventListener('canplay', handleCanPlay);
+        player.removeEventListener('error', handleError);
+        
+        if (onPlay) player.removeEventListener('play', onPlay);
+        if (onPause) player.removeEventListener('pause', onPause);
+        if (onEnd) player.removeEventListener('ended', onEnd);
+        if (onTimeUpdate) player.removeEventListener('timeupdate', onTimeUpdate);
+        if (onDataReady) player.removeEventListener('loadedmetadata', onDataReady);
       }
     };
-  }, []);
+  }, [playbackId, onPlay, onPause, onError, onEnd, onTimeUpdate, onDataReady]);
 
-  // Reset state when playback ID changes
-  useEffect(() => {
-    setError(null)
-    setLoading(true)
-    setFallbackMode(false)
-    setVideoStalled(false)
-
-    if (!playerContainerRef.current) return;
-
-    // Check if playbackId is valid
-    if (!playbackId || playbackId.trim() === '') {
-      console.warn(`MuxPlayer: Invalid playbackId: "${playbackId}"`);
-      setError('Invalid playback ID');
-      setLoading(false);
-      if (onError) onError(new Error('Invalid playback ID'));
-    }
-    
-    // Clear any existing video monitoring
-    if (videoMonitorRef.current) {
-      window.clearInterval(videoMonitorRef.current);
-      videoMonitorRef.current = null;
-    }
-  }, [playbackId, onError])
-
-  // Function to monitor video rendering
-  const startVideoMonitoring = () => {
-    if (videoMonitorRef.current) {
-      window.clearInterval(videoMonitorRef.current);
-    }
-    
-    const checkFrameProgression = () => {
-      // Logic to detect stalled video would go here
-      // For now, this is a placeholder
-    };
-    
-    videoMonitorRef.current = window.setInterval(checkFrameProgression, 5000);
-  };
-
-  const handleError = (err: any) => {
-    console.error('MUX player error:', err)
-    setError('Failed to load video. Please try again later.')
-    setLoading(false)
-    if (onError) onError(err)
+  // No playback ID
+  if (!playbackId) {
+    return <div className={cn("bg-background/5 rounded-xl", className)}>No playback ID provided</div>
   }
 
-  const handlePlaying = () => {
-    console.log('MuxPlayer: Video is now playing');
-    setLoading(false)
-    
-    // Start monitoring for video rendering issues
-    startVideoMonitoring();
-    
-    if (onPlay) onPlay()
-  }
-  
-  const handleLoadStart = () => {
-    console.log('MuxPlayer: Load started');
-  }
-  
-  const handleCanPlay = () => {
-    console.log('MuxPlayer: Can play - media is ready');
-    setLoading(false);
-  }
-  
-  const handleControlsShown = () => {
-    console.log('MuxPlayer: Controls shown');
-  }
-  
-  const handleControlsHidden = () => {
-    console.log('MuxPlayer: Controls hidden');
-  }
-  
-  // If player is in fallback mode (native HTML5 video)
-  if (fallbackMode) {
-    if (error) {
-      return (
-        <div className={`relative rounded-lg overflow-hidden flex justify-center items-center bg-zinc-900 ${className}`} style={{ aspectRatio: '16/9' }}>
-          <div className="p-4 text-center">
-            <p className="text-red-400 text-sm mb-4">{error}</p>
-            <div className="flex gap-2 justify-center">
-              <button 
-                className="px-4 py-2 bg-amber-800 text-white rounded-md hover:bg-amber-700 transition-colors"
-                onClick={() => {
-                  setVideoStalled(false)
-                  setLoading(true)
-                  setFallbackMode(false)
-                }}
-              >
-                Try Again
-              </button>
-              {!hideControls && (
-                <button 
-                  className="px-4 py-2 bg-amber-700 text-white rounded-md hover:bg-amber-600 transition-colors"
-                  onClick={() => {
-                    setError(null)
-                    setLoading(true)
-                    setFallbackMode(false)
-                  }}
-                >
-                  Use HTML5 Player
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )
-    }
-    
-    // Render fallback HTML5 video player
-    return (
-      <div className={`relative ${className}`} style={{ aspectRatio: '16/9' }}>
-        {!hideControls && (
-          <p className="absolute top-0 left-0 right-0 bg-amber-700 text-white text-xs p-1.5 text-center z-10">Alternate Player Mode</p>
-        )}
-        <video 
-          src={`https://stream.mux.com/${playbackId}.m3u8`}
-          controls={showControls}
-          className="w-full h-full"
-          onError={handleError}
-          autoPlay
-          playsInline
-        />
-        {!hideControls && (
-          <button 
-            className="absolute bottom-3 left-3 px-3 py-1.5 bg-black/80 text-white text-xs rounded-md hover:bg-black/90 transition-colors z-10"
-            onClick={() => setFallbackMode(false)}
-          >
-            Try MUX Player
-          </button>
-        )}
-      </div>
-    )
-  }
-
-  // Default: Render MUX Player
+  // Standard player markup
   return (
-    <div className={`relative rounded-lg overflow-hidden ${className}`} ref={playerContainerRef}>
-      {loading && (
-        <div className="absolute inset-0 bg-zinc-900 flex items-center justify-center z-10">
-          <div className="animate-spin rounded-full h-14 w-14 border-t-2 border-b-2 border-amber-500"></div>
+    <div className={cn('relative rounded-xl overflow-hidden', className)}>
+      {loading && !error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/10 z-10">
+          <Icons.spinner className="h-8 w-8 animate-spin" />
         </div>
       )}
       
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center z-20 bg-black/80">
-          <div className="bg-zinc-900 p-5 max-w-md rounded-lg text-center">
-            <p className="text-red-400 mb-4">{error}</p>
-            <div className="flex gap-2 justify-center">
-              <button 
-                className="px-4 py-2 bg-amber-800 text-white rounded-md hover:bg-amber-700 transition-colors"
-                onClick={() => {
-                  setError(null)
-                  setLoading(true)
-                }}
-              >
-                Try Again
-              </button>
-              <button 
-                className="px-4 py-2 bg-amber-700 text-white rounded-md hover:bg-amber-600 transition-colors"
-                onClick={() => {
-                  setError(null)
-                  setLoading(true)
-                  setFallbackMode(true)
-                }}
-              >
-                Try HTML5 Player
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {videoStalled && (
-        <div className="absolute bottom-0 left-0 right-0 p-3 text-center bg-black/80 text-white text-sm">
-          <p>Video playback seems to be stalled. <button className="text-amber-400 underline" onClick={() => setFallbackMode(true)}>Try alternate player?</button></p>
-        </div>
-      )}
-      
-      {componentMounted && isMuxAvailable && (
-        <div className="w-full h-full">
-          {/* @ts-ignore - Web component is defined globally */}
-          <mux-player
-            playback-id={playbackId}
-            metadata-video-title={metadataVideoTitle}
-            metadata-viewer-user-id={metadataViewerUserId}
-            stream-type={streamType}
-            accent-color={accentColor}
-            primary-color={accentColor}
-            secondary-color="#FFFFFF"
-            start-time={startTime}
-            thumbnail-time={thumbnailTime}
-            max-resolution={maxResolution}
-            onloadstart={handleLoadStart}
-            oncanplay={handleCanPlay}
-            onplaying={handlePlaying}
-            onerror={handleError}
-            onended={onEnd}
-            ontimeupdate={onTimeUpdate}
-            theme="dark"
-            default-hidden-captions="true"
-            forward-seek-offset="10"
-            backward-seek-offset="10"
-            default-show-remaining-time=""
-            keyboard-shortcuts="true"
-            playback-rates="[0.5, 0.75, 1, 1.25, 1.5, 2]"
-            className="mux-player-full-size"
-            autoplay={autoPlay}
-            muted={muted}
-            loop={loop}
-            playsinline={playsInline}
-            controls={showControls}
-            oncontrols-shown={handleControlsShown}
-            oncontrols-hidden={handleControlsHidden}
-          ></mux-player>
-        </div>
-      )}
-      
-      {componentMounted && !isMuxAvailable && !fallbackMode && !error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
+        <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
           <div className="text-center p-4">
-            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-amber-500 mx-auto mb-4"></div>
-            <p className="text-white mb-2">Loading video player...</p>
-            <button 
-              className="px-3 py-1.5 bg-amber-700 text-white text-sm rounded-md hover:bg-amber-600 transition-colors mt-2"
-              onClick={() => setFallbackMode(true)}
-            >
-              Use HTML5 Player Instead
-            </button>
+            <Icons.warning className="h-8 w-8 mx-auto mb-2" />
+            <p className="text-sm">Failed to load video</p>
           </div>
         </div>
       )}
       
-      {!hideControls && (
-        <button 
-          className="absolute bottom-3 right-3 px-2.5 py-1.5 bg-black/80 text-white text-xs rounded-md opacity-50 hover:opacity-100 z-10 transition-opacity"
-          onClick={() => setFallbackMode(true)}
-        >
-          Use HTML5 Player
-        </button>
-      )}
+      <mux-player
+        ref={playerRef}
+        className="mux-player-full-size"
+        playback-id={playbackId}
+        stream-type={streamType}
+        start-time={startTime ? String(startTime) : undefined}
+        thumbnail-time={thumbnailTime ? String(thumbnailTime) : undefined}
+        metadata-video-title={metadataVideoTitle}
+        metadata-viewer-user-id={metadataViewerUserId}
+        muted={muted ? "true" : undefined}
+        loop={loop ? "true" : undefined}
+        autoplay={autoPlay ? "true" : undefined}
+        preload="metadata"
+        playsinline={playsInline ? "true" : undefined}
+        controls={hideControls ? "false" : "true"}
+        maxResolution={maxResolution}
+        default-duration={60}
+        comfort-level-zones={comfortLevelZones}
+      />
     </div>
   )
 }
