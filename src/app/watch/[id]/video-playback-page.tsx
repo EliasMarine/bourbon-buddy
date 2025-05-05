@@ -1,15 +1,19 @@
 "use client"
+
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import MuxPlayer from '@/components/ui/mux-player'
-import DeleteVideoButton from './DeleteVideoButton'
-import VideoComments from '@/components/video-comments'
 import { ErrorBoundary } from 'react-error-boundary'
-import { CalendarDays, Eye, ThumbsUp, Share2, Save, MoreVertical, ChevronDown, ChevronUp } from 'lucide-react'
+import { 
+  CalendarDays, Eye, ThumbsUp, Share2, 
+  Save, MoreVertical, ChevronDown, ChevronUp 
+} from 'lucide-react'
+import VideoComments from '@/components/video-comments'
+import DeleteVideoButton from './DeleteVideoButton'
+import MuxPlayer from '@mux/mux-player-react'
 
-// Video and Comment interfaces should match the main page
+// Video and Comment interfaces 
 interface Video {
   id: string
   title: string
@@ -29,6 +33,7 @@ interface Video {
   user?: {
     name: string | null
     image: string | null
+    username: string | null
   }
 }
 
@@ -48,7 +53,7 @@ interface VideoPlaybackPageProps {
   video: Video
   comments: Comment[]
   formattedDate: string
-  relatedVideos?: Video[] // For showing other videos from the same user
+  relatedVideos?: Video[]
 }
 
 /**
@@ -59,44 +64,35 @@ function isPlaceholderId(playbackId: string | null): boolean {
 }
 
 /**
- * VideoPlaybackPage follows YouTube's design pattern with separate player and content areas
+ * Modern VideoPlaybackPage with Mux Player implementation
  */
-export default function VideoPlaybackPage({ video, comments, formattedDate, relatedVideos = [] }: VideoPlaybackPageProps) {
+export default function VideoPlaybackPage({ 
+  video, 
+  comments, 
+  formattedDate, 
+  relatedVideos = [] 
+}: VideoPlaybackPageProps) {
   const [playbackError, setPlaybackError] = useState<string | null>(null)
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
-  const [userVideos, setUserVideos] = useState<Video[]>([])
-  const [isLoadingUserVideos, setIsLoadingUserVideos] = useState(true)
+  const [userVideos, setUserVideos] = useState<Video[]>(relatedVideos)
   const router = useRouter()
   
   // Check if this is a placeholder ID
   const isPlaceholder = isPlaceholderId(video.muxPlaybackId)
   
-  // Fetch more videos from the same user
-  useEffect(() => {
-    async function fetchUserVideos() {
-      if (!video.userId) {
-        setIsLoadingUserVideos(false)
-        return
-      }
-      
-      try {
-        const response = await fetch(`/api/videos?userId=${video.userId}&limit=4`)
-        if (response.ok) {
-          const data = await response.json()
-          // Filter out the current video
-          const otherVideos = data.videos?.filter((v: Video) => v.id !== video.id) || []
-          setUserVideos(otherVideos)
-        }
-      } catch (error) {
-        console.error('Failed to fetch user videos:', error)
-      } finally {
-        setIsLoadingUserVideos(false)
-      }
+  // Record view when the video starts playing
+  const handlePlay = () => {
+    try {
+      fetch(`/api/videos/${video.id}/view`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (e) {
+      console.error('Failed to record view:', e);
     }
-    
-    fetchUserVideos()
-  }, [video.userId, video.id])
+  }
   
+  // Error handling
   if (playbackError) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] bg-gradient-to-b from-zinc-900 to-zinc-950 text-white px-4">
@@ -106,7 +102,7 @@ export default function VideoPlaybackPage({ video, comments, formattedDate, rela
           </svg>
         </div>
         <h2 className="text-2xl font-bold text-white mb-2">Playback Error</h2>
-        <p className="text-zinc-300 text-center max-w-md mb-6">Sorry, there was a problem playing this video. Please try again later.</p>
+        <p className="text-zinc-300 text-center max-w-md mb-6">{playbackError}</p>
         <button
           className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium transition-colors"
           onClick={() => router.push('/past-tastings')}
@@ -155,40 +151,45 @@ export default function VideoPlaybackPage({ video, comments, formattedDate, rela
           {/* Left column (video player + primary info) - takes 8/12 on xl screens */}
           <div className="xl:col-span-8 lg:col-span-2">
             {/* Video player area */}
-            <div className="w-full bg-black">
+            <div className="w-full">
               {video.muxPlaybackId && (
-                <div className="relative w-full aspect-video">
+                <div className="relative w-full aspect-video rounded-lg overflow-hidden" style={{ borderRadius: '12px' }}>
                   <MuxPlayer
                     playbackId={video.muxPlaybackId}
                     accentColor="#d97706" // Amber-600
-                    metadataVideoId={video.id}
-                    metadataVideoTitle={video.title}
-                    metadataViewerUserId={video.userId || "anonymous"}
-                    autoPlay="muted"
-                    playsInline={true}
-                    loop={false}
+                    primaryColor="#d97706"
+                    secondaryColor="#d6e6f1"
                     streamType="on-demand"
-                    controls={true}
-                    thumbnailTime="0"
+                    metadata={{
+                      video_id: video.id,
+                      video_title: video.title,
+                      viewer_user_id: video.userId || "anonymous",
+                    }}
+                    thumbnailTime={video.thumbnailTime || 0}
                     maxResolution="720p"
-                    onError={(error) => {
-                      console.error('MuxPlayer error:', error);
-                      setPlaybackError('Playback error: ' + (error?.message || 'Unknown error'));
+                    autoPlay="muted"
+                    muted={false}
+                    loop={false}
+                    playbackRates={[0.5, 0.75, 1, 1.25, 1.5, 2]}
+                    placeholder=""
+                    style={{
+                      borderRadius: '12px',
+                      overflow: 'hidden',
+                      height: '100%',
+                      width: '100%'
                     }}
-                    onPlay={() => {
-                      console.log(`Video ${video.title} (${video.muxPlaybackId}) started playing`);
-                      
-                      // Increment views counter in the background
-                      try {
-                        fetch(`/api/videos/${video.id}/view`, { 
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' }
-                        });
-                      } catch (e) {
-                        console.error('Failed to record view:', e);
-                      }
+                    onError={(evt: ErrorEvent) => {
+                      console.error('MuxPlayer error:', evt);
+                      setPlaybackError('Sorry, there was a problem playing this video. Please try again later.');
                     }}
-                    className="w-full h-full rounded-none mux-player-fixed"
+                    onPlay={handlePlay}
+                    defaultHiddenCaptions
+                    forwardSeekOffset={10}
+                    backwardSeekOffset={10}
+                    startTime={0}
+                    themeProps={{
+                      '--controls-backdrop-color': 'rgba(0, 0, 0, 0.7)'
+                    }}
                   />
                 </div>
               )}
@@ -237,14 +238,14 @@ export default function VideoPlaybackPage({ video, comments, formattedDate, rela
               {/* Channel info */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center">
-                  <div className="w-10 h-10 rounded-full bg-amber-700 mr-3 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-full bg-amber-700 mr-3 flex items-center justify-center overflow-hidden">
                     {video.user?.image ? (
                       <Image 
                         src={video.user.image} 
                         alt={video.user?.name || 'Channel owner'}
                         width={40}
                         height={40}
-                        className="rounded-full"
+                        className="rounded-full object-cover"
                       />
                     ) : (
                       <span className="text-white font-semibold">
@@ -254,6 +255,9 @@ export default function VideoPlaybackPage({ video, comments, formattedDate, rela
                   </div>
                   <div>
                     <div className="font-semibold">{video.user?.name || 'Unknown User'}</div>
+                    {video.user?.username && (
+                      <div className="text-zinc-400 text-sm">@{video.user.username}</div>
+                    )}
                   </div>
                 </div>
                 
@@ -317,13 +321,7 @@ export default function VideoPlaybackPage({ video, comments, formattedDate, rela
             <div className="sticky top-20">
               <h2 className="text-lg font-semibold mb-4">More from this user</h2>
               
-              {isLoadingUserVideos ? (
-                <div className="space-y-4">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="bg-zinc-800/50 rounded-lg h-24 animate-pulse"></div>
-                  ))}
-                </div>
-              ) : userVideos.length > 0 ? (
+              {userVideos.length > 0 ? (
                 <div className="space-y-4">
                   {userVideos.map((relatedVideo) => (
                     <Link 
