@@ -323,7 +323,8 @@ export default function MuxPlayer({
               backgroundColor: '#000000',
               '--controls-backdrop-color': 'rgba(0, 0, 0, 0.7)',
               '--media-primary-color': accentColor,
-              '--media-secondary-color': '#FFFFFF'
+              '--media-secondary-color': '#FFFFFF',
+              '--media-object-fit': 'cover'
             } as React.CSSProperties}
             autoplay={autoPlay}
             muted={muted}

@@ -105,7 +105,7 @@ body > div.fixed div.rounded-full ~ div.rounded-full {
 .mux-player-fixed {
   --controls-backdrop-color: rgba(0, 0, 0, 0.5) !important;
   --media-object-position: center !important;
-  --media-object-fit: contain !important;
+  --media-object-fit: cover !important;
 }
 
 mux-player {
@@ -118,6 +118,9 @@ mux-player {
   border-radius: 0.75rem !important;
   overflow: hidden !important;
   background-color: #000 !important; /* Ensure black background */
+  --media-object-fit: cover !important;
+  --media-object-position: center !important;
+  display: block !important;
 }
 
 /* Hide any unwanted background images */
@@ -133,7 +136,11 @@ mux-player video {
   overflow: hidden !important;
   position: relative !important;
   z-index: 5 !important;
-  object-fit: contain !important;
+  object-fit: cover !important;
+  min-width: 100% !important;
+  min-height: 100% !important;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 /* Fix unwanted thumbnail/poster display */

@@ -187,6 +187,10 @@ export default function VideoPlaybackPage({
                         const thumbnail = player.shadowRoot?.querySelector('[part="thumbnail"]');
                         if (poster) (poster as HTMLElement).style.display = 'none';
                         if (thumbnail) (thumbnail as HTMLElement).style.display = 'none';
+                        
+                        // Set object-fit to cover to ensure video fills container
+                        const video = player.shadowRoot?.querySelector('video');
+                        if (video) (video as HTMLElement).style.objectFit = 'cover';
                       }
                     }}
                     defaultHiddenCaptions

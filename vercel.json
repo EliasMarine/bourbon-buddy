@@ -66,6 +66,7 @@
     "POSTGRES_RESET_PREPARED_STATEMENTS": "true",
     "PRISMA_DISABLE_POOLING": "true",
     "USE_REDIS_FOR_SESSIONS": "true",
+    "DISABLE_REDIS": "false",
     "NODE_ENV": "production",
     "DEPLOYMENTHOST": "vercel",
     "LOG_TO_CONSOLE": "true",

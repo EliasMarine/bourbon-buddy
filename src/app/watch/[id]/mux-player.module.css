@@ -22,10 +22,20 @@
   background-color: #000;
 }
 
-/* Hide poster or background thumbnails that might be causing the issue */
+/* Fix the video size to cover the full player area */
+.muxPlayer :global(mux-player) {
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+}
+
 .muxPlayer :global(mux-player::part(video)) {
   z-index: 3; 
-  object-fit: contain;
+  object-fit: cover !important;
+  min-width: 100% !important;
+  min-height: 100% !important;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .muxPlayer :global(mux-player::part(poster)) {
