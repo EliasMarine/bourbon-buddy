@@ -100,18 +100,47 @@ body > div.fixed div.rounded-full ~ div.rounded-full {
   display: none !important;
 }
 
-/* MUX Player Fixes */
+/* MUX Player Shadow DOM Fixes */
 mux-player {
-  /* Ensure proper control layout */
-  height: 100%;
-  width: 100%;
+  /* Core sizing properties */
+  height: 100% !important;
+  width: 100% !important;
   position: relative;
-  border-radius: 0.75rem !important;
-  overflow: hidden !important;
-  background-color: #000 !important;
-  --media-object-fit: cover !important;
-  --media-object-position: center !important;
-  display: block !important;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background-color: #000;
+  display: block;
+  
+  /* Shadow DOM penetrating custom properties */
+  --media-object-fit: cover;
+  --media-object-position: center;
+  --controls-backdrop-color: rgba(0, 0, 0, 0.7);
+  --media-primary-color: var(--accent-color, #d97706);
+  --media-secondary-color: #ffffff;
+  --media-control-background: rgba(20, 20, 30, 0.7);
+  --media-control-hover-background: rgba(50, 50, 70, 0.7);
+  --media-range-track-background: rgba(255, 255, 255, 0.2);
+  --media-range-bar-color: var(--accent-color, #d97706);
+  --media-range-track-height: 4px;
+  --media-range-thumb-background: var(--accent-color, #d97706);
+  --media-range-thumb-width: 12px;
+  --media-range-thumb-height: 12px;
+  --media-time-range-hover-height: max(100% + 5px, 20px);
+  --media-range-track-border-radius: 2px;
+}
+
+/* Target Mux Player video element directly */
+mux-player::part(video) {
+  object-fit: cover !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Target the internal media element */
+mux-player video {
+  object-fit: cover !important;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 /* Fix for proper full-size playback */
@@ -119,26 +148,19 @@ mux-player {
   height: 100%;
   width: 100%;
   background-color: #000000;
-  --controls-backdrop-color: rgba(0, 0, 0, 0.7);
-  --media-primary-color: var(--accent-color, #d97706);
-  --media-secondary-color: #FFFFFF;
-  --media-object-fit: cover;
-  aspect-ratio: 16/9;
-  overflow: hidden;
-  display: block;
 }
 
-/* Ensure the video covers the area */
-mux-player video {
-  border-radius: 0.75rem !important;
-  overflow: hidden !important;
-  position: absolute !important;
-  top: 0;
-  left: 0;
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: cover !important;
-  z-index: 1 !important;
+/* Additional Video Container fixes */
+.video-container, 
+.player-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 16/9;
+  display: flex;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background-color: #000;
 }
 
 /* Fix unwanted thumbnail/poster display */

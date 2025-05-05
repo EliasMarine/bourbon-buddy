@@ -158,6 +158,7 @@ export default function VideoPlaybackPage({
                   <MuxPlayer
                     playbackId={video.muxPlaybackId}
                     streamType="on-demand"
+                    className={styles.muxPlayer}
                     metadata={{
                       video_id: video.id,
                       video_title: video.title,
@@ -173,7 +174,6 @@ export default function VideoPlaybackPage({
                     playbackRates={[0.5, 0.75, 1, 1.25, 1.5, 2]}
                     placeholder=""
                     storyboardSrc=""
-                    className={styles.muxPlayer}
                     onError={(evt: ErrorEvent) => {
                       console.error('MuxPlayer error:', evt);
                       setPlaybackError('Sorry, there was a problem playing this video. Please try again later.');
@@ -209,7 +209,7 @@ export default function VideoPlaybackPage({
                   <span>{formattedDate}</span>
                 </div>
               </div>
-              
+
               {/* Action buttons */}
               <div className="flex items-center space-x-3 mt-2 sm:mt-0">
                 <button className="flex items-center space-x-1 bg-zinc-800 hover:bg-zinc-700 rounded-full px-4 py-2 transition-colors">
@@ -257,10 +257,10 @@ export default function VideoPlaybackPage({
                     )}
                   </div>
                 </div>
-                
+
                 <DeleteVideoButton id={video.id} />
               </div>
-              
+
               {/* Description */}
               {video.description && (
                 <div className="mt-2">

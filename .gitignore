@@ -87,6 +87,8 @@ node
 
 files_do_not_upload/
 
+.stylelintrc.json
+
 # Migration backups
 *.bak
 prisma-usages.txt
