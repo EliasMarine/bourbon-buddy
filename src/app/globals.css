@@ -101,56 +101,40 @@ body > div.fixed div.rounded-full ~ div.rounded-full {
 }
 
 /* MUX Player Fixes */
-/* Fix for stacked/overlapping video controls */
-.mux-player-fixed {
-  --controls-backdrop-color: rgba(0, 0, 0, 0.5) !important;
-  --media-object-position: center !important;
-  --media-object-fit: cover !important;
-}
-
 mux-player {
   /* Ensure proper control layout */
-  --bottom-play-button: none;  /* Remove duplicate play button */
   height: 100%;
   width: 100%;
   position: relative;
-  --controls-backdrop-color: rgba(0, 0, 0, 0.7) !important;
   border-radius: 0.75rem !important;
   overflow: hidden !important;
-  background-color: #000 !important; /* Ensure black background */
+  background-color: #000 !important;
   --media-object-fit: cover !important;
   --media-object-position: center !important;
   display: block !important;
 }
 
-/* Hide any unwanted background images */
-mux-player::before,
-mux-player::after {
-  display: none !important;
-  content: none !important;
-}
-
-/* Ensure the video is on top */
+/* Ensure the video covers the area */
 mux-player video {
   border-radius: 0.75rem !important;
   overflow: hidden !important;
-  position: relative !important;
-  z-index: 5 !important;
-  object-fit: cover !important;
-  min-width: 100% !important;
-  min-height: 100% !important;
+  position: absolute !important;
+  top: 0;
+  left: 0;
   width: 100% !important;
   height: 100% !important;
+  object-fit: cover !important;
+  z-index: 1 !important;
 }
 
 /* Fix unwanted thumbnail/poster display */
 mux-player::part(poster),
 mux-player::part(thumbnail) {
-  opacity: 0 !important;
   display: none !important;
+  opacity: 0 !important;
 }
 
-/* Fix for controls being stacked and each the size of the video player */
+/* Ensure controls are visible and above video */
 mux-player::part(controls) {
   position: absolute !important;
   bottom: 0 !important;
@@ -158,48 +142,16 @@ mux-player::part(controls) {
   right: 0 !important;
   height: auto !important;
   width: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
-  justify-content: flex-end !important;
-  border-radius: 0.75rem !important;
-  z-index: 10 !important; /* Ensure controls are above video */
+  display: block !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 10 !important;
+  border-radius: 0 0 0.75rem 0.75rem !important;
 }
 
-mux-player::part(bottom) {
-  position: relative !important;
-  height: auto !important;
-  padding: 8px;
-}
-
-/* Ensure the control bar is properly sized and positioned */
-mux-player::part(control-bar) {
-  display: flex !important;
-  align-items: center !important;
-  width: 100% !important;
-  height: auto !important;
-}
-
-/* Fix for time display overlapping other controls */
-mux-player::part(time-display) {
-  margin: 0 8px !important;
-  flex-shrink: 0 !important;
-}
-
-/* Ensure the time range/progress bar is sized correctly */
-mux-player::part(time-range) {
-  flex-grow: 1 !important;
-  width: auto !important;
-}
-
-/* Fix volume control position and size */
-mux-player::part(volume-range) {
-  width: 80px !important;
-  max-width: 80px !important;
-}
-
-/* Custom player theme variables for color consistency */
+/* Custom player theme variables */
 mux-player {
   --media-primary-color: #d97706 !important; /* Amber-600 */
   --media-secondary-color: #ffffff !important;
-  --media-control-hover-background: rgba(0, 0, 0, 0.5) !important;
+  --controls-backdrop-color: rgba(0, 0, 0, 0.6) !important; /* Slightly less opaque */
 } 
