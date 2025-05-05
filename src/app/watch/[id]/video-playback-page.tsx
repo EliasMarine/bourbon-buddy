@@ -180,18 +180,8 @@ export default function VideoPlaybackPage({
                     }}
                     onPlay={handlePlay}
                     onLoadedData={() => {
-                      // Force poster/thumbnail elements to be hidden after video loads
-                      const player = document.querySelector('mux-player');
-                      if (player) {
-                        const poster = player.shadowRoot?.querySelector('[part="poster"]');
-                        const thumbnail = player.shadowRoot?.querySelector('[part="thumbnail"]');
-                        if (poster) (poster as HTMLElement).style.display = 'none';
-                        if (thumbnail) (thumbnail as HTMLElement).style.display = 'none';
-                        
-                        // Set object-fit to cover to ensure video fills container
-                        const video = player.shadowRoot?.querySelector('video');
-                        if (video) (video as HTMLElement).style.objectFit = 'cover';
-                      }
+                      // Removed JS style manipulation to avoid CSP issues
+                      // Rely on CSS for styling
                     }}
                     defaultHiddenCaptions
                     forwardSeekOffset={10}

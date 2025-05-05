@@ -30,22 +30,25 @@
 }
 
 .muxPlayer :global(mux-player::part(video)) {
-  z-index: 3; 
-  object-fit: cover !important;
-  min-width: 100% !important;
-  min-height: 100% !important;
+  z-index: 3;
+  object-fit: cover !important; /* Ensure video covers the container */
   width: 100% !important;
   height: 100% !important;
 }
 
-.muxPlayer :global(mux-player::part(poster)) {
-  z-index: 1;
-  opacity: 0;
-}
-
-/* Override any default thumbnail behaviors */
+/* Explicitly hide poster/thumbnail parts */
+.muxPlayer :global(mux-player::part(poster)),
 .muxPlayer :global(mux-player::part(thumbnail)) {
   display: none !important;
+  opacity: 0 !important;
+}
+
+/* Ensure controls are visible */
+.muxPlayer :global(mux-player::part(controls)) {
+  display: block !important; /* Or flex, depending on Mux's internal structure */
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 10 !important; /* Keep controls above video */
 }
 
 /* This class will be applied to parent elements containing the mux player */
