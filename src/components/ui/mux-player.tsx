@@ -49,6 +49,7 @@ interface MuxPlayerProps {
   thumbnailTime?: string;
   playsInline?: boolean;
   hideControls?: boolean;
+  controls?: boolean;
   comfortLevelZones?: string;
   metadataVideoTitle?: string;
   metadataViewerUserId?: string;
@@ -77,6 +78,7 @@ export default function MuxPlayer({
   metadataViewerUserId = '',
   playsInline = true,
   hideControls = false,
+  controls,
   comfortLevelZones,
   maxResolution,
   onDataReady,
@@ -93,6 +95,9 @@ export default function MuxPlayer({
   const [componentMounted, setComponentMounted] = useState(false);
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const videoMonitorRef = useRef<number | null>(null)
+  
+  // Set default value for controls based on hideControls if not explicitly provided
+  const showControls = controls !== undefined ? controls : !hideControls;
   
   // Load the MuxPlayer script when the component mounts
   useEffect(() => {
@@ -319,6 +324,136 @@ export default function MuxPlayer({
     };
   }, [accentColor, componentMounted]);
 
+  // Add a new useEffect to directly inject styles into Shadow DOM
+  useEffect(() => {
+    if (!componentMounted) return;
+    
+    // Wait for the MUX player to be fully loaded in the DOM
+    const injectShadowStyles = () => {
+      try {
+        // Find all mux-player elements in the document
+        const muxPlayers = document.querySelectorAll('mux-player');
+        
+        if (muxPlayers.length === 0) {
+          console.log('No mux-player elements found yet, retrying...');
+          return false; // Not found yet
+        }
+        
+        muxPlayers.forEach(player => {
+          // Access the shadow root
+          const shadowRoot = player.shadowRoot;
+          if (!shadowRoot) {
+            console.log('Mux player shadow root not found');
+            return;
+          }
+          
+          // Look for the media-chrome-video-element
+          const mediaChrome = shadowRoot.querySelector('media-controller');
+          if (!mediaChrome || !mediaChrome.shadowRoot) {
+            console.log('Media controller not found or no shadow root');
+            return;
+          }
+          
+          // Create a style element for the Media Chrome component
+          const mediaChromeStyle = document.createElement('style');
+          mediaChromeStyle.textContent = `
+            /* Fix control bar layout */
+            :host {
+              --media-control-background: rgba(0, 0, 0, 0.7) !important;
+              --media-control-hover-background: rgba(0, 0, 0, 0.85) !important;
+              --media-button-icon-width: 24px !important;
+              --media-button-icon-height: 24px !important;
+              --media-button-icon-color: #FFFFFF !important;
+              --media-preview-thumbnail-border: 2px solid ${accentColor} !important;
+              --media-preview-thumbnail-border-radius: 4px !important;
+            }
+            
+            media-control-bar {
+              padding: 6px 10px !important;
+              box-sizing: border-box !important;
+              display: flex !important;
+              width: 100% !important;
+              gap: 5px !important;
+              justify-content: space-between !important;
+              align-items: center !important;
+            }
+            
+            media-time-display {
+              min-width: 65px !important;
+              text-align: center !important;
+              font-size: 13px !important;
+            }
+            
+            media-time-range {
+              flex-grow: 1 !important;
+              margin: 0 8px !important;
+            }
+            
+            media-volume-range {
+              width: 80px !important;
+              min-width: 40px !important;
+            }
+          `;
+          
+          // Try to append to the media controller's shadow root
+          try {
+            mediaChrome.shadowRoot.appendChild(mediaChromeStyle);
+            
+            // Also try to fix the bottom control bar if it exists
+            const controlBar = mediaChrome.shadowRoot.querySelector('media-control-bar[slot="bottom-chrome"]');
+            if (controlBar && controlBar.shadowRoot) {
+              const controlBarStyle = document.createElement('style');
+              controlBarStyle.textContent = `
+                :host {
+                  display: flex !important;
+                  width: 100% !important;
+                  justify-content: space-between !important;
+                  align-items: center !important;
+                }
+              `;
+              controlBar.shadowRoot.appendChild(controlBarStyle);
+            }
+            
+            // Success
+            console.log('Successfully injected styles into MUX player shadow DOM');
+          } catch (err) {
+            console.error('Error injecting styles into Media Chrome shadow DOM:', err);
+          }
+        });
+        
+        return true; // Found and processed
+      } catch (err) {
+        console.error('Error during shadow DOM style injection:', err);
+        return false;
+      }
+    };
+    
+    // Initial attempt
+    let success = injectShadowStyles();
+    
+    // If not immediately successful, retry a few times
+    if (!success) {
+      let retries = 0;
+      const maxRetries = 5;
+      const retryInterval = 300; // ms
+      
+      const retryTimer = setInterval(() => {
+        retries++;
+        success = injectShadowStyles();
+        
+        if (success || retries >= maxRetries) {
+          clearInterval(retryTimer);
+          
+          if (!success && retries >= maxRetries) {
+            console.warn(`Failed to inject styles into MUX player shadow DOM after ${maxRetries} attempts`);
+          }
+        }
+      }, retryInterval);
+      
+      return () => clearInterval(retryTimer);
+    }
+  }, [accentColor, componentMounted]);
+
   const handleError = (err: any) => {
     console.error('MUX player error:', err)
     setError('Failed to load video. Please try again later.')
@@ -334,6 +469,23 @@ export default function MuxPlayer({
     startVideoMonitoring();
     
     if (onPlay) onPlay()
+  }
+  
+  const handleLoadStart = () => {
+    console.log('MuxPlayer: Load started');
+  }
+  
+  const handleCanPlay = () => {
+    console.log('MuxPlayer: Can play - media is ready');
+    setLoading(false);
+  }
+  
+  const handleControlsShown = () => {
+    console.log('MuxPlayer: Controls shown');
+  }
+  
+  const handleControlsHidden = () => {
+    console.log('MuxPlayer: Controls hidden');
   }
   
   // If player is in fallback mode (native HTML5 video)
@@ -380,7 +532,7 @@ export default function MuxPlayer({
         )}
         <video 
           src={`https://stream.mux.com/${playbackId}.m3u8`}
-          controls
+          controls={showControls}
           className="w-full h-full"
           onError={handleError}
           autoPlay
@@ -452,25 +604,38 @@ export default function MuxPlayer({
             stream-type={streamType}
             accent-color={accentColor}
             primary-color={accentColor}
+            secondary-color="#FFFFFF"
             start-time={startTime}
             thumbnail-time={thumbnailTime}
             max-resolution={maxResolution}
-            onloadstart={() => console.log('MuxPlayer: load started')}
-            oncanplay={handlePlaying}
+            onloadstart={handleLoadStart}
+            oncanplay={handleCanPlay}
             onplaying={handlePlaying}
             onerror={handleError}
             onended={onEnd}
             ontimeupdate={onTimeUpdate}
+            theme="dark"
+            default-hidden-captions="true"
+            forward-seek-offset="10"
+            backward-seek-offset="10"
+            defaultShowRemainingTime="true"
+            keyboard-shortcuts="true"
+            playback-rates="[0.5, 0.75, 1, 1.25, 1.5, 2]"
             style={{
               height: '100%',
               width: '100%',
               'background-color': '#000000',
-              '--controls-backdrop-color': 'rgba(0, 0, 0, 0.7)'
+              '--controls-backdrop-color': 'rgba(0, 0, 0, 0.7)',
+              '--media-primary-color': accentColor,
+              '--media-secondary-color': '#FFFFFF'
             } as React.CSSProperties}
             autoplay={autoPlay}
             muted={muted}
             loop={loop}
             playsinline={playsInline}
+            controls={showControls}
+            oncontrols-shown={handleControlsShown}
+            oncontrols-hidden={handleControlsHidden}
           ></mux-player>
         </div>
       )}
