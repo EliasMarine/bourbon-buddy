@@ -1,8 +1,10 @@
 {
   "extends": [
     "next/core-web-vitals",
-    "next/typescript"
+    "next/typescript",
+    "plugin:tailwindcss/recommended"
   ],
+  "plugins": ["tailwindcss"],
   "rules": {
     "@typescript-eslint/no-unused-vars": "warn",
     "@typescript-eslint/no-explicit-any": "warn",
@@ -10,6 +12,20 @@
     "@next/next/no-img-element": "warn",
     "import/no-unused-modules": "off",
     "react/no-unescaped-entities": "off",
-    "react-hooks/rules-of-hooks": "warn"
-  }
+    "react-hooks/rules-of-hooks": "warn",
+    "tailwindcss/no-custom-classname": "off"
+  },
+  "overrides": [
+    {
+      "files": ["*.css"],
+      "rules": {
+        "at-rule-no-unknown": [
+          true,
+          {
+            "ignoreAtRules": ["tailwind", "apply", "variants", "responsive", "screen", "layer"]
+          }
+        ]
+      }
+    }
+  ]
 }

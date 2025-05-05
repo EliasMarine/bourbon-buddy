@@ -165,21 +165,35 @@ export default function VideoPlaybackPage({
                     }}
                     thumbnailTime={video.thumbnailTime || 0}
                     maxResolution="720p"
-                    autoPlay="muted"
+                    autoPlay={true}
                     muted={false}
+                    preload="auto"
+                    disablePictureInPicture={true}
                     loop={false}
                     playbackRates={[0.5, 0.75, 1, 1.25, 1.5, 2]}
                     placeholder=""
+                    storyboardSrc=""
                     className={styles.muxPlayer}
                     onError={(evt: ErrorEvent) => {
                       console.error('MuxPlayer error:', evt);
                       setPlaybackError('Sorry, there was a problem playing this video. Please try again later.');
                     }}
                     onPlay={handlePlay}
+                    onLoadedData={() => {
+                      // Force poster/thumbnail elements to be hidden after video loads
+                      const player = document.querySelector('mux-player');
+                      if (player) {
+                        const poster = player.shadowRoot?.querySelector('[part="poster"]');
+                        const thumbnail = player.shadowRoot?.querySelector('[part="thumbnail"]');
+                        if (poster) (poster as HTMLElement).style.display = 'none';
+                        if (thumbnail) (thumbnail as HTMLElement).style.display = 'none';
+                      }
+                    }}
                     defaultHiddenCaptions
                     forwardSeekOffset={10}
                     backwardSeekOffset={10}
                     startTime={0}
+                    nohotkeys={false}
                   />
                 </div>
               )}
