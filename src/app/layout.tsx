@@ -69,6 +69,54 @@ export default async function RootLayout({
           nonce={nonce}
         />
         
+        {/* Add script to fix MUX player controls */}
+        <Script 
+          id="mux-player-fix" 
+          strategy="afterInteractive"
+          nonce={nonce}
+        >
+          {`
+            // Function to fix MUX player controls overlap
+            function fixMuxPlayerControls() {
+              const players = document.querySelectorAll('mux-player');
+              if (!players.length) return;
+
+              players.forEach(player => {
+                // Ensure proper control layout by forcing a resize
+                if (player.shadowRoot) {
+                  const observer = new MutationObserver((mutations) => {
+                    // When player shadow DOM changes, ensure controls are properly sized
+                    const controlBars = player.shadowRoot.querySelectorAll('[part="control-bar"]');
+                    controlBars.forEach(bar => {
+                      if (bar) {
+                        bar.style.display = 'flex';
+                        bar.style.alignItems = 'center';
+                        bar.style.width = '100%';
+                      }
+                    });
+                  });
+                  
+                  // Observe changes to the shadow DOM
+                  observer.observe(player.shadowRoot, { 
+                    childList: true, 
+                    subtree: true 
+                  });
+                }
+              });
+            }
+
+            // Run on page load
+            if (document.readyState === 'complete') {
+              fixMuxPlayerControls();
+            } else {
+              window.addEventListener('load', fixMuxPlayerControls);
+            }
+
+            // Also run when DOM changes (in case player is added dynamically)
+            document.addEventListener('DOMContentLoaded', fixMuxPlayerControls);
+          `}
+        </Script>
+        
         {/* Properly preload the debug scripts with correct attributes */}
         {process.env.NODE_ENV !== 'production' && (
           <>

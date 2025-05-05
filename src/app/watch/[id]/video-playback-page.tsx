@@ -188,7 +188,7 @@ export default function VideoPlaybackPage({ video, comments, formattedDate, rela
                         console.error('Failed to record view:', e);
                       }
                     }}
-                    className="w-full h-full rounded-none"
+                    className="w-full h-full rounded-none mux-player-fixed"
                   />
                 </div>
               )}

@@ -98,4 +98,66 @@ body > div[class*="z-50"] .rounded-full:has(span:only-child) {
 body > div > div > div.rounded-full + div.rounded-full,
 body > div.fixed div.rounded-full ~ div.rounded-full {
   display: none !important;
+}
+
+/* MUX Player Fixes */
+/* Fix for stacked/overlapping video controls */
+.mux-player-fixed {
+  --controls-backdrop-color: rgba(0, 0, 0, 0.5) !important;
+  --media-object-position: center !important;
+  --media-object-fit: contain !important;
+}
+
+mux-player {
+  /* Ensure proper control layout */
+  --bottom-play-button: none;  /* Remove duplicate play button */
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Fix for controls being stacked and each the size of the video player */
+mux-player::part(controls) {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: auto !important;
+  width: 100% !important;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+mux-player::part(bottom) {
+  position: relative !important;
+  height: auto !important;
+  padding: 8px;
+}
+
+/* Ensure the control bar is properly sized and positioned */
+mux-player::part(control-bar) {
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: auto !important;
+}
+
+/* Fix for time display overlapping other controls */
+mux-player::part(time-display) {
+  margin: 0 8px !important;
+  flex-shrink: 0 !important;
+}
+
+/* Ensure the time range/progress bar is sized correctly */
+mux-player::part(time-range) {
+  flex-grow: 1 !important;
+  width: auto !important;
+}
+
+/* Fix volume control position and size */
+mux-player::part(volume-range) {
+  width: 80px !important;
+  max-width: 80px !important;
 } 
