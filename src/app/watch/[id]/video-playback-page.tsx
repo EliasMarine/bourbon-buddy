@@ -161,14 +161,14 @@ export default function VideoPlaybackPage({ video, comments, formattedDate, rela
                   <MuxPlayer
                     playbackId={video.muxPlaybackId}
                     accentColor="#d97706" // Amber-600
+                    metadataVideoId={video.id}
                     metadataVideoTitle={video.title}
                     metadataViewerUserId={video.userId || "anonymous"}
                     autoPlay="muted"
                     playsInline={true}
                     loop={false}
                     streamType="on-demand"
-                    controls={true} 
-                    hideControls={false}
+                    controls={true}
                     thumbnailTime="0"
                     maxResolution="720p"
                     onError={(error) => {

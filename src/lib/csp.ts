@@ -62,7 +62,7 @@ export function createCSPHeader(nonce: string): string {
     connect-src 'self' https://hjodvataujilredguzig.supabase.co wss://hjodvataujilredguzig.supabase.co https://api.mux.com https://inferred.litix.io https://stream.mux.com https://assets.mux.com https://*.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://storage.googleapis.com https://vercel.live https://vercel.com https://*.pusher.com wss://*.pusher.com https://vitals.vercel-insights.com;
     frame-src 'self' https://vercel.live https://vercel.com;
     script-src 'self' 'nonce-${nonce}' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com ${isDevelopment ? "'unsafe-eval'" : ''};
-    style-src 'self' 'nonce-${nonce}' 'unsafe-hashes' https://vercel.com;
+    style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://vercel.com;
     upgrade-insecure-requests;
   `.replace(/\s{2,}/g, ' ').trim();
 }
