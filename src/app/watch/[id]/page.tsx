@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
-import { MuxPlayer } from '@/components/ui/mux-player'
+import MuxPlayer from '@/components/ui/mux-player'
 import { Skeleton } from '@/components/ui/skeleton'
 import { supabaseAdmin, safeSupabaseQuery } from '@/lib/supabase-server'
 import VideoComments from '@/components/video-comments'
@@ -11,6 +11,9 @@ import { deleteVideoAction } from './delete-video-action'
 import DeleteVideoButtonComponent from './DeleteVideoButton'
 import VideoPlaybackPage from './video-playback-page'
 import Mux from '@mux/mux-node'
+
+// Set a static revalidate value for this route
+export const revalidate = 10 // Revalidate every 10 seconds
 
 // Define the Video interface to match the database schema
 interface Video {
