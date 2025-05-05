@@ -113,8 +113,15 @@ mux-player {
   --bottom-play-button: none;  /* Remove duplicate play button */
   height: 100%;
   width: 100%;
-  overflow: hidden;
   position: relative;
+  --controls-backdrop-color: rgba(0, 0, 0, 0.7) !important;
+  border-radius: 0.75rem !important;
+  overflow: hidden !important;
+}
+
+mux-player video {
+  border-radius: 0.75rem !important;
+  overflow: hidden !important;
 }
 
 /* Fix for controls being stacked and each the size of the video player */
@@ -128,6 +135,7 @@ mux-player::part(controls) {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  border-radius: 0.75rem !important;
 }
 
 mux-player::part(bottom) {
@@ -160,4 +168,11 @@ mux-player::part(time-range) {
 mux-player::part(volume-range) {
   width: 80px !important;
   max-width: 80px !important;
+}
+
+/* Custom player theme variables for color consistency */
+mux-player {
+  --media-primary-color: #d97706 !important; /* Amber-600 */
+  --media-secondary-color: #ffffff !important;
+  --media-control-hover-background: rgba(0, 0, 0, 0.5) !important;
 } 
