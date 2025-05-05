@@ -1,23 +1,18 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/utils/supabase/server'
-// import { Pool } from 'pg' // Removed - Not needed when using Supabase client
-// import { config } from '@/lib/pg-config' // Removed - Not needed
-
-// Initialize PostgreSQL pool (only if needed beyond Supabase)
-// const pool = new Pool(config) // Removed - Not needed
 
 /**
  * API Route to increment the view count for a video.
  * 
  * @param _request - The incoming request (unused).
- * @param params - The route parameters containing the videoId.
+ * @param params - The route parameters containing the videoId (renamed to id).
  * @returns NextResponse
  */
 export async function POST(
   _request: Request, 
-  { params }: { params: { videoId: string } }
+  { params }: { params: { id: string } } // Renamed videoId to id
 ) {
-  const videoId = params.videoId
+  const videoId = params.id // Use params.id
 
   if (!videoId) {
     return NextResponse.json({ error: 'Video ID is required' }, { status: 400 })
@@ -29,7 +24,7 @@ export async function POST(
   try {
     // Fetch the current view count
     const { data: currentVideo, error: fetchError } = await supabase
-      .from('Video')
+      .from('Video') // Ensure correct table name capitalization
       .select('views')
       .eq('id', videoId)
       .single()
@@ -48,7 +43,7 @@ export async function POST(
 
     // Update the view count in the database
     const { error: updateError } = await supabase
-      .from('Video')
+      .from('Video') // Ensure correct table name capitalization
       .update({ views: newViewCount })
       .eq('id', videoId)
 
