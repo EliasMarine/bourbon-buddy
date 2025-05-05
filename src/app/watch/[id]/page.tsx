@@ -1,16 +1,7 @@
-import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
-import MuxPlayer from '@/components/ui/mux-player'
-import { Skeleton } from '@/components/ui/skeleton'
 import { supabaseAdmin, safeSupabaseQuery } from '@/lib/supabase-server'
-import VideoComments from '@/components/video-comments'
-import { ErrorBoundary } from 'react-error-boundary'
-import { useTransition, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { deleteVideoAction } from './delete-video-action'
-import DeleteVideoButtonComponent from './DeleteVideoButton'
-import VideoPlaybackPage from './video-playback-page'
 import Mux from '@mux/mux-node'
+import VideoPlaybackPage from './video-playback-page'
 
 // Set a static revalidate value for this route
 export const revalidate = 10 // Revalidate every 10 seconds
@@ -35,6 +26,7 @@ interface Video {
   user?: {
     name: string | null
     image: string | null
+    username: string | null
   }
 }
 
@@ -64,8 +56,8 @@ async function getVideo(id: string): Promise<Video | null> {
     // Query video with Supabase - use Video with capital V, no quotes
     const { data: video, error } = await safeSupabaseQuery(async () => {
       const { data, error } = await supabaseAdmin
-        .from('Video') // Table name is Video (capital V, no quotes)
-        .select('*, user:userId(name, image)')
+        .from('Video') 
+        .select('*, user:userId(name, image, username)')
         .eq('id', id)
         .single();
       
@@ -92,7 +84,7 @@ async function getUserVideos(userId: string, currentVideoId: string, limit = 8):
     const { data, error } = await safeSupabaseQuery(async () => {
       return supabaseAdmin
         .from('Video')
-        .select('*, user:userId(name, image)')
+        .select('*, user:userId(name, image, username)')
         .eq('userId', userId)
         .eq('status', 'ready')
         .neq('id', currentVideoId) // Exclude current video
@@ -112,14 +104,13 @@ async function getUserVideos(userId: string, currentVideoId: string, limit = 8):
   }
 }
 
-// Get video comments - REVISED to handle missing FK relationship
+// Get video comments
 async function getVideoComments(videoId: string): Promise<Comment[]> {
-  console.log(`Fetching comments for videoId: ${videoId}`)
   try {
     // 1. Fetch comments for the video
     const { data: commentsData, error: commentsError } = await safeSupabaseQuery(async () => {
       return supabaseAdmin
-        .from('Comment') // Use capital 'C' based on schema list
+        .from('Comment')
         .select('id, content, userId, videoId, createdAt')
         .eq('videoId', videoId)
         .order('createdAt', { ascending: false });
@@ -127,47 +118,36 @@ async function getVideoComments(videoId: string): Promise<Comment[]> {
 
     if (commentsError) {
       console.error(`Error fetching comments data: ${commentsError.message}`);
-      return []; // Return empty array on error
+      return []; 
     }
 
     if (!commentsData || commentsData.length === 0) {
-      console.log(`No comments found for videoId: ${videoId}`);
       return [];
     }
-    
-    console.log(`Found ${commentsData.length} comments.`);
 
     // 2. Get unique user IDs from comments
-    const userIds = Array.from(new Set(commentsData.map(comment => comment.userId).filter(id => id))); // Convert Set to Array
+    const userIds = Array.from(new Set(commentsData.map(comment => comment.userId).filter(id => id)));
     
     if (userIds.length === 0) {
-        console.log('No valid user IDs found in comments.');
-        // Return comments without user info if necessary, or handle as appropriate
-        return commentsData.map(c => ({ ...c, user: { name: 'Unknown User', image: null } }));
+      return commentsData.map(c => ({ ...c, user: { name: 'Unknown User', image: null } }));
     }
-
-    console.log(`Fetching user data for ${userIds.length} unique user IDs:`, userIds);
 
     // 3. Fetch user data for those IDs
     const { data: usersData, error: usersError } = await safeSupabaseQuery(async () => {
       return supabaseAdmin
-        .from('User') // Use capital 'U' based on schema list
+        .from('User')
         .select('id, name, image')
         .in('id', userIds);
     });
 
     if (usersError) {
       console.error(`Error fetching user data: ${usersError.message}`);
-      // Return comments without user info if user fetch fails
       return commentsData.map(c => ({ ...c, user: { name: 'User Error', image: null } }));
     }
     
     if (!usersData) {
-        console.warn('User data fetch returned null/undefined.')
-        return commentsData.map(c => ({ ...c, user: { name: 'User Not Found', image: null } }));
+      return commentsData.map(c => ({ ...c, user: { name: 'User Not Found', image: null } }));
     }
-
-    console.log(`Fetched data for ${usersData.length} users.`);
 
     // 4. Map users to a lookup object
     const userMap = usersData.reduce((acc, user) => {
@@ -183,31 +163,19 @@ async function getVideoComments(videoId: string): Promise<Comment[]> {
       createdAt: new Date(comment.createdAt),
     }));
     
-    console.log(`Successfully combined ${combinedComments.length} comments with user data.`);
     return combinedComments;
-
   } catch (error) {
     console.error(`Unhandled error in getVideoComments for video ${videoId}:`, error);
     return []; // Return empty on unexpected errors
   }
 }
 
-// Add this function before the generateMetadata or other exports
+// Sync video status with Mux
 async function syncVideoStatus(videoId: string) {
-  // Skip in development if needed
   if (process.env.SKIP_VIDEO_SYNC === 'true') return;
   
   try {
-    // Determine the base URL (supporting both HTTP and HTTPS)
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.NODE_ENV === 'development' 
-      ? 'http://localhost:3000' 
-      : 'https://localhost:3000');
-    
-    // Construct the API URL
-    const syncUrl = new URL(`${baseUrl}/api/videos/sync-status`);
-    syncUrl.searchParams.append('videoId', videoId);
-    
-    // Use direct Supabase update instead of fetch for server components
+    // Check the current video info
     const { data: video, error } = await supabaseAdmin
       .from('Video')
       .select('*')
@@ -283,43 +251,31 @@ async function syncVideoStatus(videoId: string) {
         if (updateError) {
           throw updateError;
         }
-        
-        console.log(`Updated video ${videoId}: ${JSON.stringify(updateData)}`);
       }
     } catch (muxError) {
       console.error(`Error checking Mux status for video ${videoId}:`, muxError);
     }
   } catch (error) {
     console.error(`Error syncing video status for ${videoId}:`, error);
-    // Don't throw - this shouldn't block page rendering
   }
 }
 
-// Fixed VideoPage component to properly handle async params
-export default async function VideoPage(props: { 
-  params: Promise<{ id: string }> 
-}) {
-  // Await the entire params object first before accessing properties
-  const params = await props.params;
+// Video page component
+export default async function VideoPage({ params }: { params: { id: string } }) {
   const id = params.id;
   
-  console.log('Starting VideoPage component');
-  console.log(`Resolved ID: ${id}`);
-  
   if (!id) {
-    console.error('[watch] Missing video ID in page parameters');
     return notFound();
   }
   
   // First, try to update the video status
   await syncVideoStatus(id);
   
-  // Fetch video data using Supabase with correct table name 'Video' (capital V, no quotes)
+  // Fetch video data
   const video = await getVideo(id);
   
   // If video is missing, show not found
   if (!video) {
-    console.warn(`[watch/${id}] Video not found`);
     return notFound();
   }
   
@@ -343,19 +299,19 @@ export default async function VideoPage(props: {
         </p>
         <a href="/past-tastings" className="mt-4 px-6 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg font-medium transition-colors">Go Back to Past Tastings</a>
       </div>
-    )
+    );
   }
   
   // Increment view count (fire and forget)
   supabaseAdmin
-    .from('Video') // Table name is Video (capital V, no quotes)
+    .from('Video')
     .update({ views: (video.views || 0) + 1 })
     .eq('id', id)
     .then(({ error }) => {
       if (error) console.error(`Error incrementing view count: ${error.message}`);
     });
 
-  // Fetch comments using the revised function
+  // Fetch comments
   const comments = await getVideoComments(id);
   
   // Fetch related videos from the same user
@@ -368,49 +324,11 @@ export default async function VideoPage(props: {
     day: 'numeric'
   });
 
-  // Use the server component wrapper for client components
-  return <VideoWrapper 
+  // Use the client component wrapper
+  return <VideoPlaybackPage 
     video={video} 
     comments={comments} 
     formattedDate={formattedDate} 
-    relatedVideos={relatedVideos}
-  />
-}
-
-// Add a loading state component
-export function Loading() {
-  return (
-    <div className="container mx-auto py-8">
-      <Skeleton className="w-3/4 h-12 mb-4" />
-      <div className="w-full max-w-4xl mx-auto">
-        <Skeleton className="w-full aspect-video" />
-      </div>
-      <div className="mt-6 max-w-4xl mx-auto">
-        <Skeleton className="w-full h-48" />
-      </div>
-    </div>
-  );
-}
-
-// Use a server component to import and load the client component
-async function VideoWrapper({ 
-  video, 
-  comments, 
-  formattedDate,
-  relatedVideos 
-}: { 
-  video: Video; 
-  comments: Comment[];
-  formattedDate: string;
-  relatedVideos: Video[];
-}) {
-  // Dynamic import for client component
-  const VideoPlaybackPageComponent = (await import('./video-playback-page')).default;
-  
-  return <VideoPlaybackPageComponent 
-    video={video} 
-    comments={comments} 
-    formattedDate={formattedDate}
     relatedVideos={relatedVideos}
   />;
 } 

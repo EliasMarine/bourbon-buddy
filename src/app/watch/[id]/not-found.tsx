@@ -1,18 +1,36 @@
-import Link from "next/link"
+import Link from 'next/link'
 
-export default function VideoNotFound() {
+export default function NotFound() {
   return (
-    <div className="container mx-auto py-8">
-      <div className="bg-red-50 p-6 rounded-lg border border-red-200 max-w-4xl mx-auto">
-        <h1 className="text-xl font-medium text-red-800 mb-4">Video Not Found</h1>
-        <p className="text-red-700 mb-4">
-          The video you're looking for either doesn't exist or isn't available.
+    <div className="bg-zinc-950 text-white min-h-screen flex flex-col items-center justify-center p-4">
+      <div className="text-center max-w-lg">
+        <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-amber-900/20 flex items-center justify-center">
+          <svg 
+            className="w-12 h-12 text-amber-600" 
+            fill="none" 
+            viewBox="0 0 24 24" 
+            stroke="currentColor" 
+            strokeWidth={2}
+          >
+            <path 
+              strokeLinecap="round" 
+              strokeLinejoin="round" 
+              d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" 
+            />
+          </svg>
+        </div>
+        
+        <h1 className="text-3xl font-bold mb-4">Video Not Found</h1>
+        
+        <p className="text-zinc-300 mb-8">
+          Sorry, the video you're looking for doesn't exist or has been removed.
         </p>
-        <Link
-          href="/streams"
-          className="px-4 py-2 bg-red-100 text-red-800 font-medium rounded hover:bg-red-200 transition-colors inline-block"
+        
+        <Link 
+          href="/past-tastings" 
+          className="inline-block px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium transition-colors"
         >
-          Return to Tastings
+          Browse Past Tastings
         </Link>
       </div>
     </div>
