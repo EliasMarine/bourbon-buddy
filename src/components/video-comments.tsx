@@ -29,7 +29,7 @@ function normalizeComment(raw: any): Comment {
     content: raw.content,
     userId: raw.userId,
     videoId: raw.videoId,
-    createdAt: raw.created_at ? new Date(raw.created_at) : new Date(),
+    createdAt: raw.createdAt || raw.created_at ? new Date(raw.createdAt || raw.created_at) : new Date(),
     user: {
       name: raw.user?.name ?? null,
       image: raw.user?.image ?? null,
@@ -76,6 +76,11 @@ export default function VideoComments({ videoId, initialComments }: VideoComment
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
+        console.error('Comment submission failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorData: data
+        });
         setErrorMsg(data.error || 'Failed to post comment. Please try again.')
         return
       }

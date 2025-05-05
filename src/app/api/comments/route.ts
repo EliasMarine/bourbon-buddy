@@ -52,7 +52,7 @@ export async function POST(request: Request) {
             videoId: validatedData.videoId,
             userId: user.id,
             reviewId: validatedData.reviewId || null,
-        }).select('*, user:User(name, image)').maybeSingle()
+        }).select('*, user:userId(name, image)').maybeSingle()
       );
       
       if (commentError || !comment) {
@@ -73,6 +73,19 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     console.error('Comment POST error:', error);
+    
+    // Add detailed error logging
+    if (error instanceof Error) {
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      
+      // If it's a PostgreSQL error with code
+      if ('code' in error) {
+        console.error('PostgreSQL error code:', (error as any).code);
+        console.error('PostgreSQL error details:', (error as any).details);
+      }
+    }
+    
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -111,7 +124,7 @@ export async function GET(request: Request) {
     // Fetch comments for the video
     const { data: comments, error: commentsError } = await safeSupabaseQuery(async () =>
       await supabase.from('Comment')
-        .select('*, user:User(name, image)')
+        .select('*, user:userId(name, image)')
         .eq('videoId', videoId)
         .order('created_at', { ascending: false })
     );
