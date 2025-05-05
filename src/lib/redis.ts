@@ -3,11 +3,16 @@ import Redis from 'ioredis';
 // Define connection options based on environment variables
 const redisUrl = process.env.REDIS_URL || '';
 const disableRedis = process.env.DISABLE_REDIS === 'true';
+const isProduction = process.env.NODE_ENV === 'production';
 
 // Track if Redis is enabled
-const isRedisEnabled = !disableRedis && !!redisUrl && process.env.USE_REDIS_FOR_SESSIONS === 'true';
+// In production, always enable Redis if URL is available
+const isRedisEnabled = isProduction 
+  ? !disableRedis && !!redisUrl
+  : !disableRedis && !!redisUrl && process.env.USE_REDIS_FOR_SESSIONS === 'true';
 
 // Add more detailed debug logging
+console.log(`Environment: ${process.env.NODE_ENV}`);
 console.log(`Redis enabled: ${isRedisEnabled}`);
 console.log(`Redis URL present: ${!!redisUrl}`);
 console.log(`Redis URL: ${redisUrl ? redisUrl.substring(0, 9) + '...' : 'not set'}`);
