@@ -171,8 +171,22 @@ export default function VideoPlaybackPage({ video, comments, formattedDate, rela
                       console.error('MuxPlayer error:', error);
                       setPlaybackError('Playback error: ' + (error?.message || 'Unknown error'));
                     }}
+                    onPlay={() => {
+                      console.log(`Video ${video.title} (${video.muxPlaybackId}) started playing`);
+                      
+                      // Increment views counter in the background
+                      try {
+                        fetch(`/api/videos/${video.id}/view`, { 
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' }
+                        });
+                      } catch (e) {
+                        console.error('Failed to record view:', e);
+                      }
+                    }}
                     className="w-full h-full"
                     hideControls={false}
+                    controls={true}
                   />
                 </div>
               )}
