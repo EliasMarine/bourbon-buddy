@@ -9,30 +9,10 @@ import React, { useState, useEffect, useRef } from 'react'
 //   script-src: https://www.gstatic.com (for Chromecast)
 // Ensure these are present in your Content Security Policy for playback and analytics to work.
 
-// Import the MuxPlayer web component (dynamically in useEffect)
-function loadMuxPlayerScript() {
-  if (typeof window !== 'undefined') {
-    // Check if script is already loaded
-    if (!document.querySelector('script[src*="@mux/mux-player"]')) {
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/@mux/mux-player';
-      script.async = true;
-      script.defer = true;
-      
-      // Get the nonce from meta tag if available
-      const nonceMeta = document.querySelector('meta[property="csp-nonce"]');
-      const nonce = nonceMeta ? nonceMeta.getAttribute('content') : '';
-      if (nonce) {
-        script.setAttribute('nonce', nonce);
-      }
-      
-      document.body.appendChild(script);
-      
-      return () => {
-        // Cleanup is optional since scripts usually stay in the DOM
-      };
-    }
-  }
+// No need to dynamically load the script as it's already loaded in layout.tsx
+function isMuxPlayerAvailable() {
+  if (typeof window === 'undefined') return false;
+  return window.customElements && window.customElements.get('mux-player') !== undefined;
 }
 
 // Define interface for all possible props
@@ -93,16 +73,35 @@ export default function MuxPlayer({
   const [fallbackMode, setFallbackMode] = useState(false)
   const [videoStalled, setVideoStalled] = useState(false)
   const [componentMounted, setComponentMounted] = useState(false);
+  const [isMuxAvailable, setIsMuxAvailable] = useState(false);
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const videoMonitorRef = useRef<number | null>(null)
   
   // Set default value for controls based on hideControls if not explicitly provided
   const showControls = controls !== undefined ? controls : !hideControls;
   
-  // Load the MuxPlayer script when the component mounts
+  // Check for MuxPlayer availability when component mounts
   useEffect(() => {
-    loadMuxPlayerScript();
     setComponentMounted(true);
+    
+    // Check if MuxPlayer is available, otherwise fall back
+    const checkMuxAvailability = () => {
+      const available = isMuxPlayerAvailable();
+      console.log(`MuxPlayer: Web component is ${available ? 'available' : 'not available'}`);
+      setIsMuxAvailable(available);
+      
+      if (!available) {
+        // If not available after 2 seconds, fall back to HTML5 player
+        setTimeout(() => {
+          if (!isMuxPlayerAvailable()) {
+            console.warn('MuxPlayer: Web component not available after timeout, falling back to HTML5 player');
+            setFallbackMode(true);
+          }
+        }, 2000);
+      }
+    };
+    
+    checkMuxAvailability();
     
     return () => {
       // Clear any intervals on unmount
@@ -594,7 +593,7 @@ export default function MuxPlayer({
         </div>
       )}
       
-      {componentMounted && (
+      {componentMounted && isMuxAvailable && (
         <div className="w-full h-full">
           {/* @ts-ignore - Web component is defined globally */}
           <mux-player
@@ -618,13 +617,13 @@ export default function MuxPlayer({
             default-hidden-captions="true"
             forward-seek-offset="10"
             backward-seek-offset="10"
-            defaultShowRemainingTime="true"
+            default-show-remaining-time=""
             keyboard-shortcuts="true"
             playback-rates="[0.5, 0.75, 1, 1.25, 1.5, 2]"
             style={{
               height: '100%',
               width: '100%',
-              'background-color': '#000000',
+              backgroundColor: '#000000',
               '--controls-backdrop-color': 'rgba(0, 0, 0, 0.7)',
               '--media-primary-color': accentColor,
               '--media-secondary-color': '#FFFFFF'
@@ -637,6 +636,21 @@ export default function MuxPlayer({
             oncontrols-shown={handleControlsShown}
             oncontrols-hidden={handleControlsHidden}
           ></mux-player>
+        </div>
+      )}
+      
+      {componentMounted && !isMuxAvailable && !fallbackMode && !error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
+          <div className="text-center p-4">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-amber-500 mx-auto mb-4"></div>
+            <p className="text-white mb-2">Loading video player...</p>
+            <button 
+              className="px-3 py-1.5 bg-amber-700 text-white text-sm rounded-md hover:bg-amber-600 transition-colors mt-2"
+              onClick={() => setFallbackMode(true)}
+            >
+              Use HTML5 Player Instead
+            </button>
+          </div>
         </div>
       )}
       
