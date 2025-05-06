@@ -1,9 +1,11 @@
 import React, { ReactNode } from 'react';
 import clsx from 'clsx';
 
+export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'outline' | 'ghost';
+
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   children?: ReactNode;
-  variant?: 'primary' | 'secondary' | 'danger' | 'outline' | 'ghost';
+  variant?: ButtonVariant;
   size?: 'sm' | 'md' | 'lg';
   isLoading?: boolean;
   fullWidth?: boolean;
