@@ -193,20 +193,29 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set(name, value)
-            response = NextResponse.next({
-              request: {
-                headers: requestHeaders,
-              },
-            })
-            response.cookies.set(name, value, options)
-            
-            // Re-apply CSP header after cookie changes
-            if (!isStaticAsset) {
-              response.headers.set('Content-Security-Policy', contentSecurityPolicy);
-            }
+          // Update request cookies first for Supabase client's internal state if needed
+          cookiesToSet.forEach(({ name, value }) => {
+            request.cookies.set(name, value) 
           })
+
+          // Create the response object once using the latest request state
+          // It's important to use the potentially modified `request` object here if Supabase client updates it
+          response = NextResponse.next({
+            request: {
+              headers: requestHeaders, // Ensure original request headers (like x-nonce) are passed
+            },
+          })
+
+          // Set all cookies on the single response object
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options)
+          })
+          
+          // Re-apply CSP header to the final response object if it's not a static asset
+          if (!isStaticAsset) {
+            // Ensure contentSecurityPolicy variable is in scope and correctly generated
+            response.headers.set('Content-Security-Policy', contentSecurityPolicy);
+          }
         },
       },
     }
