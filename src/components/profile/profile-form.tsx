@@ -6,7 +6,7 @@ import { useForm, ControllerRenderProps, FieldValues } from "react-hook-form"
 import { z } from "zod"
 import { toast } from "sonner" // Assuming sonner for toasts
 
-import Button from "@/components/ui/button"
+import Button from "@/components/ui/Button"
 import {
   Form,
   FormControl,

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Camera, CameraOff, Monitor, Settings, Users, BarChart2, X, Plus, Trash2 } from 'lucide-react';
-import Button from "@/components/ui/button"
+import Button from "@/components/ui/Button"
 import { toast } from 'react-hot-toast';
 
 interface PollOption {

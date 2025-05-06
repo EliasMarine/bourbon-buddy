@@ -5,7 +5,7 @@ import { useDropzone } from 'react-dropzone'
 import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
 
-import Button from "@/components/ui/button"
+import Button from "@/components/ui/Button"
 import { Input } from "@/components/ui/input" // Might not be needed directly, but good practice
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
