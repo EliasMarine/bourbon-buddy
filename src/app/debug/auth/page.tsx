@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { getStorageAuthData, testCorsConfiguration } from '@/lib/auth-diagnostics'
-import Button from '@/components/ui/Button'
+import Button from "@/components/ui/button"
 import { getSupabaseClient } from '@/lib/supabase-singleton'
 import { Separator } from '@/components/ui/Separator'
 

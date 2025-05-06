@@ -1,0 +1,62 @@
+<context>
+# Overview  
+Bourbon Buddy is a social platform for whiskey and spirits enthusiasts. It enables users to discover, review, and share their favorite bottles, connect with other aficionados, and participate in live tasting events and video streams. The platform aims to foster a vibrant, knowledgeable community around spirits appreciation, education, and responsible enjoyment.
+
+# Core Features  
+- Bottle Catalog & Reviews: Users can add bottles, write reviews, rate, and upload tasting notes. Each bottle has detailed metadata (brand, type, proof, price, etc.).
+- Video Uploads: Users can upload tasting videos, bottle reviews, and educational content. Videos are processed and streamed using MUX.
+- Live Streaming: Hosts can schedule and run live tasting sessions, Q&As, and community events. Viewers can interact via chat, tips, and reactions.
+- Social Graph: Users can follow each other, see activity feeds, and build a network of trusted reviewers.
+- Comments & Likes: All content (bottles, reviews, videos, streams) supports comments and likes for engagement.
+- Authentication: Secure sign-up/login with Supabase Auth, supporting OAuth providers.
+- Responsive UI: Modern, mobile-first design using Next.js, Tailwind CSS, Shadcn UI, and Radix UI.
+
+# User Experience  
+- Personas: Whiskey enthusiasts, collectors, casual drinkers, and industry professionals.
+- Key Flows: Onboarding, bottle discovery, review submission, video upload, joining live streams, following users, and engaging with content.
+- UI/UX: Clean, intuitive navigation; accessible forms; real-time updates; responsive layouts; clear calls to action; dark mode support.
+</context>
+<PRD>
+# Technical Architecture  
+- Next.js 15 App Router (TypeScript, SSR, RSC)
+- Supabase (Postgres DB, Auth, Storage, Realtime)
+- MUX Video for uploads and live streaming
+- Tailwind CSS, Shadcn UI, Radix UI for styling
+- Genql for type-safe GraphQL queries
+- State management: React Query, Zustand
+- Zod for schema validation
+- Vercel for hosting
+- Security: RLS policies, secure cookies, input validation, error boundaries
+
+# Development Roadmap  
+- MVP:
+  - User authentication (Supabase Auth)
+  - Bottle catalog CRUD
+  - Review and rating system
+  - Video upload and playback (MUX)
+  - Live stream scheduling and viewing
+  - Social graph (follow/unfollow)
+  - Comments and likes
+  - Responsive UI/UX
+- Future Enhancements:
+  - Advanced search and filtering
+  - Personalized recommendations
+  - Event scheduling and reminders
+  - Integration with external APIs (distillery data, pricing)
+  - Gamification (badges, leaderboards)
+
+# Logical Dependency Chain
+- Auth foundation → Bottle catalog → Reviews → Video upload → Live streaming → Social features → Engagement (comments/likes) → Advanced features
+- Prioritize visible, interactive features early (bottle catalog, reviews, video)
+- Build atomic, composable modules for easy iteration
+
+# Risks and Mitigations  
+- Video processing complexity: Use MUX and robust error handling
+- Real-time features: Leverage Supabase Realtime, test at scale
+- Security: Strict RLS, input validation, secure session handling
+- MVP scope creep: Define clear MVP, defer enhancements
+
+# Appendix  
+- Research: User interviews, competitor analysis (Distiller, Flaviar, Vivino)
+- Technical: See Supabase schema, MUX API docs, Next.js App Router best practices
+</PRD> 

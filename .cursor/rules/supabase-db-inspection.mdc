@@ -1,0 +1,1540 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Supabase Database Schema Inspection Queries
+
+The below database schema can be used to inspect the structure of our Supabase database. It provides comprehensive information about tables, columns, relationships, security policies, and indexes.
+
+**What this provides:**
+- All indexes defined in the database
+- For each index:
+  - Table name
+  - Index name
+  - Full index definition including columns and type
+
+## How to Use These Queries
+
+1. Navigate to the Supabase dashboard for your project
+2. Go to the SQL Editor tab
+3. Paste any of these queries
+4. Run the query to see the results
+5. Export the results if needed (CSV, JSON, etc.)
+
+## Current Schema Notes
+
+Based on the execution of these queries, our database has the following structure:
+
+- **Core Tables**: User, Spirit (bottles), Review, Video, Stream, Comment, and various relationship tables
+- **Relationships**: User-to-content (one-to-many), content-to-comments (one-to-many), user-to-user follows (many-to-many)
+- **Security Model**: RLS policies control access to each table based on user authentication
+- **Performance Optimizations**: Indexes on foreign keys and frequently queried columns
+
+Use these queries when:
+- Documenting the database schema
+- Planning new features that interact with the database
+- Debugging issues related to data access or relationships
+- Ensuring security policies are correctly implemented
+
+
+## Below is the datbase schema. The table names and columns, foreign keys, RLS Policies, and Indexes
+
+[
+  {
+    "table_name": "Account",
+    "columns": [
+      "id text NOT NULL",
+      "userId uuid NOT NULL",
+      "type text NOT NULL",
+      "provider text NOT NULL",
+      "providerAccountId text NOT NULL",
+      "refresh_token text",
+      "access_token text",
+      "expires_at integer",
+      "token_type text",
+      "scope text",
+      "id_token text",
+      "session_state text"
+    ]
+  },
+  {
+    "table_name": "Comment",
+    "columns": [
+      "id uuid NOT NULL DEFAULT gen_random_uuid()",
+      "content text NOT NULL",
+      "createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP",
+      "updatedAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP",
+      "reviewId text",
+      "userId uuid NOT NULL",
+      "videoId text"
+    ]
+  },
+  {
+    "table_name": "Follows",
+    "columns": [
+      "followerId uuid NOT NULL",
+      "followingId uuid NOT NULL",
+      "createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP"
+    ]
+  },
+  {
+    "table_name": "Review",
+    "columns": [
+      "id text NOT NULL",
+      "content text NOT NULL",
+      "rating integer NOT NULL DEFAULT 0",
+      "createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP",
+      "updatedAt timestamp without time zone NOT NULL",
+      "userId uuid NOT NULL",
+      "spiritId text NOT NULL"
+    ]
+  },
+  {
+    "table_name": "Session",
+    "columns": [
+      "id text NOT NULL",
+      "sessionToken text NOT NULL",
+      "userId uuid NOT NULL",
+      "expires timestamp without time zone NOT NULL"
+    ]
+  },
+  {
+    "table_name": "Spirit",
+    "columns": [
+      "id text NOT NULL",
+      "name text NOT NULL",
+      "brand text NOT NULL",
+      "type text NOT NULL",
+      "category text NOT NULL DEFAULT 'whiskey'::text",
+      "description text",
+      "imageUrl text",
+      "proof double precision",
+      "price double precision",
+      "rating integer",
+      "nose text",
+      "palate text",
+      "finish text",
+      "notes text",
+      "dateAcquired timestamp without time zone",
+      "bottleSize text",
+      "distillery text",
+      "bottleLevel integer DEFAULT 100",
+      "isFavorite boolean NOT NULL DEFAULT false",
+      "createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP",
+      "updatedAt timestamp without time zone NOT NULL",
+      "deletedAt timestamp without time zone",
+      "ownerId uuid NOT NULL"
+    ]
+  },
+  {
+    "table_name": "Stream",
+    "columns": [
+      "id text NOT NULL",
+      "title text NOT NULL",
+      "description text",
+      "isLive boolean NOT NULL DEFAULT false",
+      "startedAt timestamp without time zone",
+      "endedAt timestamp without time zone",
+      "privacy text NOT NULL DEFAULT 'public'::text",
+      "createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP",
+      "updatedAt timestamp without time zone NOT NULL",
+      "hostId uuid NOT NULL",
+      "spiritId text"
+    ]
+  },
+  {
+    "table_name": "StreamLike",
+    "columns": [
+      "id text NOT NULL",
+      "streamId text NOT NULL",
+      "userId uuid NOT NULL",
+      "createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP"
+    ]
+  },
+  {
+    "table_name": "StreamReport",
+    "columns": [
+      "id text NOT NULL",
+      "streamId text NOT NULL",
+      "userId uuid NOT NULL",
+      "reason text",
+      "status text NOT NULL DEFAULT 'pending'::text",
+      "createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP",
+      "updatedAt timestamp without time zone NOT NULL"
+    ]
+  },
+  {
+    "table_name": "StreamSubscription",
+    "columns": [
+      "id text NOT NULL",
+      "hostId uuid NOT NULL",
+      "userId uuid NOT NULL",
+      "createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP"
+    ]
+  },
+  {
+    "table_name": "StreamTip",
+    "columns": [
+      "id text NOT NULL",
+      "amount double precision NOT NULL",
+      "message text",
+      "streamId text NOT NULL",
+      "senderId uuid NOT NULL",
+      "hostId uuid NOT NULL",
+      "createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP"
+    ]
+  },
+  {
+    "table_name": "StreamView",
+    "columns": [
+      "id text NOT NULL",
+      "joinedAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP",
+      "leftAt timestamp without time zone",
+      "streamId text NOT NULL",
+      "userId uuid NOT NULL"
+    ]
+  },
+  {
+    "table_name": "User",
+    "columns": [
+      "id uuid NOT NULL DEFAULT gen_random_uuid()",
+      "name text",
+      "email text NOT NULL",
+      "username text",
+      "password text",
+      "image text",
+      "coverPhoto text",
+      "location text",
+      "occupation text",
+      "education text",
+      "bio text",
+      "emailVerified timestamp without time zone",
+      "resetToken text",
+      "resetTokenExpiry timestamp without time zone",
+      "createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP",
+      "updatedAt timestamp without time zone NOT NULL",
+      "publicProfile boolean NOT NULL DEFAULT true"
+    ]
+  },
+  {
+    "table_name": "User_backup",
+    "columns": [
+      "id text",
+      "name text",
+      "email text",
+      "username text",
+      "password text",
+      "image text",
+      "coverPhoto text",
+      "location text",
+      "occupation text",
+      "education text",
+      "bio text",
+      "emailVerified timestamp without time zone",
+      "resetToken text",
+      "resetTokenExpiry timestamp without time zone",
+      "createdAt timestamp without time zone",
+      "updatedAt timestamp without time zone",
+      "publicProfile boolean"
+    ]
+  },
+  {
+    "table_name": "User_id_backup",
+    "columns": [
+      "original_id text",
+      "new_uuid uuid",
+      "changed_at timestamp with time zone"
+    ]
+  },
+  {
+    "table_name": "VerificationToken",
+    "columns": [
+      "identifier text NOT NULL",
+      "token text NOT NULL",
+      "expires timestamp without time zone NOT NULL"
+    ]
+  },
+  {
+    "table_name": "Video",
+    "columns": [
+      "id text NOT NULL",
+      "title text NOT NULL",
+      "description text",
+      "status text NOT NULL DEFAULT 'uploading'::text",
+      "muxUploadId text",
+      "muxAssetId text",
+      "muxPlaybackId text",
+      "duration double precision",
+      "aspectRatio text",
+      "thumbnailTime double precision DEFAULT 0",
+      "userId uuid",
+      "createdAt timestamp without time zone NOT NULL DEFAULT CURRENT_TIMESTAMP",
+      "updatedAt timestamp without time zone NOT NULL",
+      "publiclyListed boolean NOT NULL DEFAULT true",
+      "views integer NOT NULL DEFAULT 0"
+    ]
+  }
+]
+
+
+
+
+## Indexes
+[
+  {
+    "tablename": "Account",
+    "indexname": "Account_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"Account_pkey\" ON public.\"Account\" USING btree (id)"
+  },
+  {
+    "tablename": "Account",
+    "indexname": "Account_provider_providerAccountId_key",
+    "indexdef": "CREATE UNIQUE INDEX \"Account_provider_providerAccountId_key\" ON public.\"Account\" USING btree (provider, \"providerAccountId\")"
+  },
+  {
+    "tablename": "Comment",
+    "indexname": "Comment_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"Comment_pkey\" ON public.\"Comment\" USING btree (id)"
+  },
+  {
+    "tablename": "Comment",
+    "indexname": "idx_comment_reviewId",
+    "indexdef": "CREATE INDEX \"idx_comment_reviewId\" ON public.\"Comment\" USING btree (\"reviewId\")"
+  },
+  {
+    "tablename": "Comment",
+    "indexname": "idx_comment_userId",
+    "indexdef": "CREATE INDEX \"idx_comment_userId\" ON public.\"Comment\" USING btree (\"userId\")"
+  },
+  {
+    "tablename": "Comment",
+    "indexname": "idx_comment_videoId",
+    "indexdef": "CREATE INDEX \"idx_comment_videoId\" ON public.\"Comment\" USING btree (\"videoId\")"
+  },
+  {
+    "tablename": "Follows",
+    "indexname": "Follows_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"Follows_pkey\" ON public.\"Follows\" USING btree (\"followerId\", \"followingId\")"
+  },
+  {
+    "tablename": "Follows",
+    "indexname": "idx_follows_followerId",
+    "indexdef": "CREATE INDEX \"idx_follows_followerId\" ON public.\"Follows\" USING btree (\"followerId\")"
+  },
+  {
+    "tablename": "Follows",
+    "indexname": "idx_follows_followingId",
+    "indexdef": "CREATE INDEX \"idx_follows_followingId\" ON public.\"Follows\" USING btree (\"followingId\")"
+  },
+  {
+    "tablename": "Follows",
+    "indexname": "unique_follows",
+    "indexdef": "CREATE UNIQUE INDEX unique_follows ON public.\"Follows\" USING btree (\"followerId\", \"followingId\")"
+  },
+  {
+    "tablename": "Review",
+    "indexname": "Review_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"Review_pkey\" ON public.\"Review\" USING btree (id)"
+  },
+  {
+    "tablename": "Review",
+    "indexname": "idx_review_created_at",
+    "indexdef": "CREATE INDEX idx_review_created_at ON public.\"Review\" USING btree (\"createdAt\")"
+  },
+  {
+    "tablename": "Review",
+    "indexname": "idx_review_rating",
+    "indexdef": "CREATE INDEX idx_review_rating ON public.\"Review\" USING btree (rating)"
+  },
+  {
+    "tablename": "Review",
+    "indexname": "idx_review_spiritId",
+    "indexdef": "CREATE INDEX \"idx_review_spiritId\" ON public.\"Review\" USING btree (\"spiritId\")"
+  },
+  {
+    "tablename": "Review",
+    "indexname": "idx_review_userId",
+    "indexdef": "CREATE INDEX \"idx_review_userId\" ON public.\"Review\" USING btree (\"userId\")"
+  },
+  {
+    "tablename": "Session",
+    "indexname": "Session_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"Session_pkey\" ON public.\"Session\" USING btree (id)"
+  },
+  {
+    "tablename": "Session",
+    "indexname": "Session_sessionToken_key",
+    "indexdef": "CREATE UNIQUE INDEX \"Session_sessionToken_key\" ON public.\"Session\" USING btree (\"sessionToken\")"
+  },
+  {
+    "tablename": "Spirit",
+    "indexname": "Spirit_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"Spirit_pkey\" ON public.\"Spirit\" USING btree (id)"
+  },
+  {
+    "tablename": "Spirit",
+    "indexname": "idx_spirit_brand",
+    "indexdef": "CREATE INDEX idx_spirit_brand ON public.\"Spirit\" USING btree (brand)"
+  },
+  {
+    "tablename": "Spirit",
+    "indexname": "idx_spirit_category",
+    "indexdef": "CREATE INDEX idx_spirit_category ON public.\"Spirit\" USING btree (category)"
+  },
+  {
+    "tablename": "Spirit",
+    "indexname": "idx_spirit_created_at",
+    "indexdef": "CREATE INDEX idx_spirit_created_at ON public.\"Spirit\" USING btree (\"createdAt\")"
+  },
+  {
+    "tablename": "Spirit",
+    "indexname": "idx_spirit_name",
+    "indexdef": "CREATE INDEX idx_spirit_name ON public.\"Spirit\" USING btree (name)"
+  },
+  {
+    "tablename": "Spirit",
+    "indexname": "idx_spirit_ownerId",
+    "indexdef": "CREATE INDEX \"idx_spirit_ownerId\" ON public.\"Spirit\" USING btree (\"ownerId\")"
+  },
+  {
+    "tablename": "Spirit",
+    "indexname": "idx_spirit_owner_favorite",
+    "indexdef": "CREATE INDEX idx_spirit_owner_favorite ON public.\"Spirit\" USING btree (\"ownerId\", \"isFavorite\")"
+  },
+  {
+    "tablename": "Spirit",
+    "indexname": "idx_spirit_type",
+    "indexdef": "CREATE INDEX idx_spirit_type ON public.\"Spirit\" USING btree (type)"
+  },
+  {
+    "tablename": "Stream",
+    "indexname": "Stream_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"Stream_pkey\" ON public.\"Stream\" USING btree (id)"
+  },
+  {
+    "tablename": "Stream",
+    "indexname": "idx_stream_created_at",
+    "indexdef": "CREATE INDEX idx_stream_created_at ON public.\"Stream\" USING btree (\"createdAt\")"
+  },
+  {
+    "tablename": "Stream",
+    "indexname": "idx_stream_hostId",
+    "indexdef": "CREATE INDEX \"idx_stream_hostId\" ON public.\"Stream\" USING btree (\"hostId\")"
+  },
+  {
+    "tablename": "Stream",
+    "indexname": "idx_stream_is_live",
+    "indexdef": "CREATE INDEX idx_stream_is_live ON public.\"Stream\" USING btree (\"isLive\")"
+  },
+  {
+    "tablename": "Stream",
+    "indexname": "idx_stream_spiritId",
+    "indexdef": "CREATE INDEX \"idx_stream_spiritId\" ON public.\"Stream\" USING btree (\"spiritId\")"
+  },
+  {
+    "tablename": "StreamLike",
+    "indexname": "StreamLike_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"StreamLike_pkey\" ON public.\"StreamLike\" USING btree (id)"
+  },
+  {
+    "tablename": "StreamLike",
+    "indexname": "StreamLike_streamId_userId_key",
+    "indexdef": "CREATE UNIQUE INDEX \"StreamLike_streamId_userId_key\" ON public.\"StreamLike\" USING btree (\"streamId\", \"userId\")"
+  },
+  {
+    "tablename": "StreamLike",
+    "indexname": "idx_streamlike_streamId",
+    "indexdef": "CREATE INDEX \"idx_streamlike_streamId\" ON public.\"StreamLike\" USING btree (\"streamId\")"
+  },
+  {
+    "tablename": "StreamLike",
+    "indexname": "idx_streamlike_userId",
+    "indexdef": "CREATE INDEX \"idx_streamlike_userId\" ON public.\"StreamLike\" USING btree (\"userId\")"
+  },
+  {
+    "tablename": "StreamLike",
+    "indexname": "unique_stream_like",
+    "indexdef": "CREATE UNIQUE INDEX unique_stream_like ON public.\"StreamLike\" USING btree (\"streamId\", \"userId\")"
+  },
+  {
+    "tablename": "StreamReport",
+    "indexname": "StreamReport_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"StreamReport_pkey\" ON public.\"StreamReport\" USING btree (id)"
+  },
+  {
+    "tablename": "StreamReport",
+    "indexname": "idx_streamreport_streamId",
+    "indexdef": "CREATE INDEX \"idx_streamreport_streamId\" ON public.\"StreamReport\" USING btree (\"streamId\")"
+  },
+  {
+    "tablename": "StreamReport",
+    "indexname": "idx_streamreport_userId",
+    "indexdef": "CREATE INDEX \"idx_streamreport_userId\" ON public.\"StreamReport\" USING btree (\"userId\")"
+  },
+  {
+    "tablename": "StreamReport",
+    "indexname": "unique_stream_report",
+    "indexdef": "CREATE UNIQUE INDEX unique_stream_report ON public.\"StreamReport\" USING btree (\"streamId\", \"userId\")"
+  },
+  {
+    "tablename": "StreamSubscription",
+    "indexname": "StreamSubscription_hostId_userId_key",
+    "indexdef": "CREATE UNIQUE INDEX \"StreamSubscription_hostId_userId_key\" ON public.\"StreamSubscription\" USING btree (\"hostId\", \"userId\")"
+  },
+  {
+    "tablename": "StreamSubscription",
+    "indexname": "StreamSubscription_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"StreamSubscription_pkey\" ON public.\"StreamSubscription\" USING btree (id)"
+  },
+  {
+    "tablename": "StreamSubscription",
+    "indexname": "idx_streamsubscription_hostId",
+    "indexdef": "CREATE INDEX \"idx_streamsubscription_hostId\" ON public.\"StreamSubscription\" USING btree (\"hostId\")"
+  },
+  {
+    "tablename": "StreamSubscription",
+    "indexname": "idx_streamsubscription_userId",
+    "indexdef": "CREATE INDEX \"idx_streamsubscription_userId\" ON public.\"StreamSubscription\" USING btree (\"userId\")"
+  },
+  {
+    "tablename": "StreamSubscription",
+    "indexname": "unique_stream_subscription",
+    "indexdef": "CREATE UNIQUE INDEX unique_stream_subscription ON public.\"StreamSubscription\" USING btree (\"hostId\", \"userId\")"
+  },
+  {
+    "tablename": "StreamTip",
+    "indexname": "StreamTip_hostId_idx",
+    "indexdef": "CREATE INDEX \"StreamTip_hostId_idx\" ON public.\"StreamTip\" USING btree (\"hostId\")"
+  },
+  {
+    "tablename": "StreamTip",
+    "indexname": "StreamTip_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"StreamTip_pkey\" ON public.\"StreamTip\" USING btree (id)"
+  },
+  {
+    "tablename": "StreamTip",
+    "indexname": "StreamTip_senderId_idx",
+    "indexdef": "CREATE INDEX \"StreamTip_senderId_idx\" ON public.\"StreamTip\" USING btree (\"senderId\")"
+  },
+  {
+    "tablename": "StreamTip",
+    "indexname": "StreamTip_streamId_idx",
+    "indexdef": "CREATE INDEX \"StreamTip_streamId_idx\" ON public.\"StreamTip\" USING btree (\"streamId\")"
+  },
+  {
+    "tablename": "StreamTip",
+    "indexname": "idx_streamtip_hostId",
+    "indexdef": "CREATE INDEX \"idx_streamtip_hostId\" ON public.\"StreamTip\" USING btree (\"hostId\")"
+  },
+  {
+    "tablename": "StreamTip",
+    "indexname": "idx_streamtip_senderId",
+    "indexdef": "CREATE INDEX \"idx_streamtip_senderId\" ON public.\"StreamTip\" USING btree (\"senderId\")"
+  },
+  {
+    "tablename": "StreamTip",
+    "indexname": "idx_streamtip_streamId",
+    "indexdef": "CREATE INDEX \"idx_streamtip_streamId\" ON public.\"StreamTip\" USING btree (\"streamId\")"
+  },
+  {
+    "tablename": "StreamView",
+    "indexname": "StreamView_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"StreamView_pkey\" ON public.\"StreamView\" USING btree (id)"
+  },
+  {
+    "tablename": "StreamView",
+    "indexname": "idx_streamview_streamId",
+    "indexdef": "CREATE INDEX \"idx_streamview_streamId\" ON public.\"StreamView\" USING btree (\"streamId\")"
+  },
+  {
+    "tablename": "StreamView",
+    "indexname": "idx_streamview_userId",
+    "indexdef": "CREATE INDEX \"idx_streamview_userId\" ON public.\"StreamView\" USING btree (\"userId\")"
+  },
+  {
+    "tablename": "StreamView",
+    "indexname": "unique_stream_view",
+    "indexdef": "CREATE UNIQUE INDEX unique_stream_view ON public.\"StreamView\" USING btree (\"streamId\", \"userId\")"
+  },
+  {
+    "tablename": "User",
+    "indexname": "User_email_key",
+    "indexdef": "CREATE UNIQUE INDEX \"User_email_key\" ON public.\"User\" USING btree (email)"
+  },
+  {
+    "tablename": "User",
+    "indexname": "User_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"User_pkey\" ON public.\"User\" USING btree (id)"
+  },
+  {
+    "tablename": "User",
+    "indexname": "User_username_key",
+    "indexdef": "CREATE UNIQUE INDEX \"User_username_key\" ON public.\"User\" USING btree (username)"
+  },
+  {
+    "tablename": "User",
+    "indexname": "idx_user_created_at",
+    "indexdef": "CREATE INDEX idx_user_created_at ON public.\"User\" USING btree (\"createdAt\")"
+  },
+  {
+    "tablename": "User",
+    "indexname": "idx_user_public_profile",
+    "indexdef": "CREATE INDEX idx_user_public_profile ON public.\"User\" USING btree (\"publicProfile\")"
+  },
+  {
+    "tablename": "VerificationToken",
+    "indexname": "VerificationToken_identifier_token_key",
+    "indexdef": "CREATE UNIQUE INDEX \"VerificationToken_identifier_token_key\" ON public.\"VerificationToken\" USING btree (identifier, token)"
+  },
+  {
+    "tablename": "VerificationToken",
+    "indexname": "VerificationToken_token_key",
+    "indexdef": "CREATE UNIQUE INDEX \"VerificationToken_token_key\" ON public.\"VerificationToken\" USING btree (token)"
+  },
+  {
+    "tablename": "Video",
+    "indexname": "Video_createdAt_idx",
+    "indexdef": "CREATE INDEX \"Video_createdAt_idx\" ON public.\"Video\" USING btree (\"createdAt\")"
+  },
+  {
+    "tablename": "Video",
+    "indexname": "Video_muxAssetId_key",
+    "indexdef": "CREATE UNIQUE INDEX \"Video_muxAssetId_key\" ON public.\"Video\" USING btree (\"muxAssetId\")"
+  },
+  {
+    "tablename": "Video",
+    "indexname": "Video_muxPlaybackId_idx",
+    "indexdef": "CREATE INDEX \"Video_muxPlaybackId_idx\" ON public.\"Video\" USING btree (\"muxPlaybackId\")"
+  },
+  {
+    "tablename": "Video",
+    "indexname": "Video_muxUploadId_key",
+    "indexdef": "CREATE UNIQUE INDEX \"Video_muxUploadId_key\" ON public.\"Video\" USING btree (\"muxUploadId\")"
+  },
+  {
+    "tablename": "Video",
+    "indexname": "Video_pkey",
+    "indexdef": "CREATE UNIQUE INDEX \"Video_pkey\" ON public.\"Video\" USING btree (id)"
+  },
+  {
+    "tablename": "Video",
+    "indexname": "Video_status_idx",
+    "indexdef": "CREATE INDEX \"Video_status_idx\" ON public.\"Video\" USING btree (status)"
+  },
+  {
+    "tablename": "Video",
+    "indexname": "Video_userId_idx",
+    "indexdef": "CREATE INDEX \"Video_userId_idx\" ON public.\"Video\" USING btree (\"userId\")"
+  },
+  {
+    "tablename": "Video",
+    "indexname": "idx_video_publicly_listed",
+    "indexdef": "CREATE INDEX idx_video_publicly_listed ON public.\"Video\" USING btree (\"publiclyListed\")"
+  },
+  {
+    "tablename": "Video",
+    "indexname": "idx_video_title",
+    "indexdef": "CREATE INDEX idx_video_title ON public.\"Video\" USING btree (title)"
+  },
+  {
+    "tablename": "Video",
+    "indexname": "idx_video_userId",
+    "indexdef": "CREATE INDEX \"idx_video_userId\" ON public.\"Video\" USING btree (\"userId\")"
+  }
+]
+
+## Foreign Keys
+
+[
+  {
+    "table_name": "Account",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Account",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Comment",
+    "column_name": "reviewId",
+    "foreign_table_name": "Review",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Comment",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Comment",
+    "column_name": "videoId",
+    "foreign_table_name": "Video",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Comment",
+    "column_name": "reviewId",
+    "foreign_table_name": "Review",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Comment",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Comment",
+    "column_name": "videoId",
+    "foreign_table_name": "Video",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Follows",
+    "column_name": "followerId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Follows",
+    "column_name": "followingId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Follows",
+    "column_name": "followerId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Follows",
+    "column_name": "followingId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamLike",
+    "column_name": "streamId",
+    "foreign_table_name": "Stream",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamLike",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamLike",
+    "column_name": "streamId",
+    "foreign_table_name": "Stream",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamLike",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamTip",
+    "column_name": "hostId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamTip",
+    "column_name": "senderId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamTip",
+    "column_name": "streamId",
+    "foreign_table_name": "Stream",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamTip",
+    "column_name": "hostId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamTip",
+    "column_name": "senderId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamTip",
+    "column_name": "streamId",
+    "foreign_table_name": "Stream",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "User",
+    "column_name": "id",
+    "foreign_table_name": "users",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Review",
+    "column_name": "spiritId",
+    "foreign_table_name": "Spirit",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Review",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Review",
+    "column_name": "spiritId",
+    "foreign_table_name": "Spirit",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Review",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Session",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Session",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamReport",
+    "column_name": "streamId",
+    "foreign_table_name": "Stream",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamReport",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamReport",
+    "column_name": "streamId",
+    "foreign_table_name": "Stream",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamReport",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamSubscription",
+    "column_name": "hostId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamSubscription",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamSubscription",
+    "column_name": "hostId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamSubscription",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "VerificationToken",
+    "column_name": "identifier",
+    "foreign_table_name": "User",
+    "foreign_column_name": "email"
+  },
+  {
+    "table_name": "Stream",
+    "column_name": "hostId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Stream",
+    "column_name": "spiritId",
+    "foreign_table_name": "Spirit",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Stream",
+    "column_name": "hostId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Stream",
+    "column_name": "spiritId",
+    "foreign_table_name": "Spirit",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamView",
+    "column_name": "streamId",
+    "foreign_table_name": "Stream",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamView",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamView",
+    "column_name": "streamId",
+    "foreign_table_name": "Stream",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "StreamView",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Spirit",
+    "column_name": "ownerId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Spirit",
+    "column_name": "ownerId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Video",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  },
+  {
+    "table_name": "Video",
+    "column_name": "userId",
+    "foreign_table_name": "User",
+    "foreign_column_name": "id"
+  }
+]
+
+## RLS Policies
+
+[
+  {
+    "tablename": "Comment",
+    "policyname": "Allow authenticated read access",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.role() = 'authenticated'::text)",
+    "with_check": null
+  },
+  {
+    "tablename": "Comment",
+    "policyname": "Allow users delete access for own comments",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "Comment",
+    "policyname": "Allow users insert access for own comments",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "Comment",
+    "policyname": "Allow users update access for own comments",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "Comment",
+    "policyname": "Authenticated users can view all comments",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.role() = 'authenticated'::text)",
+    "with_check": null
+  },
+  {
+    "tablename": "Comment",
+    "policyname": "Users can delete own comments",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "Comment",
+    "policyname": "Users can insert own comments",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "Comment",
+    "policyname": "Users can update own comments",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "Follows",
+    "policyname": "Allow users delete access for own follows",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"followerId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "Follows",
+    "policyname": "Allow users insert access for own follows",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"followerId\")"
+  },
+  {
+    "tablename": "Follows",
+    "policyname": "Allow users to view their follow relationships",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = \"followerId\") OR (auth.uid() = \"followingId\"))",
+    "with_check": null
+  },
+  {
+    "tablename": "Follows",
+    "policyname": "Users can delete own follows",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"followerId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "Follows",
+    "policyname": "Users can insert own follows",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"followerId\")"
+  },
+  {
+    "tablename": "Follows",
+    "policyname": "Users can view follows they're involved in",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = \"followerId\") OR (auth.uid() = \"followingId\"))",
+    "with_check": null
+  },
+  {
+    "tablename": "Review",
+    "policyname": "Allow authenticated read access",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.role() = 'authenticated'::text)",
+    "with_check": null
+  },
+  {
+    "tablename": "Review",
+    "policyname": "Allow users delete access for own reviews",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "Review",
+    "policyname": "Allow users insert access for own reviews",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "Review",
+    "policyname": "Allow users update access for own reviews",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "Review",
+    "policyname": "Authenticated users can view all reviews",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.role() = 'authenticated'::text)",
+    "with_check": null
+  },
+  {
+    "tablename": "Review",
+    "policyname": "Users can delete own reviews",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "Review",
+    "policyname": "Users can insert own reviews",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "Review",
+    "policyname": "Users can update own reviews",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "Spirit",
+    "policyname": "Allow owner full CRUD access",
+    "cmd": "ALL",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"ownerId\")",
+    "with_check": "(auth.uid() = \"ownerId\")"
+  },
+  {
+    "tablename": "Spirit",
+    "policyname": "Users have full access to own spirits",
+    "cmd": "ALL",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"ownerId\")",
+    "with_check": "(auth.uid() = \"ownerId\")"
+  },
+  {
+    "tablename": "Stream",
+    "policyname": "Allow users delete access for own streams",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"hostId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "Stream",
+    "policyname": "Allow users insert access for own streams",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"hostId\")"
+  },
+  {
+    "tablename": "Stream",
+    "policyname": "Allow users to select own or public streams",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = \"hostId\") OR (privacy = 'public'::text))",
+    "with_check": null
+  },
+  {
+    "tablename": "Stream",
+    "policyname": "Allow users update access for own streams",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"hostId\")",
+    "with_check": "(auth.uid() = \"hostId\")"
+  },
+  {
+    "tablename": "Stream",
+    "policyname": "Users can delete own streams",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"hostId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "Stream",
+    "policyname": "Users can insert own streams",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"hostId\")"
+  },
+  {
+    "tablename": "Stream",
+    "policyname": "Users can update own streams",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"hostId\")",
+    "with_check": "(auth.uid() = \"hostId\")"
+  },
+  {
+    "tablename": "Stream",
+    "policyname": "Users can view own or public streams",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = \"hostId\") OR (privacy = 'public'::text))",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamLike",
+    "policyname": "Allow users delete access for own likes",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamLike",
+    "policyname": "Allow users insert/delete access for own likes",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "StreamLike",
+    "policyname": "Allow users to select own likes",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamLike",
+    "policyname": "Users can delete own likes",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamLike",
+    "policyname": "Users can insert own likes",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "StreamLike",
+    "policyname": "Users can view own likes",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamReport",
+    "policyname": "Allow users insert access for reports",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "StreamReport",
+    "policyname": "Allow users select access for own reports",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamReport",
+    "policyname": "Users can insert own reports",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "StreamReport",
+    "policyname": "Users can view own reports",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamSubscription",
+    "policyname": "Allow users delete access for own subscriptions",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamSubscription",
+    "policyname": "Allow users insert access for own subscriptions",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "StreamSubscription",
+    "policyname": "Allow users select access for involved subscriptions",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = \"userId\") OR (auth.uid() = \"hostId\"))",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamSubscription",
+    "policyname": "Users can delete own subscriptions",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamSubscription",
+    "policyname": "Users can insert own subscriptions",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "StreamSubscription",
+    "policyname": "Users can view subscriptions they're involved in",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = \"userId\") OR (auth.uid() = \"hostId\"))",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamTip",
+    "policyname": "Allow involved users select access for tips",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = \"senderId\") OR (auth.uid() = \"hostId\"))",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamTip",
+    "policyname": "Allow users insert access for own tips",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"senderId\")"
+  },
+  {
+    "tablename": "StreamTip",
+    "policyname": "Users can insert own tips",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"senderId\")"
+  },
+  {
+    "tablename": "StreamTip",
+    "policyname": "Users can view tips they're involved in",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = \"senderId\") OR (auth.uid() = \"hostId\"))",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamView",
+    "policyname": "Allow users insert access for own views",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "StreamView",
+    "policyname": "Allow users select access for own views",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "StreamView",
+    "policyname": "Users can insert own view records",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "StreamView",
+    "policyname": "Users can view own view records",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "User",
+    "policyname": "Allow authenticated insert",
+    "cmd": "INSERT",
+    "roles": "{authenticated}",
+    "qual": null,
+    "with_check": "true"
+  },
+  {
+    "tablename": "User",
+    "policyname": "Allow users to select own or public profiles",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = id) OR (\"publicProfile\" = true))",
+    "with_check": null
+  },
+  {
+    "tablename": "User",
+    "policyname": "Allow users to update their own profile",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = id)",
+    "with_check": "(auth.uid() = id)"
+  },
+  {
+    "tablename": "User",
+    "policyname": "Users can update own profile only",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = id)",
+    "with_check": "(auth.uid() = id)"
+  },
+  {
+    "tablename": "User",
+    "policyname": "Users can update own record",
+    "cmd": "UPDATE",
+    "roles": "{authenticated}",
+    "qual": "(id = auth.uid())",
+    "with_check": "(id = auth.uid())"
+  },
+  {
+    "tablename": "User",
+    "policyname": "Users can view other users",
+    "cmd": "SELECT",
+    "roles": "{authenticated}",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "tablename": "User",
+    "policyname": "Users can view own or public profiles",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = id) OR (\"publicProfile\" = true))",
+    "with_check": null
+  },
+  {
+    "tablename": "Video",
+    "policyname": "Allow users delete access for own videos",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "Video",
+    "policyname": "Allow users insert access for own videos",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "Video",
+    "policyname": "Allow users to select own or public videos",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = \"userId\") OR (\"publiclyListed\" = true))",
+    "with_check": null
+  },
+  {
+    "tablename": "Video",
+    "policyname": "Allow users update access for own videos",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "Video",
+    "policyname": "Everyone can view videos",
+    "cmd": "SELECT",
+    "roles": "{authenticated}",
+    "qual": "true",
+    "with_check": null
+  },
+  {
+    "tablename": "Video",
+    "policyname": "Users can delete own videos",
+    "cmd": "DELETE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": null
+  },
+  {
+    "tablename": "Video",
+    "policyname": "Users can insert own videos",
+    "cmd": "INSERT",
+    "roles": "{public}",
+    "qual": null,
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "Video",
+    "policyname": "Users can update own videos",
+    "cmd": "UPDATE",
+    "roles": "{public}",
+    "qual": "(auth.uid() = \"userId\")",
+    "with_check": "(auth.uid() = \"userId\")"
+  },
+  {
+    "tablename": "Video",
+    "policyname": "Users can view own or public videos",
+    "cmd": "SELECT",
+    "roles": "{public}",
+    "qual": "((auth.uid() = \"userId\") OR (\"publiclyListed\" = true))",
+    "with_check": null
+  },
+  {
+    "tablename": "Video",
+    "policyname": "users_can_manage_own_videos",
+    "cmd": "ALL",
+    "roles": "{authenticated}",
+    "qual": "(\"userId\" = auth.uid())",
+    "with_check": "(\"userId\" = auth.uid())"
+  }
+]
+

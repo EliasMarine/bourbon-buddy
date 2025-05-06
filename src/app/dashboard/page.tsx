@@ -19,7 +19,7 @@ import {
   Calendar,
   MessageCircle
 } from 'lucide-react';
-import Button from '@/components/ui/Button';
+import Button from "@/components/ui/button"
 
 // Debug helper
 const generateDebugId = () => Math.random().toString(36).substring(2, 8);
