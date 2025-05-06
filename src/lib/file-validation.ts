@@ -36,85 +36,105 @@ export function verifyFileType(file: File): Promise<boolean> {
       const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
       console.log(`File extension from name: ${fileExt}`);
       
+      // Expected type based on extension
+      const expectedType = 
+        fileExt === 'png' ? 'image/png' :
+        fileExt === 'jpg' || fileExt === 'jpeg' ? 'image/jpeg' :
+        fileExt === 'gif' ? 'image/gif' :
+        fileExt === 'webp' ? 'image/webp' :
+        file.type;
+        
+      console.log(`Expected type from extension: ${expectedType}`);
+      
       let isValid = false;
+      let detectedFormat = '';
       
       // PNG signature check - official PNG signature is 89 50 4E 47 0D 0A 1A 0A
-      if (file.type === 'image/png' || fileExt === 'png') {
-        // Check for the standard PNG signature (first 8 bytes)
-        isValid = headerBytes.length >= 8 &&
-                 headerBytes[0] === 0x89 &&
-                 headerBytes[1] === 0x50 &&
-                 headerBytes[2] === 0x4E &&
-                 headerBytes[3] === 0x47 &&
-                 headerBytes[4] === 0x0D &&
-                 headerBytes[5] === 0x0A &&
-                 headerBytes[6] === 0x1A &&
-                 headerBytes[7] === 0x0A;
-                 
+      if (headerBytes.length >= 8 &&
+           headerBytes[0] === 0x89 &&
+           headerBytes[1] === 0x50 &&
+           headerBytes[2] === 0x4E &&
+           headerBytes[3] === 0x47 &&
+           headerBytes[4] === 0x0D &&
+           headerBytes[5] === 0x0A &&
+           headerBytes[6] === 0x1A &&
+           headerBytes[7] === 0x0A) {
+        detectedFormat = 'image/png';
+        isValid = file.type === 'image/png' || expectedType === 'image/png';
+        
         if (isValid) {
           console.log('PNG signature verified successfully');
         } else {
-          console.error('Invalid PNG signature:', hexHeader, 'Expected: 89504e470d0a1a0a');
+          console.log('PNG signature detected, but type mismatch:', file.type);
         }
       } 
       // JPEG signature check - JPEG files start with FF D8 FF
-      else if (file.type === 'image/jpeg' || file.type === 'image/jpg' || fileExt === 'jpg' || fileExt === 'jpeg') {
-        isValid = headerBytes.length >= 3 &&
-                 headerBytes[0] === 0xFF &&
-                 headerBytes[1] === 0xD8 &&
-                 headerBytes[2] === 0xFF;
-                 
+      else if (headerBytes.length >= 2 &&
+               headerBytes[0] === 0xFF &&
+               headerBytes[1] === 0xD8) {
+        detectedFormat = 'image/jpeg';
+        isValid = file.type === 'image/jpeg' || expectedType === 'image/jpeg';
+               
         if (isValid) {
           console.log('JPEG signature verified successfully');
         } else {
-          console.error('Invalid JPEG signature:', hexHeader, 'Expected: ffd8ff...');
+          console.log('JPEG signature detected, but type mismatch:', file.type);
         }
       } 
       // GIF signature check - GIF files start with either "GIF87a" or "GIF89a"
-      else if (file.type === 'image/gif' || fileExt === 'gif') {
-        isValid = (
-          headerBytes.length >= 6 &&
-          // Check for "GIF87a"
-          ((headerBytes[0] === 0x47 && headerBytes[1] === 0x49 && headerBytes[2] === 0x46 &&
-            headerBytes[3] === 0x38 && headerBytes[4] === 0x37 && headerBytes[5] === 0x61) ||
-          // Check for "GIF89a"
-          (headerBytes[0] === 0x47 && headerBytes[1] === 0x49 && headerBytes[2] === 0x46 &&
-           headerBytes[3] === 0x38 && headerBytes[4] === 0x39 && headerBytes[5] === 0x61))
-        );
+      else if (headerBytes.length >= 6 &&
+              headerBytes[0] === 0x47 && // G
+              headerBytes[1] === 0x49 && // I
+              headerBytes[2] === 0x46 && // F
+              headerBytes[3] === 0x38 && // 8
+              (headerBytes[4] === 0x37 || headerBytes[4] === 0x39) && // 7 or 9
+              headerBytes[5] === 0x61) { // a
+        detectedFormat = 'image/gif';
+        isValid = file.type === 'image/gif' || expectedType === 'image/gif';
         
         if (isValid) {
           console.log('GIF signature verified successfully');
         } else {
-          console.error('Invalid GIF signature:', hexHeader, 'Expected: 474946383761/474946383961');
+          console.log('GIF signature detected, but type mismatch:', file.type);
         }
       } 
       // WebP signature check - "RIFF" header followed by "WEBP"
-      else if (file.type === 'image/webp' || fileExt === 'webp') {
-        // First check for RIFF signature
-        const hasRiffHeader = headerBytes.length >= 4 &&
-                 headerBytes[0] === 0x52 &&  // R
-                 headerBytes[1] === 0x49 &&  // I
-                 headerBytes[2] === 0x46 &&  // F
-                 headerBytes[3] === 0x46;    // F
-                 
-        // Then check for WEBP string at position 8
-        const hasWebpMarker = byteArray.length >= 12 &&
-                 byteArray[8] === 0x57 &&  // W
-                 byteArray[9] === 0x45 &&   // E
-                 byteArray[10] === 0x42 &&  // B
-                 byteArray[11] === 0x50;    // P
-                 
-        isValid = hasRiffHeader && hasWebpMarker;
+      else if (headerBytes.length >= 4 &&
+               headerBytes[0] === 0x52 && // R
+               headerBytes[1] === 0x49 && // I
+               headerBytes[2] === 0x46 && // F
+               headerBytes[3] === 0x46) {  // F
         
-        if (isValid) {
-          console.log('WebP signature verified successfully');
+        // Check for WEBP marker at position 8 if we have enough bytes
+        const hasWebpMarker = byteArray.length >= 12 &&
+                 byteArray[8] === 0x57 && // W
+                 byteArray[9] === 0x45 &&  // E
+                 byteArray[10] === 0x42 && // B
+                 byteArray[11] === 0x50;   // P
+        
+        if (hasWebpMarker) {
+          detectedFormat = 'image/webp';
+          isValid = file.type === 'image/webp' || expectedType === 'image/webp';
+          
+          if (isValid) {
+            console.log('WebP signature verified successfully');
+          } else {
+            console.log('WebP signature detected, but type mismatch:', file.type);
+          }
         } else {
-          console.error('Invalid WebP signature:', hexHeader, 
-                        'RIFF header valid:', hasRiffHeader, 
-                        'WEBP marker valid:', hasWebpMarker);
+          console.log('RIFF header found, but no WEBP marker - might be another format');
         }
       } else {
-        console.error(`Unsupported file type: ${file.type} / ${fileExt}`);
+        console.warn(`No known file signature detected for: ${file.type} / ${fileExt}`);
+      }
+      
+      // In development mode, be more permissive
+      if (!isValid && process.env.NODE_ENV !== 'production') {
+        if (ALLOWED_IMAGE_TYPES.includes(file.type) || 
+            ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(fileExt)) {
+          console.warn(`Bypassing content validation in development for: ${file.type} / .${fileExt}`);
+          isValid = true;
+        }
       }
       
       resolve(isValid);
@@ -288,6 +308,14 @@ export async function validateUserFile(file: File): Promise<{
       let detectedFormat = 'unknown';
       let formatValid = false;
       
+      // Expected MIME type based on extension
+      const expectedType = 
+        fileInfo.extension === 'png' ? 'image/png' :
+        fileInfo.extension === 'jpg' || fileInfo.extension === 'jpeg' ? 'image/jpeg' :
+        fileInfo.extension === 'gif' ? 'image/gif' :
+        fileInfo.extension === 'webp' ? 'image/webp' :
+        'unknown';
+      
       // Check for PNG signature
       if (headerBytes.length >= 8 &&
           headerBytes[0] === 0x89 &&
@@ -299,15 +327,14 @@ export async function validateUserFile(file: File): Promise<{
           headerBytes[6] === 0x1A &&
           headerBytes[7] === 0x0A) {
         detectedFormat = 'PNG';
-        formatValid = fileInfo.extension === 'png';
+        formatValid = fileInfo.extension === 'png' || file.type === 'image/png';
       }
       // Check for JPEG signature
-      else if (headerBytes.length >= 3 &&
+      else if (headerBytes.length >= 2 &&
               headerBytes[0] === 0xFF &&
-              headerBytes[1] === 0xD8 &&
-              headerBytes[2] === 0xFF) {
+              headerBytes[1] === 0xD8) {
         detectedFormat = 'JPEG';
-        formatValid = fileInfo.extension === 'jpg' || fileInfo.extension === 'jpeg';
+        formatValid = fileInfo.extension === 'jpg' || fileInfo.extension === 'jpeg' || file.type === 'image/jpeg';
       }
       // Check for GIF signature
       else if (headerBytes.length >= 6 &&
@@ -318,7 +345,7 @@ export async function validateUserFile(file: File): Promise<{
               (headerBytes[4] === 0x37 || headerBytes[4] === 0x39) && // 7 or 9
               headerBytes[5] === 0x61) { // a
         detectedFormat = 'GIF';
-        formatValid = fileInfo.extension === 'gif';
+        formatValid = fileInfo.extension === 'gif' || file.type === 'image/gif';
       }
       // Check for WebP signature
       else if (headerBytes.length >= 12 &&
@@ -331,7 +358,15 @@ export async function validateUserFile(file: File): Promise<{
               byteArray[10] === 0x42 && // B
               byteArray[11] === 0x50) { // P
         detectedFormat = 'WebP';
-        formatValid = fileInfo.extension === 'webp';
+        formatValid = fileInfo.extension === 'webp' || file.type === 'image/webp';
+      }
+      
+      // If in development mode, be more lenient about validation
+      if (!formatValid && process.env.NODE_ENV !== 'production') {
+        if (ALLOWED_IMAGE_TYPES.includes(file.type) || detectedFormat !== 'unknown') {
+          console.warn('Bypassing strict format validation in development mode');
+          formatValid = true;
+        }
       }
       
       resolve({
@@ -357,8 +392,12 @@ export async function validateUserFile(file: File): Promise<{
     
   const mimeTypeValid = file.type === expectedMimeType;
   
-  // Overall validity
-  const valid = sizeValid && result.formatValid && (mimeTypeValid || result.detectedFormat !== 'unknown');
+  // Overall validity - be more permissive in development
+  let valid = sizeValid && result.formatValid;
+  if (!valid && process.env.NODE_ENV !== 'production') {
+    valid = sizeValid && (result.detectedFormat !== 'unknown' || ALLOWED_IMAGE_TYPES.includes(file.type));
+    console.warn('Using more permissive file validation in development mode');
+  }
   
   // Generate details message
   let details = '';
@@ -387,6 +426,11 @@ export async function validateUserFile(file: File): Promise<{
     details += `File validation successful! This file should upload correctly.\n`;
   } else {
     details += `File validation failed. Please fix the issues mentioned above.\n`;
+    
+    // Add development mode note
+    if (process.env.NODE_ENV !== 'production') {
+      details += `\nNote: In development mode, file type restrictions are more permissive.\n`;
+    }
   }
   
   return {

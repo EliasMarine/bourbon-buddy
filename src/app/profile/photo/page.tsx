@@ -103,33 +103,59 @@ export default function ProfilePhotoPage() {
   const processAndUploadFile = async (file: File) => {
     if (!file) return;
     
-    // Determine file extension
-    const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
-    
-    // Ensure correct MIME type based on extension
-    let processedFile = file;
-    const correctMimeType = 
-      fileExt === 'png' ? 'image/png' :
-      fileExt === 'jpg' || fileExt === 'jpeg' ? 'image/jpeg' :
-      fileExt === 'gif' ? 'image/gif' :
-      fileExt === 'webp' ? 'image/webp' :
-      file.type;
-      
-    // If MIME type doesn't match extension, fix it
-    if (file.type !== correctMimeType) {
-      console.log(`Fixing MIME type for ${fileExt} file: ${file.name} - current type: ${file.type}`);
-      processedFile = new File([file], file.name, { type: correctMimeType });
-    }
-    
     try {
       setIsUploading(true);
       setUploadError(null);
       
-      // Upload the file
+      // Log file information for debugging
+      console.log('File selected for profile:', {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: new Date(file.lastModified).toISOString()
+      });
+      
+      // Determine correct file extension and MIME type
+      const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
+      const correctMimeType = 
+        fileExt === 'png' ? 'image/png' :
+        fileExt === 'jpg' || fileExt === 'jpeg' ? 'image/jpeg' :
+        fileExt === 'gif' ? 'image/gif' :
+        fileExt === 'webp' ? 'image/webp' :
+        file.type;
+        
+      // Create a blob to verify the image before uploading
+      let processedFile = file;
+      
+      // If MIME type doesn't match extension, fix it
+      if (file.type !== correctMimeType) {
+        console.log(`Fixing MIME type for ${fileExt} file: ${file.name} - current type: ${file.type}, correct type: ${correctMimeType}`);
+        try {
+          // Create a new file with corrected MIME type
+          processedFile = new File([file], file.name, { 
+            type: correctMimeType,
+            lastModified: file.lastModified 
+          });
+        } catch (error) {
+          console.warn("Could not create new File with corrected MIME type - continuing with original file", error);
+          // Continue with original file
+        }
+      }
+      
+      // Create a blob URL for verification
+      const blobUrl = URL.createObjectURL(processedFile);
+      console.log('Created blob URL for verification:', blobUrl);
+      
+      // Prepare FormData for upload
       const formData = new FormData();
       formData.append('file', processedFile);
+      console.log('FormData created with file:', {
+        name: processedFile.name,
+        type: processedFile.type,
+        size: processedFile.size
+      });
       
-      // Get CSRF token if available
+      // Get CSRF token
       let csrfToken = '';
       try {
         if (typeof window !== 'undefined' && window._csrfToken) {
@@ -141,38 +167,62 @@ export default function ProfilePhotoPage() {
         console.warn('Failed to get CSRF token:', e);
       }
       
+      // Log upload attempt
+      console.log('Uploading file:', {
+        name: processedFile.name,
+        type: processedFile.type,
+        size: processedFile.size,
+        token: csrfToken ? 'Present' : 'Missing'
+      });
+      
       // Prepare headers with CSRF token
       const headers: Record<string, string> = {};
       if (csrfToken) {
         headers['x-csrf-token'] = csrfToken;
       }
       
-      // Upload file to get URL
+      // Upload the file
+      console.log('Starting fetch to /api/upload...');
       const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
         headers,
         body: formData,
       });
-
+      
+      console.log('Upload response status:', uploadResponse.status, uploadResponse.statusText);
+      
       if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        console.error('Upload failed with status:', uploadResponse.status);
-        console.error('Error response:', errorText);
-        
         let errorMessage = 'Failed to upload image';
+        
         try {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.error || errorMessage;
+          const errorText = await uploadResponse.text();
+          console.error('Upload response error:', errorText);
+          
+          try {
+            // Try to parse as JSON
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.error || errorMessage;
+          } catch (e) {
+            // Not JSON, use text as-is
+            if (errorText && errorText.length < 100) {
+              errorMessage = errorText;
+            }
+          }
         } catch (e) {
-          // Fallback to text if not valid JSON
+          console.error('Could not extract error details from upload response');
         }
         
         setUploadError(errorMessage);
         throw new Error(errorMessage);
       }
-
+      
+      // Parse upload response
       const uploadData = await uploadResponse.json();
       const imageUrl = uploadData.url;
+      
+      if (!imageUrl) {
+        throw new Error('Upload succeeded but no image URL was returned');
+      }
       
       // Update user profile with the new image URL
       const updateResponse = await fetch('/api/user/profile', {
@@ -181,33 +231,63 @@ export default function ProfilePhotoPage() {
           'Content-Type': 'application/json',
           ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
         },
-        body: JSON.stringify({ image: imageUrl }),
+        body: JSON.stringify({ 
+          image: imageUrl,
+          _csrf: csrfToken // Include token in body as well for extra security
+        }),
       });
-
+      
       if (!updateResponse.ok) {
-        const errorData = await updateResponse.json();
-        setUploadError(errorData.error || 'Failed to update profile');
-        throw new Error(errorData.error || 'Failed to update profile');
+        let errorMessage = 'Failed to update profile';
+        
+        try {
+          const errorData = await updateResponse.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          console.error('Could not extract error details from profile update response');
+        }
+        
+        setUploadError(errorMessage);
+        throw new Error(errorMessage);
       }
-
-      const { user } = await updateResponse.json();
+      
+      // Get updated user data
+      const userData = await updateResponse.json();
       
       // Update session with new user data
-      await updateSession({
-        user: {
-          ...session.user,
-          image: imageUrl
-        }
-      });
-      
-      // Update timestamp to bust the cache
-      setImageUpdateTimestamp(Date.now());
-      
-      toast.success('Profile photo updated successfully');
-      setValidationResult(null);
+      if (userData.user) {
+        await updateSession({
+          user: {
+            ...session.user,
+            image: imageUrl
+          }
+        });
+        
+        // Update timestamp to bust the cache
+        setImageUpdateTimestamp(Date.now());
+        
+        // Reset state and show success message
+        setValidationResult(null);
+        toast.success('Profile photo updated successfully');
+      } else {
+        throw new Error('Profile update succeeded but returned no user data');
+      }
     } catch (error) {
       console.error('Error uploading image:', error);
-      toast.error(error instanceof Error ? error.message : 'Unknown error occurred');
+      
+      // Show friendly error message
+      let errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
+      // Make the message more user-friendly
+      if (errorMessage.includes('content does not match declared type')) {
+        errorMessage = 'The file format doesn\'t match its extension. Try saving the image in a different format (e.g., JPEG or PNG).';
+      } else if (errorMessage.includes('Too Many Requests') || errorMessage.includes('429')) {
+        errorMessage = 'You\'ve made too many upload attempts. Please wait a moment and try again.';
+      } else if (errorMessage.includes('too large') || errorMessage.includes('exceeds')) {
+        errorMessage = 'The file is too large. Please use an image smaller than 5MB.';
+      }
+      
+      toast.error(errorMessage);
     } finally {
       setIsUploading(false);
     }

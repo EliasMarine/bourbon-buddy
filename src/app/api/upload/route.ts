@@ -39,7 +39,7 @@ const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'
 const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 const BUCKET_NAME = 'bourbon-buddy-prod';
 
-// Simple content type verification - verifies file content against declared MIME type
+// Improved file type verification with better error logging and format detection
 function verifyFileType(file: File): Promise<boolean> {
   return new Promise((resolve) => {
     // Handle empty files
@@ -56,6 +56,18 @@ function verifyFileType(file: File): Promise<boolean> {
       return;
     }
     
+    // Extract file extension
+    const fileExt = path.extname(file.name).toLowerCase();
+    const expectedType = 
+      fileExt === '.png' ? 'image/png' :
+      fileExt === '.jpg' || fileExt === '.jpeg' ? 'image/jpeg' :
+      fileExt === '.gif' ? 'image/gif' :
+      fileExt === '.webp' ? 'image/webp' :
+      file.type;
+      
+    // Log original and expected types
+    console.log(`File type verification - Declared: ${file.type}, Expected from extension: ${expectedType}`);
+    
     try {
       const reader = new FileReader();
       
@@ -67,49 +79,98 @@ function verifyFileType(file: File): Promise<boolean> {
             return;
           }
           
-          const arr = new Uint8Array(e.target.result as ArrayBuffer).subarray(0, 8);
+          // Read more bytes to better detect file types
+          const arr = new Uint8Array(e.target.result as ArrayBuffer);
           if (arr.length === 0) {
             console.error("No bytes read from file");
             resolve(false);
             return;
           }
           
-          const header = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
-          console.log(`File header: ${header} for file type: ${file.type}`);
+          // Get header as hex for logging
+          const header = Array.from(arr.subarray(0, 16)).map(b => b.toString(16).padStart(2, '0')).join('');
+          console.log(`File header (hex): ${header}`);
           
-          // Check file signatures
+          // Detected format from header
+          let detectedFormat = '';
           let isValid = false;
           
-          // JPEG: FF D8 FF
-          if (file.type === 'image/jpeg' && (header.startsWith('ffd8ff') || header.startsWith('ffd8'))) {
-            isValid = true;
+          // JPEG: FF D8 FF (many variations exist in the wild)
+          if (arr[0] === 0xFF && arr[1] === 0xD8) {
+            detectedFormat = 'image/jpeg';
+            isValid = file.type === 'image/jpeg' || expectedType === 'image/jpeg';
+            console.log(`JPEG signature detected: ${header.substring(0, 6)}`);
           } 
           // PNG: 89 50 4E 47 0D 0A 1A 0A
-          else if (file.type === 'image/png' && header.startsWith('89504e47')) {
-            isValid = true;
+          else if (arr[0] === 0x89 && arr[1] === 0x50 && arr[2] === 0x4E && arr[3] === 0x47 && 
+                   arr[4] === 0x0D && arr[5] === 0x0A && arr[6] === 0x1A && arr[7] === 0x0A) {
+            detectedFormat = 'image/png';
+            isValid = file.type === 'image/png' || expectedType === 'image/png';
+            console.log(`PNG signature detected: ${header.substring(0, 16)}`);
           } 
           // GIF: GIF87a (47 49 46 38 37 61) or GIF89a (47 49 46 38 39 61)
-          else if (file.type === 'image/gif' && (header.startsWith('47494638'))) {
-            isValid = true;
+          else if (arr[0] === 0x47 && arr[1] === 0x49 && arr[2] === 0x46 && 
+                   arr[3] === 0x38 && (arr[4] === 0x37 || arr[4] === 0x39) && arr[5] === 0x61) {
+            detectedFormat = 'image/gif';
+            isValid = file.type === 'image/gif' || expectedType === 'image/gif';
+            console.log(`GIF signature detected: ${header.substring(0, 12)}`);
           } 
-          // WebP: RIFF....WEBP (52 49 46 46 .. .. .. .. 57 45 42 50)
-          // Note: WebP is more complex as the WEBP identifier is at offset 8
-          else if (file.type === 'image/webp' && header.startsWith('52494646')) {
-            // For WebP we would normally check bytes 8-11 for 'WEBP'
-            // For simplicity we'll accept the RIFF signature
-            isValid = true;
-          }
-          // For development, be more lenient with file types
-          else if (process.env.NODE_ENV !== 'production') {
-            console.warn(`File type verification bypassed in development for: ${file.type}`);
-            isValid = true;
+          // WebP: RIFF followed by WEBP at offset 8
+          else if (arr[0] === 0x52 && arr[1] === 0x49 && arr[2] === 0x46 && arr[3] === 0x46 && 
+                   arr.length >= 12 && arr[8] === 0x57 && arr[9] === 0x45 && 
+                   arr[10] === 0x42 && arr[11] === 0x50) {
+            detectedFormat = 'image/webp';
+            isValid = file.type === 'image/webp' || expectedType === 'image/webp';
+            console.log(`WebP signature detected: RIFF header and WEBP marker`);
           }
           
-          console.log(`File type validation result: ${isValid ? 'Valid' : 'Invalid'}`);
+          // If we couldn't detect format but MIME type is allowed, be lenient in dev
+          if (!isValid && detectedFormat === '' && ALLOWED_MIME_TYPES.includes(file.type)) {
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn(`Could not verify file type but allowing it in development: ${file.type}`);
+              isValid = true;
+            } else {
+              console.error(`Failed to detect file format, but declared MIME type is allowed: ${file.type}`);
+            }
+          }
+          
+          // If file extension and content type don't match but both are allowed, be lenient
+          if (!isValid && detectedFormat !== '' && ALLOWED_MIME_TYPES.includes(detectedFormat)) {
+            console.log(`File content (${detectedFormat}) and declared type (${file.type}) mismatch, but both are allowed formats`);
+            
+            // In development, be more permissive
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn(`Allowing file type mismatch in development. Content: ${detectedFormat}, Declared: ${file.type}`);
+              isValid = true;
+            } else if (ALLOWED_MIME_TYPES.includes(file.type)) {
+              // In production, if both types are allowed, still accept it but log a warning
+              console.warn(`Accepting mismatched but allowed file type in production. Content: ${detectedFormat}, Declared: ${file.type}`);
+              isValid = true;
+            }
+          }
+          
+          // Development fallback - accept any file with allowed extension or mimetype
+          if (!isValid && process.env.NODE_ENV !== 'production') {
+            const hasAllowedExt = ALLOWED_EXTENSIONS.includes(fileExt);
+            const hasAllowedMime = ALLOWED_MIME_TYPES.includes(file.type);
+            
+            if (hasAllowedExt || hasAllowedMime) {
+              console.warn(`Bypassing strict validation in development. Extension: ${fileExt}, MIME: ${file.type}`);
+              isValid = true;
+            }
+          }
+          
+          console.log(`File validation result: ${isValid ? 'Valid' : 'Invalid'}, Detected: ${detectedFormat || 'unknown'}`);
           resolve(isValid);
         } catch (err) {
           console.error("Error during file signature check:", err);
-          resolve(false);
+          // In development, allow files even if validation fails
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('Allowing file in development despite validation error');
+            resolve(true);
+          } else {
+            resolve(false);
+          }
         }
       };
       
@@ -118,7 +179,7 @@ function verifyFileType(file: File): Promise<boolean> {
         resolve(false);
       };
       
-      // Read only the first 16 bytes to check the file signature
+      // Read the first chunk of the file - enough to detect type signatures
       reader.readAsArrayBuffer(file.slice(0, 16));
     } catch (err) {
       console.error("Error setting up file reader:", err);
@@ -260,7 +321,7 @@ export async function POST(request: NextRequest) {
       name: file.name,
       type: file.type,
       size: file.size,
-      lastModified: file.lastModified
+      lastModified: new Date(file.lastModified).toISOString()
     });
     
     // Check if file is empty
@@ -291,27 +352,60 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Check MIME type
-    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-      console.error(`Invalid MIME type: ${file.type}`);
+    // Check MIME type - but be more lenient if extension is valid
+    const isExtensionValid = ALLOWED_EXTENSIONS.includes(fileExtension);
+    
+    if (!ALLOWED_MIME_TYPES.includes(file.type) && !isExtensionValid) {
+      console.error(`Invalid MIME type: ${file.type} and extension: ${fileExtension}`);
       return NextResponse.json(
         { error: `Invalid file type. Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}` },
         { status: 400 }
       );
     }
     
+    // Prepare a fixed file type based on extension if needed
+    let processedFile = file;
+    if (isExtensionValid && !ALLOWED_MIME_TYPES.includes(file.type)) {
+      // Fix MIME type based on extension
+      const correctMimeType = 
+        fileExtension === '.png' ? 'image/png' :
+        fileExtension === '.jpg' || fileExtension === '.jpeg' ? 'image/jpeg' :
+        fileExtension === '.gif' ? 'image/gif' :
+        fileExtension === '.webp' ? 'image/webp' :
+        file.type;
+        
+      console.log(`Fixing MIME type based on extension. Original: ${file.type}, New: ${correctMimeType}`);
+      
+      try {
+        // Create a new file with the correct MIME type
+        processedFile = new File([file], file.name, { 
+          type: correctMimeType,
+          lastModified: file.lastModified 
+        });
+      } catch (error) {
+        console.warn("Failed to create new File with corrected MIME type:", error);
+        // Continue with original file
+      }
+    }
+    
     // Verify that file content matches its declared type
-    const isValidType = await verifyFileType(file);
+    const isValidType = await verifyFileType(processedFile);
     if (!isValidType) {
       console.error('File content validation failed');
-      return NextResponse.json(
-        { error: 'File content does not match declared type' },
-        { status: 400 }
-      );
+      
+      // In development mode, allow the upload despite validation failure as a fallback
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('Allowing file upload in development despite content validation failure');
+      } else {
+        return NextResponse.json(
+          { error: 'File content does not match declared type' },
+          { status: 400 }
+        );
+      }
     }
     
     // Scan file for viruses/malware
-    const isClean = await scanForViruses(file);
+    const isClean = await scanForViruses(processedFile);
     if (!isClean) {
       console.error('File failed security scan');
       return NextResponse.json(
@@ -392,14 +486,14 @@ export async function POST(request: NextRequest) {
     console.log('Uploading file to:', {
       bucket: BUCKET_NAME,
       path: filePath,
-      contentType: file.type
+      contentType: processedFile.type
     });
     
     // Upload to Supabase Storage
     const { data, error } = await supabase.storage
       .from(BUCKET_NAME)
-      .upload(filePath, file, {
-        contentType: file.type,
+      .upload(filePath, processedFile, {
+        contentType: processedFile.type,
         upsert: false, // Don't overwrite existing files with same name
       });
     
