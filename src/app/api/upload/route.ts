@@ -58,15 +58,9 @@ function verifyFileType(file: File): Promise<boolean> {
     
     // Extract file extension
     const fileExt = path.extname(file.name).toLowerCase();
-    const expectedType = 
-      fileExt === '.png' ? 'image/png' :
-      fileExt === '.jpg' || fileExt === '.jpeg' ? 'image/jpeg' :
-      fileExt === '.gif' ? 'image/gif' :
-      fileExt === '.webp' ? 'image/webp' :
-      file.type;
-      
+    
     // Log original and expected types
-    console.log(`File type verification - Declared: ${file.type}, Expected from extension: ${expectedType}`);
+    console.log(`File type verification - Declared: ${file.type}, Extension: ${fileExt}`);
     
     try {
       const reader = new FileReader();
@@ -79,7 +73,6 @@ function verifyFileType(file: File): Promise<boolean> {
             return;
           }
           
-          // Read more bytes to better detect file types
           const arr = new Uint8Array(e.target.result as ArrayBuffer);
           if (arr.length === 0) {
             console.error("No bytes read from file");
@@ -87,86 +80,91 @@ function verifyFileType(file: File): Promise<boolean> {
             return;
           }
           
-          // Get header as hex for logging
           const header = Array.from(arr.subarray(0, 16)).map(b => b.toString(16).padStart(2, '0')).join('');
           console.log(`File header (hex): ${header}`);
           
-          // Detected format from header
-          let detectedFormat = '';
-          let isValid = false;
+          let detectedMimeType = '';
+          let isContentValid = false;
           
-          // JPEG: FF D8 FF (many variations exist in the wild)
+          // JPEG: FF D8 FF
           if (arr[0] === 0xFF && arr[1] === 0xD8) {
-            detectedFormat = 'image/jpeg';
-            isValid = file.type === 'image/jpeg' || expectedType === 'image/jpeg';
+            detectedMimeType = 'image/jpeg';
             console.log(`JPEG signature detected: ${header.substring(0, 6)}`);
           } 
           // PNG: 89 50 4E 47 0D 0A 1A 0A
           else if (arr[0] === 0x89 && arr[1] === 0x50 && arr[2] === 0x4E && arr[3] === 0x47 && 
                    arr[4] === 0x0D && arr[5] === 0x0A && arr[6] === 0x1A && arr[7] === 0x0A) {
-            detectedFormat = 'image/png';
-            isValid = file.type === 'image/png' || expectedType === 'image/png';
+            detectedMimeType = 'image/png';
             console.log(`PNG signature detected: ${header.substring(0, 16)}`);
           } 
-          // GIF: GIF87a (47 49 46 38 37 61) or GIF89a (47 49 46 38 39 61)
+          // GIF: GIF87a or GIF89a
           else if (arr[0] === 0x47 && arr[1] === 0x49 && arr[2] === 0x46 && 
                    arr[3] === 0x38 && (arr[4] === 0x37 || arr[4] === 0x39) && arr[5] === 0x61) {
-            detectedFormat = 'image/gif';
-            isValid = file.type === 'image/gif' || expectedType === 'image/gif';
+            detectedMimeType = 'image/gif';
             console.log(`GIF signature detected: ${header.substring(0, 12)}`);
           } 
-          // WebP: RIFF followed by WEBP at offset 8
+          // WebP: RIFF....WEBP
           else if (arr[0] === 0x52 && arr[1] === 0x49 && arr[2] === 0x46 && arr[3] === 0x46 && 
                    arr.length >= 12 && arr[8] === 0x57 && arr[9] === 0x45 && 
                    arr[10] === 0x42 && arr[11] === 0x50) {
-            detectedFormat = 'image/webp';
-            isValid = file.type === 'image/webp' || expectedType === 'image/webp';
+            detectedMimeType = 'image/webp';
             console.log(`WebP signature detected: RIFF header and WEBP marker`);
           }
+
+          if (detectedMimeType && ALLOWED_MIME_TYPES.includes(detectedMimeType)) {
+            isContentValid = true;
+            console.log(`Content matches allowed type: ${detectedMimeType}`);
+          } else if (detectedMimeType) {
+            console.warn(`Content detected as ${detectedMimeType}, which is not in ALLOWED_MIME_TYPES.`);
+          } else {
+            console.warn(`Could not detect a known image signature. Declared type: ${file.type}, Extension: ${fileExt}`);
+          }
           
-          // If we couldn't detect format but MIME type is allowed, be lenient in dev
-          if (!isValid && detectedFormat === '' && ALLOWED_MIME_TYPES.includes(file.type)) {
-            if (process.env.NODE_ENV !== 'production') {
-              console.warn(`Could not verify file type but allowing it in development: ${file.type}`);
-              isValid = true;
+          // Overall validation logic:
+          // 1. The detected content type MUST be in ALLOWED_MIME_TYPES.
+          // 2. If content is valid, we check if the declared type or extension-derived type matches the content.
+          //    If not, in dev, we might be more lenient.
+          let finalValidationResult = false;
+          if (isContentValid) {
+            // Check if declared MIME type or extension matches the detected content type
+            const declaredTypeMatchesContent = file.type === detectedMimeType;
+            const extensionMatchesContent = 
+              (fileExt === '.png' && detectedMimeType === 'image/png') ||
+              ((fileExt === '.jpg' || fileExt === '.jpeg') && detectedMimeType === 'image/jpeg') ||
+              (fileExt === '.gif' && detectedMimeType === 'image/gif') ||
+              (fileExt === '.webp' && detectedMimeType === 'image/webp');
+
+            if (declaredTypeMatchesContent || extensionMatchesContent) {
+              finalValidationResult = true;
             } else {
-              console.error(`Failed to detect file format, but declared MIME type is allowed: ${file.type}`);
+              console.warn(`Content (${detectedMimeType}) is valid and allowed, but mismatch with declared type (${file.type}) and extension (${fileExt}).`);
+              // In development, allow if the detected content is an allowed type, even if declared/extension mismatch.
+              if (process.env.NODE_ENV !== 'production') {
+                console.warn('Allowing due to development mode and valid detected content.');
+                finalValidationResult = true;
+              }
             }
+          } else {
+             // Content is not valid or not an allowed type
+             console.error(`File content validation failed. Detected: ${detectedMimeType || 'unknown'}`);
           }
           
-          // If file extension and content type don't match but both are allowed, be lenient
-          if (!isValid && detectedFormat !== '' && ALLOWED_MIME_TYPES.includes(detectedFormat)) {
-            console.log(`File content (${detectedFormat}) and declared type (${file.type}) mismatch, but both are allowed formats`);
-            
-            // In development, be more permissive
-            if (process.env.NODE_ENV !== 'production') {
-              console.warn(`Allowing file type mismatch in development. Content: ${detectedFormat}, Declared: ${file.type}`);
-              isValid = true;
-            } else if (ALLOWED_MIME_TYPES.includes(file.type)) {
-              // In production, if both types are allowed, still accept it but log a warning
-              console.warn(`Accepting mismatched but allowed file type in production. Content: ${detectedFormat}, Declared: ${file.type}`);
-              isValid = true;
+          // Fallback for development: if content couldn't be strictly validated but declared type or extension is allowed
+          if (!finalValidationResult && process.env.NODE_ENV !== 'production') {
+            const isDeclaredTypeAllowed = ALLOWED_MIME_TYPES.includes(file.type);
+            const isExtensionAllowed = ALLOWED_EXTENSIONS.includes(fileExt);
+            if (isDeclaredTypeAllowed || isExtensionAllowed) {
+              console.warn(`DEV MODE: Leniently passing file. Declared: ${file.type}, Ext: ${fileExt}, Detected: ${detectedMimeType || 'Unknown'}`);
+              finalValidationResult = true;
             }
           }
-          
-          // Development fallback - accept any file with allowed extension or mimetype
-          if (!isValid && process.env.NODE_ENV !== 'production') {
-            const hasAllowedExt = ALLOWED_EXTENSIONS.includes(fileExt);
-            const hasAllowedMime = ALLOWED_MIME_TYPES.includes(file.type);
-            
-            if (hasAllowedExt || hasAllowedMime) {
-              console.warn(`Bypassing strict validation in development. Extension: ${fileExt}, MIME: ${file.type}`);
-              isValid = true;
-            }
-          }
-          
-          console.log(`File validation result: ${isValid ? 'Valid' : 'Invalid'}, Detected: ${detectedFormat || 'unknown'}`);
-          resolve(isValid);
+
+          console.log(`Final file validation result: ${finalValidationResult ? 'Valid' : 'Invalid'}`);
+          resolve(finalValidationResult);
         } catch (err) {
           console.error("Error during file signature check:", err);
-          // In development, allow files even if validation fails
           if (process.env.NODE_ENV !== 'production') {
-            console.warn('Allowing file in development despite validation error');
+            console.warn('Allowing file in development despite signature check error');
             resolve(true);
           } else {
             resolve(false);
@@ -179,8 +177,7 @@ function verifyFileType(file: File): Promise<boolean> {
         resolve(false);
       };
       
-      // Read the first chunk of the file - enough to detect type signatures
-      reader.readAsArrayBuffer(file.slice(0, 16));
+      reader.readAsArrayBuffer(file.slice(0, 16)); // Read enough bytes for signatures
     } catch (err) {
       console.error("Error setting up file reader:", err);
       resolve(false);
