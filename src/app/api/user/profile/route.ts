@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServerComponentClient } from '@/lib/auth';
+import { validateCsrfToken } from '@/lib/csrf';
 
 // This is a stub route file created for development builds
 // The original file has been temporarily backed up
@@ -54,6 +55,30 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    // Validate CSRF token
+    const csrfToken = request.headers.get('x-csrf-token');
+    const bypassCsrf = process.env.NODE_ENV !== 'production' || process.env.BYPASS_CSRF === 'true';
+    
+    if (!bypassCsrf) {
+      if (!csrfToken) {
+        console.warn('Missing CSRF token in profile update request');
+        return NextResponse.json(
+          { error: 'Missing CSRF token' },
+          { status: 403 }
+        );
+      }
+      
+      if (!validateCsrfToken(request, csrfToken)) {
+        console.error('Invalid CSRF token for profile update request');
+        return NextResponse.json(
+          { error: 'Invalid CSRF token' },
+          { status: 403 }
+        );
+      }
+    } else {
+      console.log('CSRF validation bypassed for profile update in development mode');
+    }
+    
     const supabase = await createServerComponentClient();
     const { data: { user }, error } = await supabase.auth.getUser();
 
