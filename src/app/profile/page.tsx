@@ -128,6 +128,12 @@ export default function ProfilePage() {
       const formData2 = new FormData();
       formData2.append(fieldToUpdate, uploadData.url);
       
+      console.log(`Attempting to update user ${fieldToUpdate} with URL:`, {
+        url: uploadData.url,
+        field: fieldToUpdate,
+        hasCsrfToken: !!window._csrfToken
+      });
+      
       // Process the update
       const updateResponse = await fetch('/api/user/profile', {
         method: 'POST',
@@ -143,35 +149,47 @@ export default function ProfilePage() {
 
       if (!updateResponse.ok) {
         let errorMessage = 'Failed to update profile';
+        let errorDetails = {};
+        
         try {
           const errorData = await updateResponse.json();
           errorMessage = errorData.error || errorMessage;
+          errorDetails = errorData;
+          console.error('Profile update failed with details:', {
+            status: updateResponse.status,
+            statusText: updateResponse.statusText,
+            errorData
+          });
         } catch (e) {
           // If we can't parse the response, use status text
           errorMessage = `${errorMessage}: ${updateResponse.status} ${updateResponse.statusText}`;
+          console.error('Failed to parse error response:', e);
         }
+        
         throw new Error(errorMessage);
       }
 
-      const { user } = await updateResponse.json();
+      console.log('Profile update successful, parsing response...');
+      const updateData = await updateResponse.json();
+      console.log('Profile update response:', updateData);
       
-      // Force a session update with the new user data but only update what changed
-      // to prevent unnecessary rerenders
-      const updateData = {
-        user: {
-          ...session.user,
-        }
-      };
-
-      // Add the updated field based on type
+      // Simplify session update to ensure it works
       if (type === 'profile') {
-        updateData.user.image = uploadData.url;
+        await updateSession({
+          user: {
+            ...session.user,
+            image: uploadData.url
+          }
+        });
       } else {
-        // Handle coverPhoto by using type assertion
-        (updateData.user as any).coverPhoto = uploadData.url;
+        // For cover photo, use a simpler approach 
+        await updateSession({
+          user: {
+            ...session.user,
+            coverPhoto: uploadData.url
+          }
+        });
       }
-      
-      await updateSession(updateData);
       
       // Update timestamp to bust the cache only for the specific image that changed
       setImageUpdateTimestamp(Date.now());
