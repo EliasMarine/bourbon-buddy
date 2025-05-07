@@ -1,7 +1,7 @@
 ---
 description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 # Supabase Database Schema Inspection Queries
 
@@ -14,14 +14,6 @@ The below database schema can be used to inspect the structure of our Supabase d
   - Index name
   - Full index definition including columns and type
 
-## How to Use These Queries
-
-1. Navigate to the Supabase dashboard for your project
-2. Go to the SQL Editor tab
-3. Paste any of these queries
-4. Run the query to see the results
-5. Export the results if needed (CSV, JSON, etc.)
-
 ## Current Schema Notes
 
 Based on the execution of these queries, our database has the following structure:
@@ -30,13 +22,6 @@ Based on the execution of these queries, our database has the following structur
 - **Relationships**: User-to-content (one-to-many), content-to-comments (one-to-many), user-to-user follows (many-to-many)
 - **Security Model**: RLS policies control access to each table based on user authentication
 - **Performance Optimizations**: Indexes on foreign keys and frequently queried columns
-
-Use these queries when:
-- Documenting the database schema
-- Planning new features that interact with the database
-- Debugging issues related to data access or relationships
-- Ensuring security policies are correctly implemented
-
 
 ## Below is the datbase schema. The table names and columns, foreign keys, RLS Policies, and Indexes
 

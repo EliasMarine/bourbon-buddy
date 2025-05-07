@@ -193,20 +193,28 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          // Update request cookies first for Supabase client's internal state if needed
-          cookiesToSet.forEach(({ name, value }) => {
-            request.cookies.set(name, value) 
+          // Ensure the request object passed to NextResponse.next includes any
+          // modifications made by Supabase client to request.cookies
+          cookiesToSet.forEach((cookieToSet) => {
+            // It's important that Supabase client can update request.cookies
+            // if it needs to during its operations (e.g. token refresh within getUser)
+            // request.cookies.set expects a RequestCookie object or (name, value)
+            request.cookies.set({ 
+              name: cookieToSet.name, 
+              value: cookieToSet.value, 
+              ...cookieToSet.options 
+            })
           })
 
-          // Create the response object once using the latest request state
-          // It's important to use the potentially modified `request` object here if Supabase client updates it
+          // Create the response object based on the potentially modified request
           response = NextResponse.next({
-            request: {
-              headers: requestHeaders, // Ensure original request headers (like x-nonce) are passed
+            request: { // Pass the full request object to ensure cookie updates are included
+              headers: request.headers, // Keep original headers, but rely on request.cookies for cookie state
             },
           })
 
           // Set all cookies on the single response object
+          // This ensures the browser receives all necessary cookies
           cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, options)
           })
