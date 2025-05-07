@@ -9,6 +9,8 @@ import Link from 'next/link';
 import { getProfileImageUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
 import { toast } from 'react-hot-toast';
 import { validateUserFile } from '@/lib/file-validation';
+// Import server action
+import { updateUserProfile } from '@/lib/actions/profile.actions';
 
 // Add global window type declaration
 declare global {
@@ -323,39 +325,14 @@ export default function ProfilePhotoPage() {
         
         console.log('Upload successful! URL:', imageUrl);
         
-        // Update user profile with the new image URL
-        const updateResponse = await fetch('/api/user/profile', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
-          },
-          body: JSON.stringify({ 
-            image: imageUrl,
-            _csrf: csrfToken // Include token in body as well for extra security
-          }),
-          credentials: 'include', // Ensure cookies are sent
-        });
-        
-        if (!updateResponse.ok) {
-          let errorMessage = 'Failed to update profile';
+        // Update user profile with the new image URL using server action
+        try {
+          const result = await updateUserProfile({
+            image: imageUrl
+          });
           
-          try {
-            const errorData = await updateResponse.json();
-            errorMessage = errorData.error || errorMessage;
-          } catch (e) {
-            console.error('Could not extract error details from profile update response');
-          }
-          
-          setUploadError(errorMessage);
-          throw new Error(errorMessage);
-        }
-        
-        // Get updated user data
-        const userData = await updateResponse.json();
-        
-        // Update session with new user data
-        if (userData.user) {
+          // Server action completed successfully
+          // Update session with new user data
           await updateSession({
             user: {
               ...session.user,
@@ -371,8 +348,10 @@ export default function ProfilePhotoPage() {
           setLastAttemptedFile(null);
           setRetryCount(0);
           toast.success('Profile photo updated successfully');
-        } else {
-          throw new Error('Profile update succeeded but returned no user data');
+        } catch (profileError) {
+          console.error('Error updating profile using server action:', profileError);
+          setUploadError(profileError instanceof Error ? profileError.message : 'Failed to update profile');
+          throw profileError;
         }
       } catch (fetchError) {
         // Handle abort/timeout errors specifically
