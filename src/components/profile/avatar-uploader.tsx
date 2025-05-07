@@ -135,7 +135,18 @@ export function AvatarUploader({ currentImageUrl, userId, onUploadComplete }: Av
           throw new Error(updateRefResult?.serverError || JSON.stringify(updateRefResult?.validationErrors) || "Failed to update profile reference")
         }
 
-        // 5. Success!
+        // 5. Call sync-metadata endpoint to ensure auth and DB are in sync
+        try {
+          await fetch('/api/auth/sync-metadata', {
+            method: 'GET',
+            cache: 'no-store'
+          });
+          console.log('Metadata sync triggered successfully');
+        } catch (syncError) {
+          console.warn('Failed to trigger metadata sync (continuing anyway):', syncError);
+        }
+
+        // 6. Success!
         toast.success("Avatar updated successfully!")
         onUploadComplete(path) // Notify parent component
         setImgSrc('') // Clear the cropper

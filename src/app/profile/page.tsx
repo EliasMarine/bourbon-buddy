@@ -21,7 +21,7 @@ type UserWithCoverPhoto = {
 };
 
 export default function ProfilePage() {
-  const { data: session, status, update: updateSession } = useSession();
+  const { data: session, status, update: updateSession, refreshAvatar } = useSession();
   const [activeTab, setActiveTab] = useState('collection');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadType, setUploadType] = useState<'profile' | 'cover' | null>(null);
@@ -52,151 +52,91 @@ export default function ProfilePage() {
   }
 
   const handleImageUpload = async (file: File, type: 'profile' | 'cover') => {
-    if (!file) return;
-
+    if (!file || !session?.user) {
+      toast.error('No file selected or user not logged in');
+      return;
+    }
+    
+    if (isUploading) {
+      toast.error('An upload is already in progress');
+      return;
+    }
+    
+    setIsUploading(true);
+    setUploadType(type);
+    
     try {
-      // Simple validation before upload
-      if (file.size === 0) {
-        toast.error('File appears to be empty. Please select a valid image.');
-        return;
+      // Further validation
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error('File is too large. Maximum size is 5MB.');
       }
-
-      // Check file size (5MB max)
-      const MAX_SIZE = 5 * 1024 * 1024;
-      if (file.size > MAX_SIZE) {
-        toast.error(`File size exceeds 5MB limit. Please select a smaller image.`);
-        return;
-      }
-
-      // Check file type
-      const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-      if (!validTypes.includes(file.type)) {
-        toast.error(`Invalid file type. Please select a JPEG, PNG, WebP, or GIF image.`);
-        return;
-      }
-
-      setIsUploading(true);
-      setUploadType(type);
       
-      // Create a proper FormData object
+      if (!file.type.startsWith('image/')) {
+        throw new Error('File is not an image. Please select an image file.');
+      }
+      
+      // Create FormData for the file upload
       const formData = new FormData();
-      try {
-        // Make a clean copy of the file to avoid any potential issues
-        const cleanFile = new File([file], file.name, { 
-          type: file.type,
-          lastModified: file.lastModified
-        });
-        
-        // Check that the file is valid
-        if (cleanFile.size === 0) {
-          throw new Error('File copy is empty');
-        }
-        
-        formData.append('file', cleanFile);
-        console.log('FormData created with file:', {
-          name: cleanFile.name,
-          type: cleanFile.type,
-          size: cleanFile.size
-        });
-      } catch (e) {
-        console.error('Error creating FormData with file:', e);
-        toast.error('Error preparing file for upload. Please try a different image.');
-        setIsUploading(false);
-        setUploadType(null);
-        return;
+      formData.append('file', file);
+      formData.append('type', type);
+      formData.append('userId', session.user.id);
+      
+      // If we have a CSRF token in window global, add it to the request
+      if (window._csrfToken) {
+        formData.append('csrf_token', window._csrfToken);
       }
       
-      // Get CSRF token from cookies or sessionStorage
-      let csrfToken = '';
-      try {
-        // Check for global CSRF token first (from window._csrfToken)
-        if (typeof window !== 'undefined' && window._csrfToken) {
-          csrfToken = window._csrfToken;
-        } else {
-          // Try to get from sessionStorage
-          csrfToken = sessionStorage.getItem('csrfToken') || '';
-          
-          // If not found, try to parse from cookie
-          if (!csrfToken) {
-            const cookies = document.cookie.split(';');
-            for (const cookie of cookies) {
-              const [name, value] = cookie.trim().split('=');
-              if (name === 'csrf_secret') {
-                csrfToken = decodeURIComponent(value).split('|')[0];
-                break;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to get CSRF token:', e);
-      }
+      // Add additional timestamp to prevent caching
+      formData.append('_t', Date.now().toString());
       
-      // Prepare headers with CSRF token if available
-      const headers: Record<string, string> = {};
-      if (csrfToken) {
-        headers['x-csrf-token'] = csrfToken;
-      }
-      
-      // Log debug info
-      console.log('Uploading file:', {
-        name: file.name,
-        type: file.type,
+      // Log what we're uploading (helpful for debugging)
+      console.log(`Uploading ${type} image:`, {
+        filename: file.name,
         size: file.size,
-        token: csrfToken ? 'Present' : 'Missing'
+        type: file.type,
+        timestamp: Date.now()
       });
       
-      // Set up a timeout in case the upload hangs
-      const uploadTimeout = setTimeout(() => {
-        console.warn('Upload taking too long - might be stuck');
-      }, 10000); // 10 seconds
+      // Send the file to our API endpoint
+      const uploadResponse = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
       
-      let uploadResponse;
-      try {
-        console.log('Starting fetch to /api/upload...');
-        uploadResponse = await fetch('/api/upload', {
-          method: 'POST',
-          headers,
-          body: formData,
-        });
-        clearTimeout(uploadTimeout);
-        console.log('Upload response status:', uploadResponse.status, uploadResponse.statusText);
-      } catch (fetchError) {
-        clearTimeout(uploadTimeout);
-        console.error('Fetch error during upload:', fetchError);
-        throw new Error(`Network error during upload: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`);
-      }
-
       if (!uploadResponse.ok) {
-        let errorMessage = 'Failed to upload image';
-        let errorDetails = '';
+        let errorMessage = 'Failed to upload file';
         try {
           const errorData = await uploadResponse.json();
-          console.error('Upload response error:', errorData);
           errorMessage = errorData.error || errorMessage;
-          if (errorData.details) {
-            errorDetails = errorData.details;
-          }
         } catch (e) {
           // If we can't parse the response, use status text
-          console.error('Failed to parse error response:', e);
           errorMessage = `${errorMessage}: ${uploadResponse.status} ${uploadResponse.statusText}`;
         }
-        throw new Error(`${errorMessage}${errorDetails ? ` (${errorDetails})` : ''}`);
+        throw new Error(errorMessage);
       }
-
-      const { url: imageUrl } = await uploadResponse.json();
-
-      // Now update the user profile with the new image URL
-      const updateResponse = await fetch('/api/user/profile', {
-        method: 'POST',
+      
+      const { imageUrl } = await uploadResponse.json();
+      
+      if (!imageUrl) {
+        throw new Error('No image URL returned from upload');
+      }
+      
+      console.log(`Uploaded ${type} to: ${imageUrl}`);
+      
+      // Now update the user profile with the new image
+      const fieldToUpdate = type === 'profile' ? 'image' : 'coverPhoto';
+      const formData2 = new FormData();
+      formData2.append(fieldToUpdate, imageUrl);
+      
+      // Process the update
+      const updateResponse = await fetch('/api/user', {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
         },
-        body: JSON.stringify({
-          ...(type === 'profile' ? { image: imageUrl } : { coverPhoto: imageUrl })
-        }),
+        body: JSON.stringify({ 
+          [fieldToUpdate]: imageUrl 
+        })
       });
 
       if (!updateResponse.ok) {
@@ -234,16 +174,8 @@ export default function ProfilePage() {
       // Update timestamp to bust the cache only for the specific image that changed
       setImageUpdateTimestamp(Date.now());
       
-      // Trigger manual metadata sync to ensure everything is in sync
-      try {
-        await fetch('/api/auth/sync-metadata', {
-          method: 'GET',
-          cache: 'no-store'
-        });
-      } catch (e) {
-        // Silent fail - this is a background sync
-        console.error('Background metadata sync failed:', e);
-      }
+      // Use refreshAvatar to ensure everything is in sync
+      await refreshAvatar();
       
       toast.success(`${type === 'profile' ? 'Profile' : 'Cover'} photo updated successfully`);
     } catch (error) {

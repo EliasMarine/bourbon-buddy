@@ -101,12 +101,44 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
     }
   }, [supabaseClient, router]);
 
+  // Function to force refresh avatar by syncing metadata between auth and DB
+  const refreshAvatar = useCallback(async () => {
+    try {
+      // First, trigger the sync metadata endpoint
+      const syncResponse = await fetch('/api/auth/sync-metadata', {
+        method: 'GET',
+        cache: 'no-store'
+      });
+      
+      if (!syncResponse.ok) {
+        console.error('Error syncing metadata:', syncResponse.statusText);
+        return false;
+      }
+      
+      // Then, refresh the session to get the latest user data
+      const sessionData = await getSession();
+      if (!sessionData) {
+        console.error('Failed to refresh session after syncing metadata');
+        return false;
+      }
+      
+      // Optionally, force a router refresh to update the UI
+      router.refresh();
+      
+      return true;
+    } catch (error) {
+      console.error('Error refreshing avatar:', error);
+      return false;
+    }
+  }, [getSession, router]);
+
   return {
     session,
     user,
     isLoading,
     getSession,
     signOut,
+    refreshAvatar, // New method to refresh avatar
     // NextAuth compatibility properties
     status,
     data: session ? {

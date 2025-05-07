@@ -22,7 +22,7 @@ declare global {
 }
 
 export default function ProfilePhotoPage() {
-  const { data: session, status, update: updateSession } = useSession();
+  const { data: session, status, update: updateSession, refreshAvatar } = useSession();
   const { supabase } = useSupabase();
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -65,380 +65,170 @@ export default function ProfilePhotoPage() {
     return getProfileImageUrl(session.user.image, useTimestamp);
   }, [session?.user?.image, imageUpdateTimestamp]);
 
-  // Handle file validation
-  const checkFileValidation = async (file: File) => {
-    try {
-      if (!file) {
-        console.error('No file provided for validation');
-        setValidationResult({
-          valid: false,
-          details: 'No file provided for validation'
-        });
-        return false;
-      }
-
-      if (file.size === 0) {
-        console.error('File is empty (0 bytes)');
-        setValidationResult({
-          valid: false,
-          details: 'File is empty (0 bytes)'
-        });
-        return false;
-      }
-      
-      const result = await validateUserFile(file);
-      setValidationResult(result);
-      return result.valid;
-    } catch (error) {
-      console.error('File validation error:', error);
-      setValidationResult({
-        valid: false,
-        details: 'File validation failed due to an unexpected error.'
-      });
-      return false;
+  // Drop zone event handlers
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragging(false);
+    
+    const files = event.dataTransfer.files;
+    if (files.length > 0) {
+      handleFileSelection(files[0]);
     }
   };
-
-  // Handle file drop events
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
+  
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
     setIsDragging(true);
   };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
+  
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
     setIsDragging(false);
   };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    const file = e.dataTransfer.files?.[0];
-    if (!file) return;
-    
-    setLastAttemptedFile(file);
-    const isValid = await checkFileValidation(file);
-    if (isValid) {
-      processAndUploadFile(file);
+  
+  const handleClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
     }
   };
-
-  // Handle file selection
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    
-    setLastAttemptedFile(file);
-    const isValid = await checkFileValidation(file);
-    if (isValid) {
-      processAndUploadFile(file);
+  
+  const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      handleFileSelection(files[0]);
     }
   };
-
-  // Retry last upload
-  const handleRetry = async () => {
-    if (!lastAttemptedFile) {
-      toast.error('No file to retry');
+  
+  const handleFileSelection = async (file: File) => {
+    setUploadError(null);
+    setValidationResult(null);
+    setLastAttemptedFile(file);
+    
+    // Basic client-side validation
+    const validationResult = await validateUserFile(file);
+    
+    if (!validationResult.valid) {
+      setValidationResult(validationResult);
+      setUploadError(validationResult.details);
       return;
     }
     
-    setRetryCount(prevCount => prevCount + 1);
-    
-    // Check if the file is still valid
-    const isValid = await checkFileValidation(lastAttemptedFile);
-    if (isValid) {
-      toast.success('Retrying upload...');
-      processAndUploadFile(lastAttemptedFile);
-    } else {
-      toast.error('File validation failed on retry. Please select a different file.');
-    }
+    // Proceed with upload
+    processAndUploadFile(file);
   };
-
-  // Process and upload the file
+  
   const processAndUploadFile = async (file: File) => {
-    if (!file) return;
+    if (isUploading) {
+      console.warn('Upload already in progress, ignoring request');
+      return;
+    }
+    
+    setIsUploading(true);
+    setUploadError(null);
     
     try {
-      setIsUploading(true);
-      setUploadError(null);
-      
-      // Ensure user session exists
-      if (!session || !session.user) {
-        console.error('No active session found. Redirecting to login...');
-        toast.error('Session expired. Please log in again.');
-        redirect('/login');
-        return;
-      }
-      
-      // Log file information for debugging
-      console.log('File selected for profile:', {
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        lastModified: new Date(file.lastModified).toISOString()
-      });
-      
-      // Add extra validation
-      if (file.size === 0) {
-        throw new Error('File is empty (0 bytes)');
-      }
-      
-      if (file.size > 5 * 1024 * 1024) {
-        throw new Error('File is too large (max 5MB)');
-      }
-      
-      // Determine correct file extension and MIME type
-      const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
-      const correctMimeType = 
-        fileExt === 'png' ? 'image/png' :
-        fileExt === 'jpg' || fileExt === 'jpeg' ? 'image/jpeg' :
-        fileExt === 'gif' ? 'image/gif' :
-        fileExt === 'webp' ? 'image/webp' :
-        file.type;
-        
-      // Create a blob to verify the image before uploading
-      let processedFile = file;
-      
-      // If MIME type doesn't match extension, fix it
-      if (file.type !== correctMimeType) {
-        console.log(`Fixing MIME type for ${fileExt} file: ${file.name} - current type: ${file.type}, correct type: ${correctMimeType}`);
-        try {
-          // Create a new file with corrected MIME type
-          processedFile = new File([file], file.name, { 
-            type: correctMimeType,
-            lastModified: file.lastModified 
-          });
-        } catch (error) {
-          console.warn("Could not create new File with corrected MIME type - continuing with original file", error);
-          // Continue with original file
-        }
-      }
-      
-      // Double-check the file is not empty after processing
-      if (processedFile.size === 0) {
-        throw new Error('Processed file is empty (0 bytes). Original file size: ' + file.size);
-      }
-      
-      // Create a blob URL for verification
-      const blobUrl = URL.createObjectURL(processedFile);
-      console.log('Created blob URL for verification:', blobUrl);
-      
-      // Prepare FormData for upload
+      // Create FormData
       const formData = new FormData();
-      formData.append('file', processedFile);
+      formData.append('file', file);
+      formData.append('type', 'profile');
+      formData.append('userId', session.user.id);
       
-      // Check FormData was created properly
-      const entries = Array.from(formData.entries());
-      if (entries.length === 0) {
-        throw new Error('FormData is empty after adding file');
+      // Add CSRF token if available
+      if (window._csrfToken) {
+        formData.append('csrfToken', window._csrfToken);
       }
       
-      console.log('FormData created with file:', {
-        name: processedFile.name,
-        type: processedFile.type,
-        size: processedFile.size,
-        entriesCount: entries.length
+      // Upload the file
+      const uploadResponse = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
       });
       
-      // Get CSRF token
-      let csrfToken = '';
-      try {
-        if (typeof window !== 'undefined' && window._csrfToken) {
-          csrfToken = window._csrfToken;
-        } else {
-          csrfToken = sessionStorage.getItem('csrfToken') || '';
-        }
-      } catch (e) {
-        console.warn('Failed to get CSRF token:', e);
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        console.error('Upload failed:', uploadResponse.status, errorText);
+        throw new Error(`Failed to upload image: ${uploadResponse.statusText}`);
       }
       
-      // Log upload attempt
-      console.log('Uploading file:', {
-        name: processedFile.name,
-        type: processedFile.type,
-        size: processedFile.size,
-        token: csrfToken ? 'Present' : 'Missing',
-        retryNumber: retryCount
-      });
-      
-      // Prepare headers with CSRF token
-      const headers: Record<string, string> = {};
-      if (csrfToken) {
-        headers['x-csrf-token'] = csrfToken;
+      const uploadData = await uploadResponse.json();
+      if (!uploadData || !uploadData.imageUrl) {
+        throw new Error('No image URL returned from upload');
       }
       
-      // Upload the file with timeout handling
-      console.log('Starting fetch to /api/upload...');
+      const imageUrl = uploadData.imageUrl;
+      console.log('Uploaded image successfully. URL:', imageUrl);
       
-      // Create an AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-      
+      // Update user profile with the new image URL using server action
       try {
-        const uploadResponse = await fetch('/api/upload', {
-          method: 'POST',
-          headers,
-          body: formData,
-          signal: controller.signal,
-          credentials: 'include', // Ensure cookies are sent
+        const result = await updateUserProfile({
+          image: imageUrl
         });
         
-        // Clear timeout since request completed
-        clearTimeout(timeoutId);
-        
-        console.log('Upload response status:', uploadResponse.status, uploadResponse.statusText);
-        
-        if (!uploadResponse.ok) {
-          let errorMessage = 'Failed to upload image';
-          let errorDetails = '';
-          
-          try {
-            // First try as JSON
-            const errorJson = await uploadResponse.json();
-            console.error('Upload response error (JSON):', errorJson);
-            
-            errorMessage = errorJson.error || errorMessage;
-            errorDetails = errorJson.details || '';
-          } catch (jsonError) {
-            // If not JSON, try as text
-            try {
-              const errorText = await uploadResponse.text();
-              console.error('Upload response error (Text):', errorText);
-              
-              if (errorText && errorText.length < 500) {
-                errorMessage = errorText;
-              }
-            } catch (textError) {
-              console.error('Could not extract error details from upload response');
-            }
-          }
-          
-          setUploadError(errorMessage);
-          throw new Error(`${errorMessage}${errorDetails ? ` (${errorDetails})` : ''}`);
-        }
-        
-        // Parse upload response
-        const uploadData = await uploadResponse.json();
-        const imageUrl = uploadData.url;
-        
-        if (!imageUrl) {
-          throw new Error('Upload succeeded but no image URL was returned');
-        }
-        
-        console.log('Upload successful! URL:', imageUrl);
-        
-        // Update user profile with the new image URL using server action
-        try {
-          const result = await updateUserProfile({
+        // Server action completed successfully
+        // Update session with new user data
+        await updateSession({
+          user: {
+            ...session.user,
             image: imageUrl
-          });
-          
-          // Server action completed successfully
-          // Update session with new user data
-          await updateSession({
-            user: {
-              ...session.user,
-              image: imageUrl
-            }
-          });
-          
-          // Update timestamp to bust the cache
-          setImageUpdateTimestamp(Date.now());
-          
-          // Force explicit sync of user metadata in auth
-          try {
-            // Update auth metadata to match the database
-            if (supabase?.auth) {
-              await supabase.auth.updateUser({
-                data: {
-                  avatar_url: imageUrl,
-                  image: imageUrl // Include both possible field names
-                }
-              });
-              console.log('Auth metadata explicitly updated with new image URL');
-            }
-            
-            // Also trigger the background sync for completeness
-            fetch('/api/auth/sync-metadata', { 
-              method: 'GET',
-              cache: 'no-store'
-            }).catch(e => console.error('Background metadata sync failed:', e));
-          } catch (syncError) {
-            console.warn('Failed to sync auth metadata, but profile update successful:', syncError);
-            // Continue with success path - the database update worked
           }
-          
-          // Reset state and show success message
-          setValidationResult(null);
-          setLastAttemptedFile(null);
-          setRetryCount(0);
-          toast.success('Profile photo updated successfully');
-          
-          // Force a page reload to ensure the image is updated in all components
-          setTimeout(() => {
-            window.location.href = '/profile';
-          }, 1500);
-        } catch (profileError) {
-          console.error('Error updating profile using server action:', profileError);
-          setUploadError(profileError instanceof Error ? profileError.message : 'Failed to update profile');
-          throw profileError;
-        }
-      } catch (fetchError) {
-        // Handle abort/timeout errors specifically
-        if (fetchError instanceof DOMException && fetchError.name === 'AbortError') {
-          throw new Error('Upload request timed out after 30 seconds. Please try again.');
-        }
+        });
         
-        // Re-throw other errors
-        throw fetchError;
+        // Update timestamp to bust the cache
+        setImageUpdateTimestamp(Date.now());
+        
+        // Sync metadata to ensure auth and database are in sync
+        await refreshAvatar();
+        
+        // Reset state and show success message
+        setValidationResult(null);
+        setLastAttemptedFile(null);
+        setRetryCount(0);
+        toast.success('Profile photo updated successfully');
+        
+        // Force a page reload to ensure the image is updated in all components
+        setTimeout(() => {
+          window.location.href = '/profile';
+        }, 1500);
+        
+      } catch (error) {
+        console.error('Error updating user profile:', error);
+        throw error;
       }
     } catch (error) {
-      console.error('Error uploading image:', error);
+      console.error('Error in upload process:', error);
+      setUploadError(error instanceof Error ? error.message : 'An unknown error occurred');
       
-      // Show friendly error message
-      let errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      
-      // Make the message more user-friendly
-      if (errorMessage.includes('content does not match declared type')) {
-        errorMessage = 'The file format doesn\'t match its extension. Try saving the image in a different format (e.g., JPEG or PNG).';
-      } else if (errorMessage.includes('Too Many Requests') || errorMessage.includes('429')) {
-        errorMessage = 'You\'ve made too many upload attempts. Please wait a moment and try again.';
-      } else if (errorMessage.includes('too large') || errorMessage.includes('exceeds')) {
-        errorMessage = 'The file is too large. Please use an image smaller than 5MB.';
-      } else if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
-        errorMessage = 'Upload timed out. The server may be busy. Please try again.';
-      } else if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
-        errorMessage = 'Network error occurred. Please check your internet connection and try again.';
-      } else if (errorMessage.includes('permission') || errorMessage.includes('denied')) {
-        errorMessage = 'Permission error. You may not have access to upload files.';
+      // Increment retry count for the current file
+      if (lastAttemptedFile === file) {
+        setRetryCount(prev => prev + 1);
+      } else {
+        setRetryCount(1);
+        setLastAttemptedFile(file);
       }
-      
-      toast.error(errorMessage);
-      setUploadError(errorMessage);
     } finally {
       setIsUploading(false);
     }
   };
+  
+  // Compute button text based on state
+  const getButtonText = () => {
+    if (isUploading) return 'Uploading...';
+    if (uploadError && retryCount > 0) return `Try Again (${retryCount})`;
+    return 'Select Profile Photo';
+  };
 
   return (
-    <div className="min-h-screen bg-gray-900 pb-20">
-      {/* Header */}
-      <div className="bg-gray-800 py-6 px-4 sm:px-6 lg:px-8 border-b border-gray-700">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-white">Profile Photo</h1>
-          <Link href="/profile" className="flex items-center text-gray-300 hover:text-white">
-            <ArrowLeft className="w-5 h-5 mr-1" />
-            Back
+    <div className="min-h-screen bg-gray-900 text-white p-4">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center mb-8">
+          <Link href="/profile" className="mr-4 text-gray-400 hover:text-white">
+            <ArrowLeft size={24} />
           </Link>
+          <h1 className="text-2xl font-bold">Update Profile Photo</h1>
         </div>
-      </div>
-      
-      {/* Main content */}
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        <div className="bg-gray-800 rounded-lg shadow p-6 sm:p-8">
-          {/* Profile photo section */}
-          <h2 className="text-xl font-medium text-white mb-6">Update your profile photo</h2>
+        
+        <div className="bg-gray-800 rounded-xl p-6 mb-8">
+          <h2 className="text-xl font-semibold mb-4">Your Profile Photo</h2>
           
           <div className="flex flex-col md:flex-row gap-8 items-center mb-8">
             {/* Current avatar preview */}
@@ -461,112 +251,118 @@ export default function ProfilePhotoPage() {
               )}
             </div>
             
+            {/* Upload area */}
             <div className="flex-1">
-              <div className="text-gray-300 mb-6">
-                <p className="mb-2">Upload a new photo to update your profile.</p>
-                <p className="text-sm text-gray-500">
-                  Your photo will be visible to other users. We recommend using a square image for best results.
-                </p>
-              </div>
+              <p className="text-gray-400 mb-4">
+                Your profile photo will be visible to all users. Choose a clear photo that represents you.
+              </p>
               
-              {/* File upload area */}
-              <div 
-                className={`border-2 border-dashed rounded-lg p-6 mb-6 text-center transition-colors ${
-                  isDragging 
-                    ? 'border-amber-500 bg-amber-500/10' 
-                    : 'border-gray-600 hover:border-amber-500/50'
-                }`}
+              {/* Hidden file input */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="image/*"
+                onChange={handleFileInputChange}
+              />
+              
+              {/* Drop zone / click area */}
+              <div
+                className={`border-2 border-dashed ${isDragging ? 'border-amber-500 bg-amber-500/10' : 'border-gray-600 hover:border-gray-500'} rounded-lg p-6 mb-4 text-center cursor-pointer transition-colors`}
+                onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={handleClick}
               >
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  className="hidden"
-                  accept="image/png, image/jpeg, image/jpg, image/webp, image/gif"
-                  onChange={handleFileChange}
-                  disabled={isUploading}
-                />
-                
-                <Camera size={48} className="mx-auto text-gray-400 mb-4" />
-                
-                {isUploading ? (
-                  <div className="text-center">
-                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-amber-500 mb-2"></div>
-                    <p className="text-gray-300">Uploading your photo...</p>
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-lg font-medium text-white mb-2">
-                      Drop your image here, or click to select
-                    </p>
-                    <p className="text-gray-400 text-sm">
-                      Supported formats: PNG, JPEG, GIF, WebP (Max 5MB)
-                    </p>
-                  </>
-                )}
+                <div className="flex flex-col items-center justify-center">
+                  <Upload className="w-12 h-12 text-gray-500 mb-3" />
+                  <p className="text-gray-300 font-medium">
+                    {isDragging ? 'Drop your image here' : 'Drag and drop your image here or click to browse'}
+                  </p>
+                  <p className="text-gray-500 text-sm mt-1">
+                    JPG, PNG, WebP or GIF (Max 5MB)
+                  </p>
+                </div>
               </div>
               
-              {/* Retry button (only shown after a failed upload) */}
-              {uploadError && lastAttemptedFile && (
-                <div className="mt-4">
-                  <button
-                    type="button"
-                    onClick={handleRetry}
-                    className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={isUploading}
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    <span>Retry Upload</span>
-                  </button>
-                </div>
-              )}
+              {/* Alternative button */}
+              <button 
+                className={`w-full py-3 px-4 rounded-lg flex items-center justify-center font-medium 
+                  ${isUploading ? 'bg-amber-700 cursor-not-allowed' : uploadError ? 'bg-rose-700 hover:bg-rose-600' : 'bg-amber-600 hover:bg-amber-500'} 
+                  transition-colors`}
+                onClick={handleClick}
+                disabled={isUploading}
+              >
+                {isUploading ? (
+                  <div className="flex items-center">
+                    <div className="animate-spin mr-2 h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
+                    <span>Uploading...</span>
+                  </div>
+                ) : (
+                  <span>{getButtonText()}</span>
+                )}
+              </button>
             </div>
           </div>
-            
-          {/* Validation results */}
+          
+          {/* Validation message */}
           {validationResult && (
-            <div className={`p-4 rounded-md ${validationResult.valid ? 'bg-green-900/20' : 'bg-red-900/20'} mt-6`}>
+            <div className={`p-4 rounded-lg mb-4 ${validationResult.valid ? 'bg-green-700/20' : 'bg-rose-700/20 border border-rose-700'}`}>
               <div className="flex items-start">
-                {validationResult.valid ? (
-                  <CheckCircle className="w-6 h-6 text-green-500 mt-0.5 mr-3 flex-shrink-0" />
-                ) : (
-                  <XCircle className="w-6 h-6 text-red-500 mt-0.5 mr-3 flex-shrink-0" />
-                )}
-                
-                <div>
-                  <h3 className={`text-lg font-medium ${validationResult.valid ? 'text-green-400' : 'text-red-400'}`}>
-                    {validationResult.valid ? 'File Validation Passed' : 'File Validation Failed'}
+                <div className="flex-shrink-0 mt-0.5">
+                  {validationResult.valid ? (
+                    <CheckCircle className="w-5 h-5 text-green-500" />
+                  ) : (
+                    <XCircle className="w-5 h-5 text-rose-500" />
+                  )}
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium">
+                    {validationResult.valid ? 'File is valid' : 'File validation failed'}
                   </h3>
-                  
-                  <div className="mt-2 text-sm text-gray-300 space-y-1">
-                    <p><strong>File:</strong> {validationResult.fileInfo?.name} ({Math.round((validationResult.fileInfo?.size || 0) / 1024)}KB)</p>
-                    <p><strong>Type:</strong> {validationResult.fileInfo?.type}</p>
-                    <p><strong>Detected Format:</strong> {validationResult.detectedFormat}</p>
-                    <p><strong>File Header:</strong> <code className="bg-gray-700 px-1 rounded">{validationResult.headerInfo}</code></p>
-                    <div className="mt-2 whitespace-pre-wrap text-gray-400">{validationResult.details}</div>
+                  {!validationResult.valid && (
+                    <div className="mt-1 text-sm text-gray-300">
+                      <ul className="list-disc pl-5 space-y-1">
+                        {validationResult.errors.map((err: string, i: number) => (
+                          <li key={i}>{err}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Error message */}
+          {uploadError && !validationResult && (
+            <div className="p-4 rounded-lg mb-4 bg-rose-700/20 border border-rose-700">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <XCircle className="w-5 h-5 text-rose-500" />
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium">Upload failed</h3>
+                  <div className="mt-1 text-sm text-gray-300">
+                    {uploadError}
                   </div>
                 </div>
               </div>
             </div>
           )}
           
-          {/* Error display */}
-          {uploadError && (
-            <div className="bg-red-900/20 p-4 rounded-md mt-6">
-              <div className="flex">
-                <XCircle className="w-6 h-6 text-red-500 mt-0.5 mr-3 flex-shrink-0" />
-                <div>
-                  <h3 className="text-lg font-medium text-red-400">Upload Failed</h3>
-                  <p className="mt-2 text-sm text-gray-300">{uploadError}</p>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Guidelines */}
+          <div className="border-t border-gray-700 pt-4 mt-6">
+            <h3 className="font-medium mb-2">Guidelines for profile photos:</h3>
+            <ul className="list-disc pl-5 space-y-1 text-gray-400 text-sm">
+              <li>Choose a photo where your face is clearly visible</li>
+              <li>Avoid group photos or photos with multiple people</li>
+              <li>Use a high-quality image when possible</li>
+              <li>Avoid using offensive or inappropriate images</li>
+            </ul>
+          </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 } 

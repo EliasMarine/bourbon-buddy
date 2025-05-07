@@ -19,9 +19,12 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
+import { LoadingDots } from "@/components/ui/LoadingDots"
 
 // Import the new uploader component
-import { AvatarUploader } from "./avatar-uploader"
+import { AvatarUploader } from "@/components/profile/avatar-uploader"
 
 // Import the schema and actions from task 4.1
 // Note: Adjust the import path if the profile.actions.ts file is elsewhere
@@ -30,6 +33,7 @@ import {
   ProfileUpdateData,
   UserProfile,
 } from "@/lib/actions/profile.actions" // Assuming profile actions exist here
+import { useSession } from "@/hooks/use-supabase-session"
 
 // Define the Zod schema directly here or import if defined separately and exported
 // This should match the schema used in the updateUserProfile action
@@ -44,11 +48,11 @@ const profileFormSchema = z.object({
   publicProfile: z.boolean().optional(),
   websiteUrl: z.string().url("Invalid website URL").optional().or(z.literal("")),
   twitterHandle: z.string().regex(/^[a-zA-Z0-9_]{1,15}$/, "Invalid Twitter handle").optional().or(z.literal("")),
-  githubHandle: z.string().regex(/^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$/, "Invalid GitHub handle").optional().or(z.literal("")),
-  linkedinUrl: z.string().url("Invalid LinkedIn URL").optional().or(z.literal("")),
-  // preferences: z.any().optional() // Omit preferences for now
+  instagramHandle: z.string().regex(/^[a-zA-Z0-9_.]{1,30}$/, "Invalid Instagram handle").optional().or(z.literal("")),
+  linkedinUrl: z.string().url("Invalid LinkedIn URL").optional().or(z.literal(""))
 })
 
+// Define the expected form values from schema
 type ProfileFormValues = z.infer<typeof profileFormSchema>
 
 interface ProfileFormProps {
@@ -59,6 +63,7 @@ interface ProfileFormProps {
 export function ProfileForm({ initialData }: ProfileFormProps) {
   // Local state for loading indicator
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { update: updateSession, refreshAvatar } = useSession();
 
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -73,11 +78,9 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
       publicProfile: initialData?.publicProfile ?? true,
       websiteUrl: initialData?.websiteUrl ?? "",
       twitterHandle: initialData?.twitterHandle ?? "",
-      githubHandle: initialData?.githubHandle ?? "",
-      linkedinUrl: initialData?.linkedinUrl ?? "",
-      // preferences: initialData?.preferences ?? {},
+      instagramHandle: initialData?.instagramHandle ?? "",
+      linkedinUrl: initialData?.linkedinUrl ?? ""
     },
-    mode: "onChange", // Validate on change for better UX
   })
 
   // Function to handle form submission
@@ -96,6 +99,17 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
       console.error("Validation Errors:", result.validationErrors);
       toast.error("Update failed due to validation errors.");
     } else if (result.data?.success) {
+      // Update session to match new profile data
+      await updateSession({
+        user: {
+          name: data.name,
+          image: data.image,
+        }
+      });
+
+      // Sync avatar between auth and database
+      await refreshAvatar();
+      
       toast.success(result.data.message || "Profile updated successfully!");
       // Optionally reset form to new values or trigger re-fetch if needed
       // form.reset(data); // Example: reset form with submitted data
@@ -129,7 +143,12 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                    shouldValidate: true, // Trigger validation for the image field
                    shouldDirty: true,    // Mark the form as dirty
                  });
-                 toast.info("Avatar ready. Save changes to confirm."); // Inform user
+                 // Sync avatar between auth and database
+                 refreshAvatar().then(() => {
+                   toast.info("Avatar ready. Save changes to confirm.");
+                 }).catch(error => {
+                   console.error("Error refreshing avatar:", error);
+                 });
                }}
              />
           </FormControl>
@@ -144,7 +163,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
         <FormField
           control={form.control}
           name="name"
-          render={({ field }) => (
+          render={({ field }: { field: FieldRenderProps }) => (
             <FormItem>
               <FormLabel>Full Name</FormLabel>
               <FormControl>
@@ -160,7 +179,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
         <FormField
           control={form.control}
           name="bio"
-          render={({ field }) => (
+          render={({ field }: { field: FieldRenderProps }) => (
             <FormItem>
               <FormLabel>Bio</FormLabel>
               <FormControl>
@@ -183,7 +202,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
         <FormField
           control={form.control}
           name="location"
-          render={({ field }) => (
+          render={({ field }: { field: FieldRenderProps }) => (
             <FormItem>
               <FormLabel>Location</FormLabel>
               <FormControl>
@@ -198,7 +217,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
         <FormField
           control={form.control}
           name="occupation"
-          render={({ field }) => (
+          render={({ field }: { field: FieldRenderProps }) => (
             <FormItem>
               <FormLabel>Occupation</FormLabel>
               <FormControl>
@@ -213,7 +232,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
         <FormField
           control={form.control}
           name="education"
-          render={({ field }) => (
+          render={({ field }: { field: FieldRenderProps }) => (
             <FormItem>
               <FormLabel>Education</FormLabel>
               <FormControl>
@@ -228,7 +247,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
         <FormField
           control={form.control}
           name="websiteUrl"
-          render={({ field }) => (
+          render={({ field }: { field: FieldRenderProps }) => (
             <FormItem>
               <FormLabel>Website URL</FormLabel>
               <FormControl>
@@ -243,7 +262,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
         <FormField
           control={form.control}
           name="twitterHandle"
-          render={({ field }) => (
+          render={({ field }: { field: FieldRenderProps }) => (
             <FormItem>
               <FormLabel>Twitter Handle</FormLabel>
               <FormControl>
@@ -254,15 +273,15 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
           )}
         />
 
-        {/* --- GitHub Handle Field --- */}
+        {/* --- Instagram Handle Field --- */}
         <FormField
           control={form.control}
-          name="githubHandle"
-          render={({ field }) => (
+          name="instagramHandle"
+          render={({ field }: { field: FieldRenderProps }) => (
             <FormItem>
-              <FormLabel>GitHub Handle</FormLabel>
+              <FormLabel>Instagram Handle</FormLabel>
               <FormControl>
-                <Input placeholder="yourusername" {...field} value={typeof field.value === 'boolean' ? '' : field.value ?? ''} />
+                <Input placeholder="yourhandle (without @)" {...field} value={typeof field.value === 'boolean' ? '' : field.value ?? ''} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -273,7 +292,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
         <FormField
           control={form.control}
           name="linkedinUrl"
-          render={({ field }) => (
+          render={({ field }: { field: FieldRenderProps }) => (
             <FormItem>
               <FormLabel>LinkedIn URL</FormLabel>
               <FormControl>
@@ -288,7 +307,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
          <FormField
           control={form.control}
           name="coverPhoto"
-          render={({ field }) => (
+          render={({ field }: { field: FieldRenderProps }) => (
             <FormItem>
               <FormLabel>Cover Photo URL</FormLabel>
               <FormControl>
