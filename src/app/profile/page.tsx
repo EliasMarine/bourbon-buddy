@@ -129,8 +129,8 @@ export default function ProfilePage() {
       formData2.append(fieldToUpdate, uploadData.url);
       
       // Process the update
-      const updateResponse = await fetch('/api/user', {
-        method: 'PUT',
+      const updateResponse = await fetch('/api/user/profile', {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
