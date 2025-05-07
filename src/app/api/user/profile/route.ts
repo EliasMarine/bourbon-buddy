@@ -99,13 +99,23 @@ export async function POST(request: Request) {
     console.log('Authenticated user found:', { id: user.id, email: user.email });
     
     // Get the request data
-    const requestData = await request.json();
-    console.log('Request data received:', { 
-      hasImage: !!requestData.image, 
-      hasCoverPhoto: !!requestData.coverPhoto,
-      hasName: !!requestData.name,
-      hasUsername: !!requestData.username
-    });
+    let requestData;
+    try {
+      requestData = await request.json();
+      console.log('Request data received:', { 
+        hasImage: !!requestData.image, 
+        hasCoverPhoto: !!requestData.coverPhoto,
+        hasName: !!requestData.name,
+        hasUsername: !!requestData.username,
+        coverPhotoLength: requestData.coverPhoto ? requestData.coverPhoto.length : 0
+      });
+    } catch (e) {
+      console.error('Failed to parse request JSON:', e);
+      return NextResponse.json(
+        { error: 'Invalid request data format', details: e instanceof Error ? e.message : String(e) },
+        { status: 400 }
+      );
+    }
     
     // Get the fields to update
     const { image, coverPhoto, name, username } = requestData;
@@ -126,69 +136,87 @@ export async function POST(request: Request) {
       coverPhotoLength: coverPhoto ? coverPhoto.length : 0
     });
     
-    // Update the user in the database
-    const { data: updatedUser, error: updateError } = await supabase
-      .from('User')
-      .update(updateData)
-      .eq('id', user.id)
-      .select('id, name, email, username, image, coverPhoto')
-      .single();
+    // Verify we have data to update
+    if (Object.keys(updateData).length === 1 && updateData.updatedAt) {
+      console.warn('No actual fields to update, only timestamp');
+      return NextResponse.json(
+        { error: 'No fields to update' },
+        { status: 400 }
+      );
+    }
     
-    if (updateError) {
-      console.error('Error updating user profile:', updateError);
-      return NextResponse.json(
-        { error: 'Failed to update profile', details: updateError.message, code: updateError.code },
-        { status: 500 }
-      );
-    }
-
-    if (!updatedUser) {
-      console.error('No updated user returned from database update');
-      return NextResponse.json(
-        { error: 'Failed to update profile - no user returned' },
-        { status: 500 }
-      );
-    }
-
-    console.log('Database update successful:', { 
-      updatedFields: Object.keys(updateData).join(', '),
-      updatedUserId: updatedUser.id,
-      hasCoverPhoto: !!updatedUser.coverPhoto
-    });
-
-    // Also update user metadata in auth to keep it in sync
+    // Update the user in the database
     try {
-      console.log('Updating auth metadata...');
-      // Only update certain fields in metadata to avoid overwriting other metadata
-      const metadataUpdate: Record<string, any> = {};
-      if (image !== undefined) metadataUpdate.avatar_url = image;
-      if (name !== undefined) metadataUpdate.name = name;
-      if (username !== undefined) metadataUpdate.username = username;
-      if (coverPhoto !== undefined) metadataUpdate.coverPhoto = coverPhoto;
+      const { data: updatedUser, error: updateError } = await supabase
+        .from('User')
+        .update(updateData)
+        .eq('id', user.id)
+        .select('id, name, email, username, image, coverPhoto')
+        .single();
       
-      // Update metadata only if we have fields to update
-      if (Object.keys(metadataUpdate).length > 0) {
-        const { data: metadataData, error: metadataUpdateError } = await supabase.auth.updateUser({
-          data: metadataUpdate
-        });
-        
-        if (metadataUpdateError) {
-          console.error('Warning: Failed to update auth metadata:', metadataUpdateError);
-          // Continue without failing the request
-        } else {
-          console.log('Auth metadata updated successfully');
-        }
+      if (updateError) {
+        console.error('Error updating user profile:', updateError);
+        return NextResponse.json(
+          { error: 'Failed to update profile', details: updateError.message, code: updateError.code },
+          { status: 500 }
+        );
       }
-    } catch (metadataError) {
-      console.error('Exception updating user metadata:', metadataError);
-      // Continue without failing the request
-    }
 
-    // Return the updated user
-    console.log('Returning success response with updated user');
-    return NextResponse.json({
-      user: updatedUser
-    });
+      if (!updatedUser) {
+        console.error('No updated user returned from database update');
+        return NextResponse.json(
+          { error: 'Failed to update profile - no user returned' },
+          { status: 500 }
+        );
+      }
+
+      console.log('Database update successful:', { 
+        updatedFields: Object.keys(updateData).join(', '),
+        updatedUserId: updatedUser.id,
+        hasCoverPhoto: !!updatedUser.coverPhoto,
+        coverPhotoLength: updatedUser.coverPhoto ? updatedUser.coverPhoto.length : 0
+      });
+
+      // Also update user metadata in auth to keep it in sync
+      try {
+        console.log('Updating auth metadata...');
+        // Only update certain fields in metadata to avoid overwriting other metadata
+        const metadataUpdate: Record<string, any> = {};
+        if (image !== undefined) metadataUpdate.avatar_url = image;
+        if (name !== undefined) metadataUpdate.name = name;
+        if (username !== undefined) metadataUpdate.username = username;
+        if (coverPhoto !== undefined) metadataUpdate.coverPhoto = coverPhoto;
+        
+        // Update metadata only if we have fields to update
+        if (Object.keys(metadataUpdate).length > 0) {
+          const { data: metadataData, error: metadataUpdateError } = await supabase.auth.updateUser({
+            data: metadataUpdate
+          });
+          
+          if (metadataUpdateError) {
+            console.error('Warning: Failed to update auth metadata:', metadataUpdateError);
+            // Continue without failing the request
+          } else {
+            console.log('Auth metadata updated successfully');
+          }
+        }
+      } catch (metadataError) {
+        console.error('Exception updating user metadata:', metadataError);
+        // Continue without failing the request
+      }
+
+      // Return the updated user
+      console.log('Returning success response with updated user');
+      return NextResponse.json({
+        user: updatedUser
+      });
+    } catch (dbError) {
+      console.error('Uncaught database error:', dbError);
+      return NextResponse.json(
+        { error: 'Database update failed', details: dbError instanceof Error ? dbError.message : String(dbError) },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error('Unhandled error in POST /api/user/profile:', error);
     return NextResponse.json(

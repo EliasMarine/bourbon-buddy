@@ -144,7 +144,8 @@ export default function ProfilePage() {
         },
         body: JSON.stringify({ 
           [fieldToUpdate]: uploadData.url 
-        })
+        }),
+        credentials: 'same-origin' // Include credentials for session authentication
       });
 
       if (!updateResponse.ok) {
@@ -158,7 +159,8 @@ export default function ProfilePage() {
           console.error('Profile update failed with details:', {
             status: updateResponse.status,
             statusText: updateResponse.statusText,
-            errorData
+            errorData,
+            url: uploadData.url.substring(0, 50) + '...' // Log a truncated version of the URL
           });
         } catch (e) {
           // If we can't parse the response, use status text
