@@ -190,9 +190,12 @@ export default function ProfilePhotoPage() {
         setRetryCount(0);
         toast.success('Profile photo updated successfully');
         
-        // Force a page reload to ensure the image is updated in all components
+        // Force a complete page reload instead of a redirect
+        // This ensures the browser fetches fresh data and the session is fully refreshed
+        console.log('Forcing full page reload to refresh session...');
         setTimeout(() => {
-          window.location.href = '/profile';
+          // Use replace() instead of href to prevent back button issues
+          window.location.replace('/profile');
         }, 1500);
         
       } catch (error) {

@@ -104,10 +104,19 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
   // Function to force refresh avatar by syncing metadata between auth and DB
   const refreshAvatar = useCallback(async () => {
     try {
+      // Add a random value to prevent browser caching
+      const cacheBuster = Math.random().toString(36).substring(2);
+      console.log(`Refreshing avatar with cache buster: ${cacheBuster}`);
+      
       // First, trigger the sync metadata endpoint
-      const syncResponse = await fetch('/api/auth/sync-metadata', {
+      const syncResponse = await fetch(`/api/auth/sync-metadata?cb=${cacheBuster}`, {
         method: 'GET',
-        cache: 'no-store'
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
       });
       
       if (!syncResponse.ok) {
@@ -115,11 +124,38 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
         return false;
       }
       
-      // Then, refresh the session to get the latest user data
-      const sessionData = await getSession();
-      if (!sessionData) {
-        console.error('Failed to refresh session after syncing metadata');
+      const syncData = await syncResponse.json();
+      console.log('Metadata sync result:', syncData);
+      
+      // Explicitly force a refresh from the server
+      console.log('Forcing session refresh from server...');
+      const { data: { session: freshSession }, error } = 
+        await supabaseClient.auth.refreshSession();
+        
+      if (error) {
+        console.error('Error refreshing session:', error);
         return false;
+      }
+      
+      if (freshSession) {
+        console.log('Session refreshed successfully with new data:', {
+          hasAvatar: !!freshSession.user.user_metadata?.avatar_url,
+          avatarUrl: freshSession.user.user_metadata?.avatar_url
+        });
+      }
+      
+      // Try to get the user again to ensure latest metadata
+      const { data: { user: latestUser }, error: userError } = 
+        await supabaseClient.auth.getUser();
+        
+      if (userError) {
+        console.error('Error getting latest user:', userError);
+      } else if (latestUser) {
+        console.log('Latest user data retrieved:', { 
+          id: latestUser.id,
+          hasAvatar: !!latestUser.user_metadata?.avatar_url,
+          avatarUrl: latestUser.user_metadata?.avatar_url
+        });
       }
       
       // Optionally, force a router refresh to update the UI
@@ -130,7 +166,7 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
       console.error('Error refreshing avatar:', error);
       return false;
     }
-  }, [getSession, router]);
+  }, [supabaseClient, router]);
 
   return {
     session,

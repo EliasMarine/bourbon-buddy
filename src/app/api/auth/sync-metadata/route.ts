@@ -33,6 +33,14 @@ export async function GET() {
       }
     );
 
+    // Add cache control headers to prevent caching of this response
+    const headers = new Headers({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store'
+    });
+
     // Get current user data
     const { data: { user }, error } = await supabase.auth.getUser();
 
@@ -40,7 +48,7 @@ export async function GET() {
       console.error('Error getting user for metadata sync:', error);
       return NextResponse.json(
         { error: 'User not authenticated' },
-        { status: 401 }
+        { status: 401, headers }
       );
     }
 
@@ -57,7 +65,7 @@ export async function GET() {
       console.error('Error fetching user data for metadata sync:', fetchError);
       return NextResponse.json(
         { error: 'Failed to fetch user data' },
-        { status: 500 }
+        { status: 500, headers }
       );
     }
 
@@ -69,13 +77,19 @@ export async function GET() {
 
     // If user exists in DB, check for fields to sync
     if (userData) {
+      // Add timestamp for better debugging
+      const syncTime = new Date().toISOString();
+      console.log(`[${syncTime}] Syncing data for user ${user.id}`);
+      
       // Check if DB has image but auth doesn't have avatar_url
       if (userData.image && (!user.user_metadata?.avatar_url || user.user_metadata.avatar_url !== userData.image)) {
+        console.log('Syncing image from DB to Auth:', userData.image);
         updates.dbToAuth.avatar_url = userData.image;
       }
 
       // Check if auth has avatar_url but DB doesn't have image or they don't match
       if (user.user_metadata?.avatar_url && (!userData.image || userData.image !== user.user_metadata.avatar_url)) {
+        console.log('Syncing avatar_url from Auth to DB:', user.user_metadata.avatar_url);
         updates.authToDb.image = user.user_metadata.avatar_url;
       }
 
@@ -167,14 +181,31 @@ export async function GET() {
       }
     }
 
+    // 3. Verify the changes by fetching the latest user data
+    let finalUserData = null;
+    if (dbUpdateResult || authUpdateResult) {
+      // Re-fetch user data to confirm changes
+      const { data: verifyData, error: verifyError } = await supabase
+        .from('User')
+        .select('id, name, email, username, image')
+        .eq('id', user.id)
+        .single();
+        
+      if (!verifyError) {
+        finalUserData = verifyData;
+        console.log('Verified final user data after sync:', finalUserData);
+      }
+    }
+
     // Return success response
     return NextResponse.json({
       success: true,
       message: 'Metadata synchronized successfully',
       dbUpdated: Object.keys(updates.authToDb).length > 0,
       authUpdated: Object.keys(updates.dbToAuth).length > 0,
-      user: dbUpdateResult?.[0] || userData
-    });
+      user: finalUserData || dbUpdateResult?.[0] || userData,
+      timestamp: new Date().toISOString()
+    }, { headers });
   } catch (error) {
     console.error('Error in sync-metadata API:', error);
     return NextResponse.json(
