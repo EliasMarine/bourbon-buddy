@@ -151,11 +151,16 @@ export default function ProfilePhotoPage() {
       }
       
       const uploadData = await uploadResponse.json();
-      if (!uploadData || !uploadData.imageUrl) {
+      
+      // Debug log the full upload response
+      console.log('Upload response data:', uploadData);
+      
+      // Check for url in response (API returns url not imageUrl)
+      if (!uploadData || !uploadData.url) {
         throw new Error('No image URL returned from upload');
       }
       
-      const imageUrl = uploadData.imageUrl;
+      const imageUrl = uploadData.url;
       console.log('Uploaded image successfully. URL:', imageUrl);
       
       // Update user profile with the new image URL using server action

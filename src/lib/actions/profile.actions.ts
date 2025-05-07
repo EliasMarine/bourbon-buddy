@@ -76,6 +76,7 @@ export const getUserProfile = action.schema(z.object({})).action(async ({}) => {
       twitterHandle,
       githubHandle,
       linkedinUrl,
+      instagramHandle,
       preferences
     `
     )
@@ -188,6 +189,7 @@ export interface UserProfile {
   twitterHandle: string | null
   githubHandle: string | null
   linkedinUrl: string | null
+  instagramHandle: string | null // Added for Instagram handle support in profile form
   preferences: unknown | null // Keep as unknown for now, refine if needed
 }
 

@@ -23,16 +23,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { LoadingDots } from "@/components/ui/LoadingDots"
 
-// Import the new uploader component
+// Import the AvatarUploader component
 import { AvatarUploader } from "@/components/profile/avatar-uploader"
 
-// Import the schema and actions from task 4.1
-// Note: Adjust the import path if the profile.actions.ts file is elsewhere
+// Import the schema and actions
 import {
   updateUserProfile,
   ProfileUpdateData,
   UserProfile,
-} from "@/lib/actions/profile.actions" // Assuming profile actions exist here
+} from "@/lib/actions/profile.actions"
 import { useSession } from "@/hooks/use-supabase-session"
 
 // Define the Zod schema directly here or import if defined separately and exported
@@ -78,7 +77,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
       publicProfile: initialData?.publicProfile ?? true,
       websiteUrl: initialData?.websiteUrl ?? "",
       twitterHandle: initialData?.twitterHandle ?? "",
-      instagramHandle: initialData?.instagramHandle ?? "",
+      instagramHandle: "", // Since it's not in UserProfile, default to empty string
       linkedinUrl: initialData?.linkedinUrl ?? ""
     },
   })
