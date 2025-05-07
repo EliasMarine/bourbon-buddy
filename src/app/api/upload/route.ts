@@ -255,15 +255,17 @@ async function testSupabaseConnection() {
 
 export async function POST(request: NextRequest) {
   try {
-    // Test Supabase connectivity
+    // Test Supabase connectivity and log detailed connection info
+    console.log('🔍 Testing Supabase connectivity...');
     const isConnected = await testSupabaseConnection();
     if (!isConnected) {
-      console.error('Supabase connection test failed');
+      console.error('❌ Supabase connection test failed - storage service unavailable');
       return NextResponse.json(
         { error: 'Storage service unavailable. Please try again later.' },
         { status: 503 }
       );
     }
+    console.log('✅ Supabase connection test passed');
     
     // Apply rate limiting with safe fallback
     try {
@@ -316,22 +318,35 @@ export async function POST(request: NextRequest) {
     }
     
     // Check authentication
+    console.log('🔐 Authenticating user...');
     const user = await getCurrentUser();
     if (!user) {
-      console.error('Authentication required for upload API');
+      console.error('❌ Authentication required for upload API - no user found');
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }
       );
     }
 
-    console.log('User authenticated:', user.id);
+    console.log('✅ User authenticated:', user.id);
 
     // Get the user ID for folder structure
     const userId = user.id;
     
     // Parse the form data
-    const formData = await request.formData();
+    console.log('📋 Parsing form data...');
+    let formData;
+    try {
+      formData = await request.formData();
+      console.log('FormData parsed successfully');
+    } catch (formDataError) {
+      console.error('❌ Error parsing FormData:', formDataError);
+      return NextResponse.json(
+        { error: 'Invalid form data: ' + (formDataError instanceof Error ? formDataError.message : String(formDataError)) },
+        { status: 400 }
+      );
+    }
+    
     console.log('FormData entries:', Array.from(formData.entries()).map(([key, value]) => {
       if (value instanceof File) {
         return `${key}: File(${value.name}, ${value.type}, ${value.size} bytes)`;
@@ -339,13 +354,23 @@ export async function POST(request: NextRequest) {
       return `${key}: ${value}`;
     }));
     
-    const file = formData.get('file') as File;
+    // Extract file from FormData and validate
+    const file = formData.get('file');
     
-    // Validate the file exists
+    // Validate file exists and is a File object
     if (!file) {
-      console.error('No file provided in upload request');
+      console.error('❌ No file provided in upload request');
       return NextResponse.json(
         { error: 'No file provided' },
+        { status: 400 }
+      );
+    }
+    
+    // Make sure it's a proper File object
+    if (!(file instanceof File)) {
+      console.error('❌ Uploaded content is not a valid File object:', typeof file);
+      return NextResponse.json(
+        { error: 'Invalid file format' },
         { status: 400 }
       );
     }
@@ -353,7 +378,7 @@ export async function POST(request: NextRequest) {
     // Check if the file is actually a File object
     const isRealFile = file instanceof File;
     
-    console.log('File info:', {
+    console.log('📄 File info:', {
       name: file.name,
       type: file.type,
       size: file.size,
@@ -372,16 +397,9 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Simple empty body check
-    const requestRawText = await request.clone().text();
-    console.log('Request body length:', requestRawText.length);
-    if (requestRawText.length < 10) {
-      console.log('Request body (suspiciously small):', requestRawText);
-    }
-    
     // Check if file is empty
     if (file.size === 0) {
-      console.error('File is empty (0 bytes)');
+      console.error('❌ File is empty (0 bytes)');
       return NextResponse.json(
         { error: 'File is empty or corrupted' },
         { status: 400 }
@@ -390,7 +408,7 @@ export async function POST(request: NextRequest) {
     
     // Check file size
     if (file.size > MAX_FILE_SIZE) {
-      console.error(`File size (${file.size}) exceeds limit (${MAX_FILE_SIZE})`);
+      console.error(`❌ File size (${file.size}) exceeds limit (${MAX_FILE_SIZE})`);
       return NextResponse.json(
         { error: `File size exceeds ${MAX_FILE_SIZE / (1024 * 1024)}MB limit` },
         { status: 400 }
@@ -400,7 +418,7 @@ export async function POST(request: NextRequest) {
     // Extract file extension and check against allowed extensions
     const fileExtension = path.extname(file.name).toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(fileExtension)) {
-      console.error(`Invalid file extension: ${fileExtension}`);
+      console.error(`❌ Invalid file extension: ${fileExtension}`);
       return NextResponse.json(
         { error: `Invalid file extension. Allowed extensions: ${ALLOWED_EXTENSIONS.join(', ')}` },
         { status: 400 }
@@ -411,7 +429,7 @@ export async function POST(request: NextRequest) {
     const isExtensionValid = ALLOWED_EXTENSIONS.includes(fileExtension);
     
     if (!ALLOWED_MIME_TYPES.includes(file.type) && !isExtensionValid) {
-      console.error(`Invalid MIME type: ${file.type} and extension: ${fileExtension}`);
+      console.error(`❌ Invalid MIME type: ${file.type} and extension: ${fileExtension}`);
       return NextResponse.json(
         { error: `Invalid file type. Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}` },
         { status: 400 }
@@ -446,7 +464,7 @@ export async function POST(request: NextRequest) {
     // Verify that file content matches its declared type
     const isValidType = await verifyFileType(processedFile);
     if (!isValidType) {
-      console.error('File content validation failed');
+      console.error('❌ File content validation failed');
       
       // CRITICAL DEBUG OVERRIDE: TEMPORARILY ALLOW ALL FILES REGARDLESS OF VALIDATION
       // WARNING: REMOVE THIS IN PRODUCTION AFTER DEBUGGING
@@ -456,72 +474,102 @@ export async function POST(request: NextRequest) {
     // Scan file for viruses/malware
     const isClean = await scanForViruses(processedFile);
     if (!isClean) {
-      console.error('File failed security scan');
+      console.error('❌ File failed security scan');
       return NextResponse.json(
         { error: 'File failed security scan' },
         { status: 400 }
       );
     }
     
-    // Check if bucket exists and create it if not
+    // Initialize Supabase client for storage operations
+    console.log('🔷 Initializing Supabase storage client...');
     const supabase = getSupabase();
-    const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
     
-    if (bucketsError) {
-      console.error('Error listing buckets:', bucketsError);
-      return NextResponse.json(
-        { error: 'Failed to access storage: ' + bucketsError.message },
-        { status: 500 }
-      );
-    }
-    
-    console.log('Available buckets:', buckets?.map(b => b.name) || []);
-    
-    const bucketExists = buckets?.some(bucket => bucket.name === BUCKET_NAME);
-    
-    if (!bucketExists) {
-      console.log(`Bucket ${BUCKET_NAME} does not exist. Creating it...`);
-      try {
-        const { data: newBucket, error: createBucketError } = await supabase.storage.createBucket(BUCKET_NAME, {
-          public: true,
-          fileSizeLimit: MAX_FILE_SIZE,
-          allowedMimeTypes: ALLOWED_MIME_TYPES
-        });
-        
-        if (createBucketError) {
-          console.error('Error creating bucket:', createBucketError);
-          return NextResponse.json(
-            { error: `Failed to create storage bucket: ${createBucketError.message}` },
-            { status: 500 }
-          );
-        }
-        
-        console.log('Successfully created bucket:', newBucket);
-        
-        // Update bucket public access
+    // Check if bucket exists and create it if not
+    try {
+      console.log('📂 Checking storage buckets...');
+      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
+      
+      if (bucketsError) {
+        console.error('❌ Error listing buckets:', bucketsError);
+        return NextResponse.json(
+          { error: 'Failed to access storage: ' + bucketsError.message },
+          { status: 500 }
+        );
+      }
+      
+      console.log('Available buckets:', buckets?.map(b => b.name) || []);
+      
+      const bucketExists = buckets?.some(bucket => bucket.name === BUCKET_NAME);
+      
+      if (!bucketExists) {
+        console.log(`📂 Bucket ${BUCKET_NAME} does not exist. Creating it...`);
         try {
-          // Make the bucket public by updating its options
-          const { error: updateError } = await supabase.storage.updateBucket(BUCKET_NAME, {
+          const { data: newBucket, error: createBucketError } = await supabase.storage.createBucket(BUCKET_NAME, {
             public: true,
             fileSizeLimit: MAX_FILE_SIZE,
             allowedMimeTypes: ALLOWED_MIME_TYPES
           });
           
-          if (updateError) {
-            console.warn('Error updating bucket to public (continuing anyway):', updateError);
-          } else {
-            console.log('Successfully updated bucket to be public');
+          if (createBucketError) {
+            console.error('❌ Error creating bucket:', createBucketError);
+            
+            // Check for common permission errors
+            if (createBucketError.message.includes('permission') || createBucketError.message.includes('not authorized')) {
+              console.error('❌ Supabase Storage permission error - check service role key and RLS policies');
+              return NextResponse.json(
+                { error: 'Storage permission error: ' + createBucketError.message },
+                { status: 403 }
+              );
+            }
+            
+            return NextResponse.json(
+              { error: `Failed to create storage bucket: ${createBucketError.message}` },
+              { status: 500 }
+            );
           }
-        } catch (policyError) {
-          console.warn('Error setting bucket to public (continuing anyway):', policyError);
+          
+          console.log('✅ Successfully created bucket:', newBucket);
+          
+          // Update bucket public access
+          try {
+            // Make the bucket public by updating its options
+            const { error: updateError } = await supabase.storage.updateBucket(BUCKET_NAME, {
+              public: true,
+              fileSizeLimit: MAX_FILE_SIZE,
+              allowedMimeTypes: ALLOWED_MIME_TYPES
+            });
+            
+            if (updateError) {
+              console.warn('⚠️ Error updating bucket to public (continuing anyway):', updateError);
+            } else {
+              console.log('✅ Successfully updated bucket to be public');
+            }
+          } catch (policyError) {
+            console.warn('⚠️ Error setting bucket to public (continuing anyway):', policyError);
+          }
+        } catch (e) {
+          console.error('❌ Unexpected error creating bucket:', e);
+          return NextResponse.json(
+            { 
+              error: 'Failed to create storage bucket due to an unexpected error',
+              details: process.env.NODE_ENV === 'development' ? String(e) : undefined 
+            },
+            { status: 500 }
+          );
         }
-      } catch (e) {
-        console.error('Unexpected error creating bucket:', e);
-        return NextResponse.json(
-          { error: 'Failed to create storage bucket due to an unexpected error' },
-          { status: 500 }
-        );
+      } else {
+        console.log(`✅ Bucket ${BUCKET_NAME} already exists`);
       }
+    } catch (bucketOperationError) {
+      console.error('❌ Error during bucket operations:', bucketOperationError);
+      return NextResponse.json(
+        { 
+          error: 'Unexpected error during storage bucket operations',
+          details: process.env.NODE_ENV === 'development' ? String(bucketOperationError) : undefined 
+        },
+        { status: 500 }
+      );
     }
     
     // Create a unique filename - use UUID and timestamp for unpredictability 
@@ -532,42 +580,126 @@ export async function POST(request: NextRequest) {
     // The path in the bucket where the file will be stored - user-specific paths for isolation
     const filePath = `user-uploads/${userId}/${fileName}`;
     
-    console.log('Uploading file to:', {
+    console.log('📤 Uploading file to:', {
       bucket: BUCKET_NAME,
       path: filePath,
-      contentType: processedFile.type
+      contentType: processedFile.type,
+      fileSize: processedFile.size
     });
     
-    // Upload to Supabase Storage
-    const { data, error } = await supabase.storage
-      .from(BUCKET_NAME)
-      .upload(filePath, processedFile, {
-        contentType: processedFile.type,
-        upsert: false, // Don't overwrite existing files with same name
-      });
+    // Create user folder if it doesn't exist (not strictly necessary but helps with organization)
+    try {
+      // Check if the containing folder exists first
+      const { data: folderData, error: folderCheckError } = await supabase.storage
+        .from(BUCKET_NAME)
+        .list(`user-uploads/${userId}`);
+        
+      if (folderCheckError && !folderCheckError.message.includes('not found')) {
+        console.warn('⚠️ Error checking if folder exists:', folderCheckError);
+      }
+      
+      if (folderCheckError && folderCheckError.message.includes('not found')) {
+        // If folder doesn't exist, create an empty .keep file to create it
+        console.log(`Creating user folder: user-uploads/${userId}`);
+        const emptyFile = new Uint8Array(0);
+        const { error: folderCreateError } = await supabase.storage
+          .from(BUCKET_NAME)
+          .upload(`user-uploads/${userId}/.keep`, emptyFile);
+          
+        if (folderCreateError) {
+          console.warn('⚠️ Error creating user folder (continuing anyway):', folderCreateError);
+        } else {
+          console.log(`✅ Created user folder: user-uploads/${userId}`);
+        }
+      }
+    } catch (folderError) {
+      console.warn('⚠️ Error during folder operations (continuing anyway):', folderError);
+    }
+    
+    // Upload to Supabase Storage with additional error context
+    console.log('📤 Starting file upload...');
+    let uploadResult;
+    try {
+      uploadResult = await supabase.storage
+        .from(BUCKET_NAME)
+        .upload(filePath, processedFile, {
+          contentType: processedFile.type,
+          upsert: false, // Don't overwrite existing files with same name
+        });
+    } catch (uploadError) {
+      console.error('❌ Unexpected error during file upload:', uploadError);
+      return NextResponse.json(
+        { 
+          error: 'File upload failed with an unexpected error',
+          details: process.env.NODE_ENV === 'development' ? String(uploadError) : undefined 
+        },
+        { status: 500 }
+      );
+    }
+    
+    const { data, error } = uploadResult;
     
     if (error) {
-      console.error('Supabase storage upload error:', error);
+      console.error('❌ Supabase storage upload error:', error);
+      
+      // Check for common error types and provide specific responses
+      if (error.message.includes('permission') || error.message.includes('not authorized')) {
+        return NextResponse.json(
+          { error: 'Permission denied: You do not have access to upload files to this location.' },
+          { status: 403 }
+        );
+      }
+      
+      if (error.message.includes('already exists')) {
+        return NextResponse.json(
+          { error: 'A file with this name already exists. Please try again.' },
+          { status: 409 }
+        );
+      }
+      
+      if (error.message.includes('not found')) {
+        return NextResponse.json(
+          { error: 'Storage bucket not found. The system may be misconfigured.' },
+          { status: 404 }
+        );
+      }
+      
       return NextResponse.json(
         { error: `Failed to upload file: ${error.message}` },
         { status: 500 }
       );
     }
     
+    console.log('✅ Upload successful - getting public URL');
+    
     // Get the public URL
-    const { data: urlData } = supabase.storage
-      .from(BUCKET_NAME)
-      .getPublicUrl(filePath);
+    let publicUrlResult;
+    try {
+      publicUrlResult = supabase.storage
+        .from(BUCKET_NAME)
+        .getPublicUrl(filePath);
+    } catch (getUrlError) {
+      console.error('❌ Unexpected error getting public URL:', getUrlError);
+      return NextResponse.json(
+        { 
+          error: 'Failed to get public URL for uploaded file',
+          details: process.env.NODE_ENV === 'development' ? String(getUrlError) : undefined 
+        },
+        { status: 500 }
+      );
+    }
+    
+    const { data: urlData } = publicUrlResult;
       
     if (!urlData?.publicUrl) {
-      console.error('Failed to get public URL');
+      console.error('❌ Failed to get public URL - publicUrl not returned');
       return NextResponse.json(
         { error: 'Failed to get public URL for uploaded file' },
         { status: 500 }
       );
     }
     
-    console.log('Upload successful:', {
+    console.log('🎉 Upload complete - public URL generated:', {
       publicUrl: urlData.publicUrl
     });
     
@@ -580,9 +712,13 @@ export async function POST(request: NextRequest) {
     });
     
   } catch (error) {
-    console.error('Upload error:', error);
+    console.error('❌ Unhandled upload error:', error);
     return NextResponse.json(
-      { error: 'Internal server error', details: process.env.NODE_ENV === 'development' ? String(error) : undefined },
+      { 
+        error: 'Internal server error', 
+        details: process.env.NODE_ENV === 'development' ? String(error) : undefined,
+        stack: process.env.NODE_ENV === 'development' && error instanceof Error ? error.stack : undefined
+      },
       { status: 500 }
     );
   }
