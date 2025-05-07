@@ -7,6 +7,7 @@ import { uploadLimiter } from '@/lib/rate-limiters';
 import { validateCsrfToken } from '@/lib/csrf';
 import path from 'path';
 import { createHash } from 'crypto';
+import { syncUserAvatar } from '@/lib/avatar-sync';
 
 // Create a Supabase client with service role key for server operations
 const createSupabaseAdmin = () => {
@@ -702,6 +703,18 @@ export async function POST(request: NextRequest) {
     console.log('🎉 Upload complete - public URL generated:', {
       publicUrl: urlData.publicUrl
     });
+    
+    // For profile images, ensure synchronization between auth and database
+    const type = formData.get('type');
+    if (type === 'profile' && userId) {
+      try {
+        console.log('Automatically syncing profile avatar to ensure consistency');
+        await syncUserAvatar(userId, urlData.publicUrl);
+      } catch (syncError) {
+        console.warn('Warning: Avatar sync failed, but upload succeeded:', syncError);
+        // Don't fail the upload if sync fails
+      }
+    }
     
     // Return the URL and path information
     return NextResponse.json({

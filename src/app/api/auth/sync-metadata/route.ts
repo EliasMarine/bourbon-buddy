@@ -93,6 +93,19 @@ export async function GET() {
         updates.authToDb.image = user.user_metadata.avatar_url;
       }
 
+      // Force sync avatars - check auth avatar_url and make sure it matches the database image field
+      if (userData.image) {
+        // Always make sure auth avatar_url matches database image
+        if (!user.user_metadata?.avatar_url || user.user_metadata.avatar_url !== userData.image) {
+          console.log('Forcing auth avatar_url sync from DB:', userData.image);
+          updates.dbToAuth.avatar_url = userData.image;
+        }
+      } else if (user.user_metadata?.avatar_url) {
+        // If DB has no image but auth has avatar_url, sync to DB
+        console.log('Forcing DB image sync from Auth:', user.user_metadata.avatar_url);
+        updates.authToDb.image = user.user_metadata.avatar_url;
+      }
+
       // Do the same for name, username, etc.
       if (userData.name && (!user.user_metadata?.name || user.user_metadata.name !== userData.name)) {
         updates.dbToAuth.name = userData.name;

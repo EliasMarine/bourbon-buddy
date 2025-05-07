@@ -229,13 +229,24 @@ export default function ProfilePage() {
     { id: 'friends', label: 'Friends' },
   ];
 
-  // Prepare profile and cover image URLs using memoization to prevent regeneration on each render
+  // Prepare profile image URL using memoization to prevent regeneration on each render
   const profileImageUrl = React.useMemo(() => {
     if (!session?.user?.image) return '';
+    
+    // Check if session user has hasAvatar flag set to true
+    if (session.user.hasAvatar === false) {
+      console.log('Profile page: hasAvatar flag is false, skipping image URL generation');
+      return '';
+    }
+    
+    // Check both image and avatar_url fields
+    const imageUrl = session.user.avatar_url || session.user.image;
+    if (!imageUrl) return '';
+    
     // Only use timestamp for cache busting when the profile image was just updated
-    const useTimestamp = uploadType === 'profile' && imageUpdateTimestamp !== null;
-    return getProfileImageUrl(session.user.image, useTimestamp);
-  }, [session?.user?.image, uploadType, imageUpdateTimestamp]);
+    const useTimestamp = imageUpdateTimestamp !== null;
+    return getProfileImageUrl(imageUrl, useTimestamp);
+  }, [session?.user?.image, session?.user?.avatar_url, session?.user?.hasAvatar, imageUpdateTimestamp]);
   
   const coverPhotoUrl = React.useMemo(() => {
     // Cast session.user to the extended type that includes coverPhoto

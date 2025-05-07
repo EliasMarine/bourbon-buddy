@@ -183,6 +183,18 @@ export default function ProfilePhotoPage() {
         // Update timestamp to bust the cache
         setImageUpdateTimestamp(Date.now());
         
+        // IMPORTANT: EXPLICITLY update auth metadata with avatar_url
+        try {
+          await supabase.auth.updateUser({
+            data: {
+              avatar_url: imageUrl
+            }
+          });
+          console.log('Auth metadata avatar_url explicitly updated to:', imageUrl);
+        } catch (authUpdateError) {
+          console.error('Error updating auth metadata:', authUpdateError);
+        }
+        
         // Sync metadata to ensure auth and database are in sync
         await refreshAvatar();
         

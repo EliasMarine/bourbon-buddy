@@ -126,6 +126,19 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
       
       const syncData = await syncResponse.json();
       console.log('Metadata sync result:', syncData);
+
+      // IMPORTANT: Explicitly update the local session state with the synced data
+      if (syncData.user && syncData.user.image) {
+        console.log('Updating local session with synced image URL:', syncData.user.image);
+        if (supabaseClient) {
+          // Force update the user metadata in the supabase client
+          await supabaseClient.auth.updateUser({
+            data: {
+              avatar_url: syncData.user.image
+            }
+          });
+        }
+      }
       
       // SAFER APPROACH: Instead of explicitly refreshing the session (which can cause logout),
       // just get the current user data which will reflect any changes without disrupting the session
@@ -139,11 +152,23 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
       } 
       
       if (latestUser) {
+        const avatarUrl = latestUser.user_metadata?.avatar_url;
         console.log('Latest user data retrieved:', { 
           id: latestUser.id,
-          hasAvatar: !!latestUser.user_metadata?.avatar_url,
-          avatarUrl: latestUser.user_metadata?.avatar_url
+          hasAvatar: !!avatarUrl,
+          avatarUrl: avatarUrl
         });
+
+        // If there's still a mismatch between the database image and auth metadata,
+        // try one more explicit update to auth metadata
+        if (syncData.user && syncData.user.image && syncData.user.image !== avatarUrl) {
+          console.log('Final attempt to fix metadata mismatch - Updating auth avatar_url');
+          await supabaseClient.auth.updateUser({
+            data: {
+              avatar_url: syncData.user.image
+            }
+          });
+        }
       }
       
       // Force router refresh to update the UI without full page reload
@@ -170,7 +195,9 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
         id: user?.id || '',
         email: user?.email || '',
         name: user?.user_metadata?.full_name || user?.user_metadata?.name || '',
-        image: user?.user_metadata?.avatar_url || null
+        image: user?.user_metadata?.avatar_url || null,
+        avatar_url: user?.user_metadata?.avatar_url || null,
+        hasAvatar: !!user?.user_metadata?.avatar_url
       },
       expires: new Date(session.expires_at! * 1000).toISOString()
     } : null,

@@ -6,6 +6,7 @@ import { createServerSupabaseClient } from "@/lib/supabase-server"
 // Correct path for the safe action client and error class
 import { action, ProfileActionError } from "../safe-action"
 import { revalidatePath } from "next/cache"
+import { syncUserAvatar } from "../avatar-sync"
 
 // --- Zod Schema for Profile Updates ---
 // Define which fields are updatable and their validation rules
@@ -153,14 +154,21 @@ export const updateUserProfile = action
 
     // Also update auth metadata to ensure it stays in sync
     try {
-      await supabase.auth.updateUser({
-        data: {
-          ...updateData
-        }
-      });
-      console.log("Auth metadata updated successfully");
+      if (updateData.image !== undefined) {
+        console.log('Image field updated, explicitly calling syncUserAvatar utility');
+        // Use our dedicated synchronization utility to ensure consistency
+        await syncUserAvatar(userId, updateData.image);
+      } else {
+        // Regular update for other fields
+        await supabase.auth.updateUser({
+          data: {
+            ...updateData
+          }
+        });
+      }
+      console.log('Auth metadata updated successfully');
     } catch (metadataError) {
-      console.warn("Failed to update auth metadata:", metadataError);
+      console.warn('Failed to update auth metadata:', metadataError);
       // Continue without failing - the database update worked
     }
 

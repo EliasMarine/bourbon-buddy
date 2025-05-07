@@ -1,93 +1,93 @@
 import React from 'react';
 import Image from 'next/image';
 import { User } from 'lucide-react';
+import { getProfileImageUrl, getInitialLetter } from '@/lib/utils';
 
-interface UserAvatarProps {
+// Function to generate a deterministic color class from a name
+function getColorFromName(name: string | null | undefined): string {
+  if (!name) return 'bg-gray-500';
+  
+  const colorOptions = [
+    'bg-blue-500',
+    'bg-green-500',
+    'bg-yellow-500',
+    'bg-pink-500',
+    'bg-purple-500',
+    'bg-indigo-500',
+    'bg-amber-500',
+    'bg-emerald-500',
+    'bg-rose-500',
+    'bg-teal-500',
+    'bg-cyan-500',
+    'bg-orange-500',
+  ];
+  
+  // Use a simple hash function to get a deterministic index
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash) + name.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
+  }
+  
+  // Make sure the result is positive and map to our color array
+  const index = Math.abs(hash) % colorOptions.length;
+  return colorOptions[index];
+}
+
+export interface UserAvatarProps {
   src?: string | null;
   name?: string | null;
   size?: number;
   className?: string;
+  addTimestamp?: boolean; // Whether to add timestamp for cache busting
 }
 
 /**
  * A flexible avatar component that displays an image if provided,
  * or falls back to a user's initials or generic icon.
  */
-export default function UserAvatar({
+export function UserAvatar({
   src,
   name,
   size = 40,
   className = '',
+  addTimestamp = false, // Default to false for better caching
 }: UserAvatarProps) {
   // Get the first letter of the user's name for the fallback
   const initial = name && name.length > 0 ? name.charAt(0).toUpperCase() : 'U';
   
   // Generate a consistent color based on the name
-  const getColorFromName = (name?: string | null): string => {
-    if (!name) return 'bg-amber-600';
-    
-    const colors = [
-      'bg-amber-600',
-      'bg-red-600',
-      'bg-blue-600',
-      'bg-green-600',
-      'bg-purple-600',
-      'bg-pink-600',
-      'bg-indigo-600',
-      'bg-teal-600',
-    ];
-    
-    // Use a simple hash of the name to pick a color
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    
-    const index = Math.abs(hash) % colors.length;
-    return colors[index];
-  };
-  
   const colorClass = getColorFromName(name);
   
-  if (src) {
+  // Process the image URL through the util function if it exists
+  const imageUrl = src ? getProfileImageUrl(src, addTimestamp) : null;
+  
+  if (imageUrl) {
     return (
       <div 
-        className={`relative rounded-full overflow-hidden ${className}`}
+        className={`relative rounded-full overflow-hidden flex items-center justify-center ${className}`}
         style={{ width: size, height: size }}
       >
         <Image
-          src={src}
+          src={imageUrl}
           alt={name || 'User avatar'}
           width={size}
           height={size}
-          className="object-cover w-full h-full"
+          className="object-cover"
         />
       </div>
     );
   }
   
-  // Render a fallback with the user's initial
-  if (name) {
-    return (
-      <div 
-        className={`${colorClass} rounded-full flex items-center justify-center text-white font-bold ${className}`}
-        style={{ width: size, height: size }}
-      >
-        <span style={{ fontSize: size * 0.4 }}>{initial}</span>
-      </div>
-    );
-  }
-  
-  // Render a generic user icon as a last resort
+  // Fallback to initials avatar
   return (
-    <div 
-      className={`bg-gray-700 rounded-full flex items-center justify-center ${className}`}
+    <div
+      className={`rounded-full ${colorClass} flex items-center justify-center text-white ${className}`}
       style={{ width: size, height: size }}
     >
-      <User 
-        className="text-gray-400"
-        size={size * 0.6}
-      />
+      {initial}
     </div>
   );
-} 
+}
+
+export default UserAvatar; 

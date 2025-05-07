@@ -30,8 +30,15 @@ export function getInitialLetter(name?: string | null, email?: string | null): s
 export function getProfileImageUrl(imageId: string | null, addTimestamp = true): string {
   if (!imageId) return ""
   
-  // If already a full URL, return as is
-  if (imageId.startsWith('http')) return imageId
+  // If already a full URL, add cache busting if needed
+  if (imageId.startsWith('http')) {
+    if (addTimestamp) {
+      // Add cache busting parameter for external URLs too
+      const separator = imageId.includes('?') ? '&' : '?'
+      return `${imageId}${separator}t=${Date.now()}`
+    }
+    return imageId
+  }
   
   // If already an API path, just add timestamp if needed
   if (imageId.startsWith('/api/images')) {
@@ -40,6 +47,18 @@ export function getProfileImageUrl(imageId: string | null, addTimestamp = true):
       return `${imageId}${separator}t=${Date.now()}`
     }
     return imageId
+  }
+  
+  // Check if it's a Supabase storage path
+  if (imageId.includes('user-uploads/') || imageId.includes('/avatars/')) {
+    // It's likely a Supabase path - construct the proper URL
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    const publicUrl = `${supabaseUrl}/storage/v1/object/public/bourbon-buddy-prod/${imageId}`;
+    
+    if (addTimestamp) {
+      return `${publicUrl}?t=${Date.now()}`;
+    }
+    return publicUrl;
   }
   
   // Otherwise, construct API path
