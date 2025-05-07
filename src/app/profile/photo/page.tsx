@@ -11,6 +11,8 @@ import { toast } from 'react-hot-toast';
 import { validateUserFile } from '@/lib/file-validation';
 // Import server action
 import { updateUserProfile } from '@/lib/actions/profile.actions';
+// Import Supabase client for direct metadata updates
+import { useSupabase } from '@/components/providers/SupabaseProvider';
 
 // Add global window type declaration
 declare global {
@@ -21,6 +23,7 @@ declare global {
 
 export default function ProfilePhotoPage() {
   const { data: session, status, update: updateSession } = useSession();
+  const { supabase } = useSupabase();
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -343,11 +346,39 @@ export default function ProfilePhotoPage() {
           // Update timestamp to bust the cache
           setImageUpdateTimestamp(Date.now());
           
+          // Force explicit sync of user metadata in auth
+          try {
+            // Update auth metadata to match the database
+            if (supabase?.auth) {
+              await supabase.auth.updateUser({
+                data: {
+                  avatar_url: imageUrl,
+                  image: imageUrl // Include both possible field names
+                }
+              });
+              console.log('Auth metadata explicitly updated with new image URL');
+            }
+            
+            // Also trigger the background sync for completeness
+            fetch('/api/auth/sync-metadata', { 
+              method: 'GET',
+              cache: 'no-store'
+            }).catch(e => console.error('Background metadata sync failed:', e));
+          } catch (syncError) {
+            console.warn('Failed to sync auth metadata, but profile update successful:', syncError);
+            // Continue with success path - the database update worked
+          }
+          
           // Reset state and show success message
           setValidationResult(null);
           setLastAttemptedFile(null);
           setRetryCount(0);
           toast.success('Profile photo updated successfully');
+          
+          // Force a page reload to ensure the image is updated in all components
+          setTimeout(() => {
+            window.location.href = '/profile';
+          }, 1500);
         } catch (profileError) {
           console.error('Error updating profile using server action:', profileError);
           setUploadError(profileError instanceof Error ? profileError.message : 'Failed to update profile');

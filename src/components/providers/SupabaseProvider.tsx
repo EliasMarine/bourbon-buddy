@@ -86,6 +86,20 @@ export function SupabaseProvider({
   async function refreshSession() {
     const now = Date.now();
     
+    // Check if there's already a session before attempting refresh
+    try {
+      // Get the current auth state from localStorage to avoid unnecessary refreshes
+      const authStateItem = localStorage.getItem('auth_state');
+      if (authStateItem === 'SIGNED_OUT') {
+        console.log('Session refresh skipped - user is explicitly signed out');
+        setIsSessionStable(true);
+        setIsLoading(false);
+        return;
+      }
+    } catch (storageError) {
+      // Ignore localStorage errors
+    }
+    
     // Prevent refreshing too frequently - increase the minimum interval
     if (now - lastSuccessfulRefresh < MIN_REFRESH_INTERVAL) {
       console.log(`Session refresh skipped - last successful refresh was ${Math.round((now - lastSuccessfulRefresh) / 1000)}s ago`);
@@ -143,19 +157,39 @@ export function SupabaseProvider({
             return;
           }
         }
+      } else {
+        // If no session found and no sessionError, we're simply not logged in
+        // This is normal behavior, not an error, so we should set state accordingly
+        console.log('No session found - user is likely not logged in');
+        if (isMountedRef.current) {
+          setSession(null);
+          setUser(null);
+          setError(null);
+          setIsSessionStable(true);
+          isRefreshingSessionRef.current = false;
+          globalRefreshingSession = false;
+          setIsLoading(false);
+          return;
+        }
       }
       
       // Only try to refresh if we don't already have a valid session
       const shouldTryRefresh = !sessionData?.session || 
                               (sessionData.session.expires_at && 
-                              sessionData.session.expires_at * 1000 < Date.now() + 60 * 60 * 1000); // 1 hour
+                              sessionData.session.expires_at * 1000 < Date.now() + 60 * 60 * 1000);
       
       if (shouldTryRefresh) {
         try {
           const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
           
           if (refreshError) {
-            console.warn('Session refresh failed:', refreshError);
+            // Only log the error if we expected to have a session
+            if (sessionData?.session) {
+              console.warn('Session refresh failed:', refreshError);
+            } else {
+              // This is expected for users who aren't logged in yet
+              console.log('No session to refresh - this is normal for non-authenticated users');
+            }
             
             // If we already have a session from getSession, we can continue with that
             if (sessionData?.session) {
@@ -167,10 +201,13 @@ export function SupabaseProvider({
               return; // Exit here, don't attempt proxy fallback
             }
 
-            console.error('Supabase refreshSession failed and no initial cookie session found. Cannot refresh.', refreshError);
-            // Set error state if refresh fails completely
-            if (isMountedRef.current) {
-              setError(refreshError);
+            // Only log this as an error if we expected to have a session
+            if (sessionData?.session) {
+              console.error('Supabase refreshSession failed and no initial cookie session found. Cannot refresh.', refreshError);
+              // Set error state if refresh fails completely
+              if (isMountedRef.current) {
+                setError(refreshError);
+              }
             }
 
           } else if (refreshData?.session) {
@@ -305,57 +342,85 @@ export function SupabaseProvider({
     }
   }
   
+  // Initialize auth state when component mounts
   useEffect(() => {
-    // Mark as mounted
+    // Set mounted flag
     isMountedRef.current = true;
     
-    // Initialize session only if not already loading
-    if (!isRefreshingSessionRef.current) {
-      // Check local storage for session data as a fallback
-      if (typeof window !== 'undefined') {
-        try {
-          // Check if we have a session in localStorage
-          const storedSession = localStorage.getItem('sb:session');
-          
-          // Only restore if there's a stored session and we're not explicitly signed out
-          const isSignedOut = localStorage.getItem('auth_state') === 'SIGNED_OUT';
-          
-          if (storedSession && !isSignedOut) {
-            try {
-              const parsedSession = JSON.parse(storedSession);
+    // Try to load persisted session data from localStorage first
+    if (typeof window !== 'undefined') {
+      try {
+        // Check if we have explicit sign-out state
+        const authStateItem = localStorage.getItem('auth_state');
+        if (authStateItem === 'SIGNED_OUT') {
+          console.log('Found explicit sign-out state, skipping session restoration');
+          setSession(null);
+          setUser(null);
+          setIsLoading(false);
+          setIsSessionStable(true);
+          return;
+        }
+        
+        // Check for stored session data
+        const sessionDataStr = localStorage.getItem('supabase.auth.session');
+        
+        if (sessionDataStr) {
+          try {
+            const sessionData = JSON.parse(sessionDataStr);
+            
+            // Validate stored session to ensure it's recent and well-formed
+            if (sessionData && 
+                sessionData.user && 
+                sessionData.expires_at && 
+                sessionData.refresh_token) {
+              
               console.log('Found session data in localStorage, setting as fallback');
               
-              // Only set if we have a valid session object with tokens
-              if (parsedSession?.access_token && parsedSession?.refresh_token) {
-                // Manually set the session to ensure we're authenticated
-                supabase.auth.setSession({
-                  access_token: parsedSession.access_token,
-                  refresh_token: parsedSession.refresh_token
-                }).then(({ data }) => {
-                  if (data.session) {
-                    console.log('Successfully restored session from localStorage');
-                  }
-                }).catch(err => {
-                  console.warn('Error restoring session from localStorage:', err);
-                });
+              if (isMountedRef.current) {
+                // Set temporary UI state from storage while we verify with server
+                setSession(sessionData);
+                setUser(sessionData.user);
               }
-            } catch (parseError) {
-              console.warn('Error parsing stored session:', parseError);
             }
-          } else if (isSignedOut) {
-            console.log('Not restoring session from localStorage - user was explicitly signed out');
+          } catch (parseError) {
+            console.warn('Error parsing stored session data:', parseError);
+            // Remove corrupted data
+            try {
+              localStorage.removeItem('supabase.auth.session');
+            } catch (storageError) {
+              console.warn('Error accessing localStorage:', storageError);
+            }
           }
-        } catch (storageError) {
-          console.warn('Error accessing localStorage:', storageError);
+        } else {
+          // If we have no session data, mark as not loading to prevent flicker
+          console.log('No session data found in storage, starting in logged-out state');
+          setIsLoading(false);
+          setIsSessionStable(true);
         }
+      } catch (storageError) {
+        console.warn('Error accessing localStorage:', storageError);
       }
       
-      // Delay the initial session refresh to give cookies time to settle
-      setTimeout(() => {
-        if (isMountedRef.current) {
-          refreshSession();
-        }
-      }, 800); // Increased from 500ms to give cookies more time to settle
+      // Use session persistence check to avoid unnecessary refresh attempts
+      const hasPersistedSession = 
+        !!localStorage.getItem('supabase.auth.token') || 
+        !!localStorage.getItem('supabase.auth.session') ||
+        document.cookie.includes('sb-');
+        
+      // Only attempt refresh if there's a persisted session
+      // This prevents unnecessary auth errors when not logged in
+      if (hasPersistedSession) {
+        // Delay the initial session refresh to give cookies time to settle
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            refreshSession();
+          }
+        }, 800); // Increased from 500ms to give cookies more time to settle
+      } else {
+        console.log('No persisted session detected, skipping initial refresh');
+        setIsLoading(false);
+        setIsSessionStable(true);
+      }
     }
     
     // Defensive check to ensure auth is initialized
@@ -369,108 +434,106 @@ export function SupabaseProvider({
     }
     
     // Set up auth state change listener
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        // Implement aggressive debouncing for auth events to prevent rapid state changes
-        const now = Date.now();
-        const lastEventTime = lastAuthEventRef.current[event] || 0;
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      // Implement aggressive debouncing for auth events to prevent rapid state changes
+      const now = Date.now();
+      const lastEventTime = lastAuthEventRef.current[event] || 0;
+      
+      // Don't process the same event if it occurred too recently
+      if (now - lastEventTime < MIN_AUTH_EVENT_INTERVAL) {
+        console.log(`Debouncing auth event ${event} - too soon after previous event`);
+        return;
+      }
+      
+      // Update the last event timestamp (globally)
+      lastAuthEventRef.current[event] = now;
+      globalAuthEvents[event] = now;
+      
+      console.log(`Auth state changed: ${event}`);
+      
+      // For SIGNED_IN events, always update session and user state right away
+      // This ensures the UI reflects the authenticated state promptly
+      if (event === 'SIGNED_IN' && session) {
+        // Mark session unstable during state transition
+        setIsSessionStable(false);
         
-        // Don't process the same event if it occurred too recently
-        if (now - lastEventTime < MIN_AUTH_EVENT_INTERVAL) {
-          console.log(`Debouncing auth event ${event} - too soon after previous event`);
+        if (isMountedRef.current) {
+          setSession(session);
+          setUser(session.user);
+          setIsLoading(false);
+          
+          // Mark successful refresh time to avoid immediate refresh after login
+          lastSuccessfulRefresh = Date.now();
+          
+          // Wait a bit for session to stabilize before marking as stable
+          setTimeout(() => {
+            if (isMountedRef.current) {
+              setIsSessionStable(true);
+            }
+          }, 500);
+        }
+      }
+      // Special handling for TOKEN_REFRESHED to prevent infinite loops
+      else if (event === 'TOKEN_REFRESHED') {
+        // Only process token refreshed events once every 30 seconds max
+        const lastTokenRefreshTime = lastAuthEventRef.current['TOKEN_REFRESHED'] || 0;
+        
+        if (now - lastTokenRefreshTime < 30000) {
+          console.log('Ignoring TOKEN_REFRESHED event - throttling to max once per 30s');
           return;
         }
         
-        // Update the last event timestamp (globally)
-        lastAuthEventRef.current[event] = now;
-        globalAuthEvents[event] = now;
-        
-        console.log(`Auth state changed: ${event}`);
-        
-        // For SIGNED_IN events, always update session and user state right away
-        // This ensures the UI reflects the authenticated state promptly
-        if (event === 'SIGNED_IN' && session) {
-          // Mark session unstable during state transition
-          setIsSessionStable(false);
-          
-          if (isMountedRef.current) {
-            setSession(session);
-            setUser(session.user);
-            setIsLoading(false);
-            
-            // Mark successful refresh time to avoid immediate refresh after login
-            lastSuccessfulRefresh = Date.now();
-            
-            // Wait a bit for session to stabilize before marking as stable
-            setTimeout(() => {
-              if (isMountedRef.current) {
-                setIsSessionStable(true);
-              }
-            }, 500);
-          }
+        if (isMountedRef.current) {
+          console.log('Processing allowed TOKEN_REFRESHED event with session update');
+          setSession(session);
+          setUser(session?.user || null);
         }
-        // Special handling for TOKEN_REFRESHED to prevent infinite loops
-        else if (event === 'TOKEN_REFRESHED') {
-          // Only process token refreshed events once every 30 seconds max
-          const lastTokenRefreshTime = lastAuthEventRef.current['TOKEN_REFRESHED'] || 0;
-          
-          if (now - lastTokenRefreshTime < 30000) {
-            console.log('Ignoring TOKEN_REFRESHED event - throttling to max once per 30s');
-            return;
+      } 
+      // Special handling for SIGNED_OUT events
+      else if (event === 'SIGNED_OUT') {
+        if (isMountedRef.current) {
+          // Mark explicitly signed out in localStorage to prevent auto-restore
+          try {
+            localStorage.setItem('auth_state', 'SIGNED_OUT');
+          } catch (e) {
+            // Ignore storage errors
           }
           
-          if (isMountedRef.current) {
-            console.log('Processing allowed TOKEN_REFRESHED event with session update');
-            setSession(session);
-            setUser(session?.user || null);
-          }
-        } 
-        // Special handling for SIGNED_OUT events
-        else if (event === 'SIGNED_OUT') {
-          if (isMountedRef.current) {
-            // Mark explicitly signed out in localStorage to prevent auto-restore
-            try {
-              localStorage.setItem('auth_state', 'SIGNED_OUT');
-            } catch (e) {
-              // Ignore storage errors
+          // Small delay before clearing session to allow any in-flight renders to complete
+          setTimeout(() => {
+            if (isMountedRef.current) {
+              setSession(null);
+              setUser(null);
+              setIsLoading(false);
             }
-            
-            // Small delay before clearing session to allow any in-flight renders to complete
-            setTimeout(() => {
-              if (isMountedRef.current) {
-                setSession(null);
-                setUser(null);
-                setIsLoading(false);
-              }
-            }, 100);
-          }
-        }
-        else {
-          // For other events, update normally
-          if (isMountedRef.current) {
-            setSession(session);
-            setUser(session?.user || null);
-            setIsLoading(false);
-          }
-        }
-        
-        // Only sync on SIGNED_IN event when we don't have a synced user already
-        if (session?.user && event === 'SIGNED_IN' && !userSynced && isMountedRef.current) {
-          // Check if user is registered via metadata first
-          if (session.user.app_metadata?.is_registered === true) {
-            setUserSynced(true);
-            globalUserSynced = true;
-          } else {
-            // For SIGNED_IN, use a slight delay to avoid race conditions
-            setTimeout(() => {
-              if (isMountedRef.current && session?.user) {
-                syncUserToDatabase(session.user);
-              }
-            }, 1000);
-          }
+          }, 100);
         }
       }
-    );
+      else {
+        // For other events, update normally
+        if (isMountedRef.current) {
+          setSession(session);
+          setUser(session?.user || null);
+          setIsLoading(false);
+        }
+      }
+      
+      // Only sync on SIGNED_IN event when we don't have a synced user already
+      if (session?.user && event === 'SIGNED_IN' && !userSynced && isMountedRef.current) {
+        // Check if user is registered via metadata first
+        if (session.user.app_metadata?.is_registered === true) {
+          setUserSynced(true);
+          globalUserSynced = true;
+        } else {
+          // For SIGNED_IN, use a slight delay to avoid race conditions
+          setTimeout(() => {
+            if (isMountedRef.current && session?.user) {
+              syncUserToDatabase(session.user);
+            }
+          }, 1000);
+        }
+      }
+    });
     
     // Clean up subscription on unmount
     return () => {

@@ -105,9 +105,11 @@ export const updateUserProfile = action
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {
+      console.error("Auth error in updateUserProfile:", authError);
       throw new ProfileActionError("User not authenticated");
     }
     const userId = user.id;
+    console.log("Updating profile for user:", userId, "with data:", parsedInput);
 
     // Prepare the data for update, removing undefined fields
     const updateData: Partial<ProfileUpdateData> = {};
@@ -125,6 +127,7 @@ export const updateUserProfile = action
       ...updateData,
       updatedAt: new Date().toISOString(), // Add timestamp here
     };
+    console.log("Final data to update:", dataToUpdate);
 
     const { data, error: updateError } = await supabase
       .from("User") // Ensure table name casing matches schema (User)
@@ -141,7 +144,23 @@ export const updateUserProfile = action
 
     if (!data) {
       // This shouldn't happen if the user exists, but good to check
+      console.error("No data returned after profile update, user may not exist");
       throw new ProfileActionError("Failed to confirm profile update");
+    }
+
+    console.log("Profile updated successfully in database:", data.id);
+
+    // Also update auth metadata to ensure it stays in sync
+    try {
+      await supabase.auth.updateUser({
+        data: {
+          ...updateData
+        }
+      });
+      console.log("Auth metadata updated successfully");
+    } catch (metadataError) {
+      console.warn("Failed to update auth metadata:", metadataError);
+      // Continue without failing - the database update worked
     }
 
     // Revalidate relevant paths after successful update
