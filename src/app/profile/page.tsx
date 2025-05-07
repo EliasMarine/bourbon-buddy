@@ -115,18 +115,18 @@ export default function ProfilePage() {
         throw new Error(errorMessage);
       }
       
-      const { imageUrl } = await uploadResponse.json();
+      const uploadData = await uploadResponse.json();
       
-      if (!imageUrl) {
+      if (!uploadData.url) {
         throw new Error('No image URL returned from upload');
       }
       
-      console.log(`Uploaded ${type} to: ${imageUrl}`);
+      console.log(`Uploaded ${type} to: ${uploadData.url}`);
       
       // Now update the user profile with the new image
       const fieldToUpdate = type === 'profile' ? 'image' : 'coverPhoto';
       const formData2 = new FormData();
-      formData2.append(fieldToUpdate, imageUrl);
+      formData2.append(fieldToUpdate, uploadData.url);
       
       // Process the update
       const updateResponse = await fetch('/api/user', {
@@ -135,7 +135,7 @@ export default function ProfilePage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          [fieldToUpdate]: imageUrl 
+          [fieldToUpdate]: uploadData.url 
         })
       });
 
@@ -163,10 +163,10 @@ export default function ProfilePage() {
 
       // Add the updated field based on type
       if (type === 'profile') {
-        updateData.user.image = imageUrl;
+        updateData.user.image = uploadData.url;
       } else {
         // Handle coverPhoto by using type assertion
-        (updateData.user as any).coverPhoto = imageUrl;
+        (updateData.user as any).coverPhoto = uploadData.url;
       }
       
       await updateSession(updateData);
