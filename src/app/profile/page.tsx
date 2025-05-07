@@ -133,6 +133,8 @@ export default function ProfilePage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          // Add CSRF token if available
+          ...(window._csrfToken ? { 'x-csrf-token': window._csrfToken } : {})
         },
         body: JSON.stringify({ 
           [fieldToUpdate]: uploadData.url 
