@@ -13,6 +13,7 @@ import { validateUserFile } from '@/lib/file-validation';
 import { updateUserProfile } from '@/lib/actions/profile.actions';
 // Import Supabase client for direct metadata updates
 import { useSupabase } from '@/components/providers/SupabaseProvider';
+import { useRouter } from 'next/navigation';
 
 // Add global window type declaration
 declare global {
@@ -32,6 +33,7 @@ export default function ProfilePhotoPage() {
   const [lastAttemptedFile, setLastAttemptedFile] = useState<File | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
 
   // Track session to ensure authentication
   useEffect(() => {
@@ -190,12 +192,12 @@ export default function ProfilePhotoPage() {
         setRetryCount(0);
         toast.success('Profile photo updated successfully');
         
-        // Force a complete page reload instead of a redirect
-        // This ensures the browser fetches fresh data and the session is fully refreshed
-        console.log('Forcing full page reload to refresh session...');
+        // Instead of forcing a full page reload, use the Next.js router to navigate
+        // This preserves the session state and avoids the logout issue
+        console.log('Navigating to profile page with router...');
         setTimeout(() => {
-          // Use replace() instead of href to prevent back button issues
-          window.location.replace('/profile');
+          // Use router.push instead of window.location.replace
+          router.push('/profile');
         }, 1500);
         
       } catch (error) {

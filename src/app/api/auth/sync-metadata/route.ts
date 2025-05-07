@@ -8,6 +8,14 @@ import { NextResponse } from 'next/server';
  */
 export async function GET() {
   try {
+    // Add cache control headers to prevent caching of this response
+    const headers = new Headers({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store'
+    });
+
     // Create a Supabase client for route handlers (using cookies)
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,21 +33,13 @@ export async function GET() {
               });
             } catch (error) {
               // The `setAll` method was called from a Server Component.
-              // This can be ignored if you have middleware refreshing user sessions.
+              // This can safely be ignored when error handling is in place
               console.warn('Could not set cookies in sync-metadata endpoint');
             }
           },
         },
       }
     );
-
-    // Add cache control headers to prevent caching of this response
-    const headers = new Headers({
-      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-      'Surrogate-Control': 'no-store'
-    });
 
     // Get current user data
     const { data: { user }, error } = await supabase.auth.getUser();
@@ -166,6 +166,8 @@ export async function GET() {
     if (Object.keys(updates.dbToAuth).length > 0) {
       console.log('Updating auth metadata from DB:', updates.dbToAuth);
       
+      // Note: We use updateUser instead of refreshSession to avoid potential
+      // token refresh issues that could log the user out
       const { data, error: authUpdateError } = await supabase.auth.updateUser({
         data: {
           ...updates.dbToAuth,
