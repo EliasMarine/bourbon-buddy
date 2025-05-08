@@ -64,39 +64,58 @@ const updateUserWithLimitedCoverPhotoUrl = async (
   // First, get the maximum length of coverPhoto column from database schema
   // For now, we'll use a reasonably safe maximum of 255 characters
   const MAX_URL_LENGTH = 255;
-  
-  // If we have a coverPhoto that's too long, try to truncate it
-  if (updateData.coverPhoto && updateData.coverPhoto.length > MAX_URL_LENGTH) {
-    console.log(`Cover photo URL exceeds ${MAX_URL_LENGTH} chars (${updateData.coverPhoto.length}), truncating...`);
-    
-    try {
-      // Try to make a smarter truncation by keeping domain and file name parts
-      const urlObj = new URL(updateData.coverPhoto);
-      const pathParts = urlObj.pathname.split('/');
-      const fileName = pathParts[pathParts.length - 1] || '';
-      
-      // Create a shortened URL using just hostname and filename
-      const shortenedUrl = `${urlObj.origin}/.../.../${fileName}`;
-      
-      if (shortenedUrl.length <= MAX_URL_LENGTH) {
-        console.log(`Using shortened URL representation: ${shortenedUrl}`);
-        updateData.coverPhoto = shortenedUrl;
-      } else {
-        // If still too long, use a very simple truncation
-        console.log(`Using severely truncated URL`);
-        updateData.coverPhoto = updateData.coverPhoto.substring(0, MAX_URL_LENGTH - 3) + '...';
+  let finalCoverPhotoUrl = updateData.coverPhoto; // Work with a mutable copy
+
+  // Check if finalCoverPhotoUrl is defined and is a string
+  if (typeof finalCoverPhotoUrl === 'string' && finalCoverPhotoUrl.length > MAX_URL_LENGTH) {
+    console.log(`Cover photo URL exceeds ${MAX_URL_LENGTH} chars (${finalCoverPhotoUrl.length}), attempting truncation...`);
+    let successfullySmartTruncated = false;
+
+    // Attempt smart truncation only if it looks like a full absolute URL
+    if (finalCoverPhotoUrl.startsWith('http://') || finalCoverPhotoUrl.startsWith('https://')) {
+      try {
+        const urlObj = new URL(finalCoverPhotoUrl);
+        const pathParts = urlObj.pathname.split('/');
+        // Keep the filename and a few path segments for better context
+        const fileName = pathParts.pop() || ''; // e.g., 'image.jpg'
+        const significantPathStart = pathParts.slice(0, 5).join('/'); // e.g., /storage/v1/object/public/bucket-name
+        
+        const truncatedSmartUrl = `${urlObj.origin}${significantPathStart}/.../${fileName}`;
+        
+        if (truncatedSmartUrl.length <= MAX_URL_LENGTH) {
+          finalCoverPhotoUrl = truncatedSmartUrl;
+          successfullySmartTruncated = true;
+          console.log(`Using smart-truncated URL: ${finalCoverPhotoUrl}`);
+        } else {
+          console.log(`Smart-truncated URL still too long (${truncatedSmartUrl.length}), will use basic truncation.`);
+        }
+      } catch (e) {
+        console.error('Error during smart URL truncation (will attempt basic if necessary):', e);
+        // Proceed to basic truncation if smart truncation fails or wasn't applicable
       }
-    } catch (e) {
-      console.error('Error parsing URL for truncation:', e);
-      // Basic fallback truncation
-      updateData.coverPhoto = updateData.coverPhoto.substring(0, MAX_URL_LENGTH - 3) + '...';
+    }
+
+    // If smart truncation didn't happen/apply, or if the URL is still too long, do basic substring truncation
+    if (!successfullySmartTruncated || finalCoverPhotoUrl.length > MAX_URL_LENGTH) {
+      console.log(`Applying basic truncation to current URL (length: ${finalCoverPhotoUrl.length}). Current value starts with: ${finalCoverPhotoUrl.substring(0,30)}...`);
+      finalCoverPhotoUrl = finalCoverPhotoUrl.substring(0, MAX_URL_LENGTH - 3) + '...';
+      console.log(`After basic truncation: ${finalCoverPhotoUrl} (length: ${finalCoverPhotoUrl.length})`);
     }
   }
+  
+  // Prepare the final data for Supabase update
+  const finalUpdateData = { ...updateData, coverPhoto: finalCoverPhotoUrl };
+
+  console.log('Attempting Supabase update with data:', { 
+    userId: user.id, 
+    coverPhoto: finalUpdateData.coverPhoto, 
+    coverPhotoLength: finalUpdateData.coverPhoto ? (typeof finalUpdateData.coverPhoto === 'string' ? finalUpdateData.coverPhoto.length : 'N/A') : 'undefined'
+  });
   
   // Now try the update with potentially truncated URL
   const { data: updatedUser, error: updateError } = await supabase
     .from('User')
-    .update(updateData)
+    .update(finalUpdateData)
     .eq('id', user.id)
     .select('id, name, email, username, image, coverPhoto')
     .single();
