@@ -383,58 +383,18 @@ export default function ProfilePage() {
         console.log(`Successfully updated ${field}`);
         
         // Refresh the session to reflect changes
-        router.refresh();
+        await refreshSession();
         return true;
       }
       
       // Handle error response
       const errorData = await response.json().catch(() => ({}));
-      console.error(`Initial profile update failed with status ${response.status}`, errorData);
-      
-      // Try the fallback with a shorter URL if we have a long URL and got a 500 error
-      if (response.status === 500 && imageUrl.length > 150) {
-        // Create a shorter version of the URL (relative path)
-        const shorterUrl = imageUrl.startsWith('/') 
-          ? imageUrl 
-          : new URL(imageUrl).pathname;
-        
-        console.log(`URL parsing for potential fallback: ${JSON.stringify({
-          original: truncateForLogging(imageUrl),
-          shorter: truncateForLogging(shorterUrl),
-          originalLength: imageUrl.length,
-          shorterLength: shorterUrl.length
-        })}`);
-        
-        const fallbackResponse = await fetch("/api/user/profile", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-csrf-token": token
-          },
-          body: JSON.stringify({ [field]: shorterUrl }),
-          credentials: "include"
-        });
-        
-        if (fallbackResponse.ok) {
-          console.log(`Successfully updated ${field} with shorter URL`);
-          // Refresh the session to reflect changes
-          router.refresh();
-          return true;
-        }
-        
-        const fallbackErrorData = await fallbackResponse.json().catch(() => ({}));
-        console.error(`Fallback profile update also failed with details:`, {
-          status: fallbackResponse.status,
-          statusText: fallbackResponse.statusText,
-          errorData: fallbackErrorData,
-          shorterUrl: truncateForLogging(shorterUrl)
-        });
-      }
+      console.error(`Profile update failed with status ${response.status}`, errorData);
       
       // Extract the most user-friendly error message
       const errorMessage = 
+        (errorData?.error) || 
         (errorData?.message) || 
-        (errorData?.error?.message) || 
         `Failed to update ${fieldNames[field]}. Please try again.`;
       
       toast.error(errorMessage);

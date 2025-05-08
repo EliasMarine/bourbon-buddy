@@ -117,3 +117,4 @@ tasks/
 .cursor/rules/bourbonbuddy-database-schem.mdc
 sensitive-files.txt
 .cursor/rules/supabase-db-inspection.mdc
+scripts/fix_user_table_rls.sql
