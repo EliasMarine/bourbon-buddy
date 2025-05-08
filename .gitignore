@@ -108,9 +108,11 @@ node_modules/
 *.sln
 *.sw?
 # OS specific
+
 # Task files
 tasks.json
 tasks/
+# hidden cursor files
 .cursor/mcp.json
 .cursor/rules/bourbonbuddy-database-schem.mdc
 sensitive-files.txt

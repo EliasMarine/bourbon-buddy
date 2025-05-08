@@ -368,9 +368,9 @@ export default function ProfilePage() {
         return false;
       }
       
-      // First try with the full URL using PATCH method
+      // Always use POST method consistently - this is what our server API route is set up to handle
       const response = await fetch("/api/user/profile", {
-        method: "PATCH", // Changed from POST to PATCH to match SQL policy
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-csrf-token": token
@@ -406,7 +406,7 @@ export default function ProfilePage() {
         })}`);
         
         const fallbackResponse = await fetch("/api/user/profile", {
-          method: "PATCH", // Changed from POST to PATCH to match SQL policy
+          method: "POST",
           headers: {
             "Content-Type": "application/json",
             "x-csrf-token": token
