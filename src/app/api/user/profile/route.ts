@@ -462,3 +462,9 @@ export async function POST(request: Request) {
     );
   }
 }
+
+// Add PATCH handler that uses the same implementation as POST
+export async function PATCH(request: Request) {
+  // This handler simply forwards to the POST handler for now
+  return POST(request);
+}
