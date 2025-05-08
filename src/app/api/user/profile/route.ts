@@ -120,10 +120,38 @@ export async function POST(request: Request) {
     // Get the fields to update
     const { image, coverPhoto, name, username } = requestData;
     
+    // Check coverPhoto URL length - PostgreSQL text columns should handle large values,
+    // but some configurations might have limits
+    if (coverPhoto && coverPhoto.length > 1000) {
+      console.warn(`Cover photo URL is very long (${coverPhoto.length} chars). This might cause issues with some database configurations.`);
+      // For now, we'll try to proceed, but log the URL length for debugging
+    }
+    
     // Build update object with only the provided fields
     const updateData: Record<string, any> = {};
     if (image !== undefined) updateData.image = image;
-    if (coverPhoto !== undefined) updateData.coverPhoto = coverPhoto;
+    if (coverPhoto !== undefined) {
+      // Get just the path portion for better storage in DB (optional)
+      try {
+        // Extract the URL path, which is typically shorter
+        const parsedUrl = new URL(coverPhoto);
+        const urlPath = parsedUrl.pathname; // e.g., /storage/v1/object/public/...
+        
+        console.log('Parsed cover photo URL:', {
+          original: coverPhoto.substring(0, 50) + '...',
+          parsed: urlPath,
+          originalLength: coverPhoto.length,
+          parsedLength: urlPath.length,
+        });
+        
+        // Store the full URL, but log the parsing for debugging
+        updateData.coverPhoto = coverPhoto;
+      } catch (e) {
+        console.warn('Unable to parse cover photo URL:', e);
+        // Still use the original URL
+        updateData.coverPhoto = coverPhoto;
+      }
+    }
     if (name !== undefined) updateData.name = name;
     if (username !== undefined) updateData.username = username;
     
@@ -133,7 +161,8 @@ export async function POST(request: Request) {
     console.log('Updating user in database with:', { 
       fields: Object.keys(updateData).join(', '),
       userId: user.id,
-      coverPhotoLength: coverPhoto ? coverPhoto.length : 0
+      coverPhotoLength: updateData.coverPhoto ? updateData.coverPhoto.length : 0,
+      updatedAt: updateData.updatedAt
     });
     
     // Verify we have data to update
@@ -145,8 +174,78 @@ export async function POST(request: Request) {
       );
     }
     
+    // Get database schema for debugging
+    try {
+      console.log('Checking User table schema for debugging...');
+      const { data: tableInfo, error: schemaError } = await supabase
+        .rpc('get_column_info', { table_name: 'User' });
+      
+      if (schemaError) {
+        console.warn('Could not get table schema (non-critical):', schemaError);
+      } else if (tableInfo) {
+        // Find coverPhoto column info
+        const coverPhotoColumn = tableInfo.find((col: any) => col.column_name === 'coverPhoto');
+        if (coverPhotoColumn) {
+          console.log('Cover photo column info:', coverPhotoColumn);
+        } else {
+          console.warn('Cover photo column not found in schema');
+        }
+      }
+    } catch (schemaErr) {
+      console.warn('Schema check failed (non-critical):', schemaErr);
+    }
+
     // Update the user in the database
     try {
+      // First, attempt to retrieve the current user to verify access
+      const { data: currentUser, error: getUserError } = await supabase
+        .from('User')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+        
+      if (getUserError) {
+        console.error('Error verifying user exists:', getUserError);
+        return NextResponse.json(
+          { error: 'Failed to verify user exists', details: getUserError.message, code: getUserError.code },
+          { status: 500 }
+        );
+      }
+      
+      if (!currentUser) {
+        console.error('User not found in database');
+        return NextResponse.json(
+          { error: 'User not found in database' },
+          { status: 404 }
+        );
+      }
+      
+      console.log('User verified, attempting database update...');
+
+      // Try a simpler update first with minimal fields
+      const minimalUpdate = {
+        updatedAt: updateData.updatedAt
+      };
+      
+      // Test update with just timestamp to check database connectivity
+      const { data: testUpdate, error: testError } = await supabase
+        .from('User')
+        .update(minimalUpdate)
+        .eq('id', user.id)
+        .select('id')
+        .single();
+      
+      if (testError) {
+        console.error('Test update failed:', testError);
+        return NextResponse.json(
+          { error: 'Test database update failed', details: testError.message, code: testError.code },
+          { status: 500 }
+        );
+      }
+      
+      console.log('Test update succeeded, attempting full update...');
+      
+      // Now try the full update
       const { data: updatedUser, error: updateError } = await supabase
         .from('User')
         .update(updateData)
