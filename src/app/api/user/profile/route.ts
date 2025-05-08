@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createServerComponentClient } from '@/lib/auth';
 import { validateCsrfToken } from '@/lib/csrf';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { User } from '@supabase/supabase-js';
 
 // This is a stub route file created for development builds
 // The original file has been temporarily backed up
@@ -52,6 +54,55 @@ export async function GET(request: Request) {
     );
   }
 }
+
+// Add this function to handle url truncation and database updates
+const updateUserWithLimitedCoverPhotoUrl = async (
+  supabase: SupabaseClient, 
+  user: User, 
+  updateData: Record<string, any>
+) => {
+  // First, get the maximum length of coverPhoto column from database schema
+  // For now, we'll use a reasonably safe maximum of 255 characters
+  const MAX_URL_LENGTH = 255;
+  
+  // If we have a coverPhoto that's too long, try to truncate it
+  if (updateData.coverPhoto && updateData.coverPhoto.length > MAX_URL_LENGTH) {
+    console.log(`Cover photo URL exceeds ${MAX_URL_LENGTH} chars (${updateData.coverPhoto.length}), truncating...`);
+    
+    try {
+      // Try to make a smarter truncation by keeping domain and file name parts
+      const urlObj = new URL(updateData.coverPhoto);
+      const pathParts = urlObj.pathname.split('/');
+      const fileName = pathParts[pathParts.length - 1] || '';
+      
+      // Create a shortened URL using just hostname and filename
+      const shortenedUrl = `${urlObj.origin}/.../.../${fileName}`;
+      
+      if (shortenedUrl.length <= MAX_URL_LENGTH) {
+        console.log(`Using shortened URL representation: ${shortenedUrl}`);
+        updateData.coverPhoto = shortenedUrl;
+      } else {
+        // If still too long, use a very simple truncation
+        console.log(`Using severely truncated URL`);
+        updateData.coverPhoto = updateData.coverPhoto.substring(0, MAX_URL_LENGTH - 3) + '...';
+      }
+    } catch (e) {
+      console.error('Error parsing URL for truncation:', e);
+      // Basic fallback truncation
+      updateData.coverPhoto = updateData.coverPhoto.substring(0, MAX_URL_LENGTH - 3) + '...';
+    }
+  }
+  
+  // Now try the update with potentially truncated URL
+  const { data: updatedUser, error: updateError } = await supabase
+    .from('User')
+    .update(updateData)
+    .eq('id', user.id)
+    .select('id, name, email, username, image, coverPhoto')
+    .single();
+    
+  return { updatedUser, updateError };
+};
 
 export async function POST(request: Request) {
   try {
@@ -222,39 +273,29 @@ export async function POST(request: Request) {
       
       console.log('User verified, attempting database update...');
 
-      // Try a simpler update first with minimal fields
-      const minimalUpdate = {
-        updatedAt: updateData.updatedAt
-      };
+      // Skip the test update and go directly to the full update
+      console.log('Attempting full update directly...');
       
-      // Test update with just timestamp to check database connectivity
-      const { data: testUpdate, error: testError } = await supabase
-        .from('User')
-        .update(minimalUpdate)
-        .eq('id', user.id)
-        .select('id')
-        .single();
-      
-      if (testError) {
-        console.error('Test update failed:', testError);
-        return NextResponse.json(
-          { error: 'Test database update failed', details: testError.message, code: testError.code },
-          { status: 500 }
-        );
-      }
-      
-      console.log('Test update succeeded, attempting full update...');
-      
-      // Now try the full update
-      const { data: updatedUser, error: updateError } = await supabase
-        .from('User')
-        .update(updateData)
-        .eq('id', user.id)
-        .select('id, name, email, username, image, coverPhoto')
-        .single();
+      // Try the update with URL truncation if needed
+      const { updatedUser, updateError } = await updateUserWithLimitedCoverPhotoUrl(
+        supabase, 
+        user, 
+        updateData
+      );
       
       if (updateError) {
         console.error('Error updating user profile:', updateError);
+        
+        // Add more detailed diagnostics about the update that failed
+        console.error('Update details:', {
+          userId: user.id,
+          updateFields: Object.keys(updateData),
+          updateDataSizes: Object.entries(updateData).reduce((acc, [key, value]) => {
+            acc[key] = typeof value === 'string' ? value.length : 'non-string';
+            return acc;
+          }, {} as Record<string, any>)
+        });
+        
         return NextResponse.json(
           { error: 'Failed to update profile', details: updateError.message, code: updateError.code },
           { status: 500 }

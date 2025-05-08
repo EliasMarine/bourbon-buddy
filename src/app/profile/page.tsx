@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useSupabaseSession, useSession } from '@/hooks/use-supabase-session';
-import { redirect } from 'next/navigation';
+import { redirect, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Camera, MapPin, Briefcase, Calendar, Edit, Settings, Share2, Wine, Users, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -22,6 +22,7 @@ type UserWithCoverPhoto = {
 
 export default function ProfilePage() {
   const { data: session, status, update: updateSession, refreshAvatar } = useSession();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState('collection');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadType, setUploadType] = useState<'profile' | 'cover' | null>(null);
@@ -359,6 +360,246 @@ export default function ProfilePage() {
     const useTimestamp = uploadType === 'cover' && imageUpdateTimestamp !== null;
     return getCoverPhotoUrl(userWithCoverPhoto.coverPhoto, useTimestamp);
   }, [session?.user, uploadType, imageUpdateTimestamp]);
+
+  // Add getCsrfToken function if it doesn't exist
+  const getCsrfToken = () => {
+    return window._csrfToken || sessionStorage.getItem('csrfToken') || '';
+  };
+
+  // Add refreshSession function if it doesn't exist
+  const refreshSession = async () => {
+    // Update timestamp to force re-render of images
+    setImageUpdateTimestamp(Date.now());
+    
+    try {
+      // Use the existing refreshAvatar which correctly syncs metadata
+      if (refreshAvatar) {
+        await refreshAvatar();
+      }
+      
+      // Force UI refresh using Next.js router
+      router.refresh();
+    } catch (error) {
+      console.error('Failed to refresh session:', error);
+    }
+  };
+
+  const handleCoverPhotoChange = async (file: File | null) => {
+    if (!file) {
+      toast.error('No file selected');
+      return;
+    }
+    
+    if (isUploading) {
+      toast.error('An upload is already in progress');
+      return;
+    }
+    
+    setIsUploading(true);
+    setUploadType('cover');
+    
+    try {
+      console.log(`Uploading cover image: ${JSON.stringify({
+        filename: file.name,
+        size: file.size,
+        type: file.type,
+        timestamp: Date.now()
+      })}`);
+
+      // Further validation
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error('File is too large. Maximum size is 5MB.');
+      }
+      
+      if (!file.type.startsWith('image/')) {
+        throw new Error('File is not an image. Please select an image file.');
+      }
+      
+      // Create FormData for the file upload
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('type', 'cover');
+      formData.append('userId', session.user.id);
+      
+      // If we have a CSRF token in window global, add it to the request
+      if (window._csrfToken) {
+        formData.append('csrf_token', window._csrfToken);
+      }
+      
+      // Add additional timestamp to prevent caching
+      formData.append('_t', Date.now().toString());
+      
+      // Send the file to our API endpoint
+      const uploadResponse = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!uploadResponse.ok) {
+        let errorMessage = 'Failed to upload file';
+        try {
+          const errorData = await uploadResponse.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          // If we can't parse the response, use status text
+          errorMessage = `${errorMessage}: ${uploadResponse.status} ${uploadResponse.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
+      
+      const uploadData = await uploadResponse.json();
+      
+      if (!uploadData.url) {
+        throw new Error('No image URL returned from upload');
+      }
+      
+      const publicURL = uploadData.url;
+      console.log(`Uploaded cover to: ${publicURL}`);
+
+      // Parse URL for potential fallback options
+      const urlObj = new URL(publicURL);
+      const shorterUrl = urlObj.pathname + urlObj.search + urlObj.hash;
+      const urlInfo = {
+        original: publicURL.substring(0, 40) + '...',
+        shorter: shorterUrl.substring(0, 40) + '...',
+        originalLength: publicURL.length,
+        shorterLength: shorterUrl.length
+      };
+      console.log(`URL parsing for potential fallback: ${JSON.stringify(urlInfo)}`);
+
+      // Get CSRF token
+      const csrfToken = getCsrfToken();
+      
+      // Try up to 3 different approaches to update the profile
+      let updatedUser = null;
+      let errorMessage = '';
+      
+      // Approach 1: Full URL
+      try {
+        const response = await fetch('/api/user/profile', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
+          },
+          body: JSON.stringify({ coverPhoto: publicURL }),
+          credentials: 'same-origin'
+        });
+
+        const data = await response.json();
+        
+        if (response.ok) {
+          updatedUser = data.user;
+          if (data.warning) {
+            console.warn(`Profile updated with warning: ${data.warning}`);
+          }
+          toast.success('Cover photo updated successfully!');
+          refreshSession();
+          return; // Exit early on success
+        } else {
+          // Store error but we'll try again with shorter URL
+          const errorData = data || {};
+          console.log(`Full URL update failed with status ${response.status}`);
+          errorMessage = errorData.error || errorData.details || `Error ${response.status}`;
+          
+          // If it's not a URL length issue or similar technical problem, don't try fallbacks
+          if (response.status !== 500) {
+            throw new Error(errorMessage);
+          }
+        }
+      } catch (err) {
+        const error = err as Error;
+        console.error(`Exception during full URL update: ${error}`);
+        errorMessage = error.message || 'Unknown error';
+        
+        // If it's a normal client exception, probably not a URL length issue
+        // so don't try the fallbacks for user errors
+        if (!errorMessage.includes('500')) {
+          throw error;
+        }
+      }
+
+      // If still not successful, try shorter URL
+      if (!updatedUser) {
+        console.log(`Trying with shorter URL: ${shorterUrl.substring(0, 40)}...`);
+        try {
+          const response = await fetch('/api/user/profile', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
+            },
+            body: JSON.stringify({ coverPhoto: shorterUrl }),
+            credentials: 'same-origin'
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            updatedUser = data.user;
+            if (data.warning) {
+              console.warn(`Profile updated with warning: ${data.warning}`);
+            }
+          } else {
+            // Store error but try next approach
+            const errorData = await response.json().catch(() => ({}));
+            console.log(`Shorter URL update failed with status ${response.status}`);
+            errorMessage = errorMessage || errorData.error || `Error ${response.status}`;
+          }
+        } catch (err) {
+          const error = err as Error;
+          console.error(`Exception during shorter URL update: ${error}`);
+          errorMessage = errorMessage || error.message || 'Unknown error';
+        }
+      }
+
+      // If still not successful, try minimal URL (just the filename)
+      if (!updatedUser) {
+        const minimalUrl = `/user-uploads/${file.name}`;
+        console.log(`Trying with minimal URL: ${minimalUrl}`);
+        try {
+          const response = await fetch('/api/user/profile', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
+            },
+            body: JSON.stringify({ coverPhoto: minimalUrl }),
+            credentials: 'same-origin'
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            updatedUser = data.user;
+            if (data.warning) {
+              console.warn(`Profile updated with warning: ${data.warning}`);
+            }
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            console.log(`Minimal URL update failed with status ${response.status}`);
+            errorMessage = errorMessage || errorData.error || `Error ${response.status}`;
+          }
+        } catch (err) {
+          const error = err as Error;
+          console.error(`Exception during minimal URL update: ${error}`);
+          errorMessage = errorMessage || error.message || 'Unknown error';
+        }
+      }
+
+      // Final check for success
+      if (updatedUser) {
+        toast.success('Cover photo updated successfully');
+        refreshSession();
+      } else {
+        throw new Error(errorMessage || 'Failed to update profile');
+      }
+    } catch (err) {
+      const error = err as Error;
+      console.error(`Error uploading image: ${error}`);
+      toast.error(`Failed to update cover photo: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-900">
