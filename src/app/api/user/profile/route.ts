@@ -3,6 +3,7 @@ import { createServerComponentClient } from '@/lib/auth';
 import { validateCsrfToken } from '@/lib/csrf';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { User } from '@supabase/supabase-js';
+import { PostgrestError } from '@supabase/supabase-js';
 
 // This is a stub route file created for development builds
 // The original file has been temporarily backed up
@@ -62,57 +63,117 @@ const updateUserWithLimitedCoverPhotoUrl = async (
   updateData: Record<string, any>
 ) => {
   // First, get the maximum length of coverPhoto column from database schema
-  // For now, we'll use a reasonably safe maximum of 255 characters
-  const MAX_URL_LENGTH = 255;
+  // For now, we'll use a reasonably safe maximum length
+  const MAX_URL_LENGTH = 1000; // Increased to handle modern URLs which can be quite long
   let finalCoverPhotoUrl = updateData.coverPhoto; // Work with a mutable copy
 
-  // Check if finalCoverPhotoUrl is defined and is a string
-  if (typeof finalCoverPhotoUrl === 'string' && finalCoverPhotoUrl.length > MAX_URL_LENGTH) {
-    console.log(`Cover photo URL exceeds ${MAX_URL_LENGTH} chars (${finalCoverPhotoUrl.length}), attempting truncation...`);
-    let successfullySmartTruncated = false;
+  // Skip URL processing if the value is null/undefined or not a string
+  if (!finalCoverPhotoUrl || typeof finalCoverPhotoUrl !== 'string') {
+    console.log('No cover photo URL to process or non-string value');
+    return { updatedUser: null, updateError: new Error('Invalid cover photo URL') };
+  }
 
-    // Attempt smart truncation only if it looks like a full absolute URL
-    if (finalCoverPhotoUrl.startsWith('http://') || finalCoverPhotoUrl.startsWith('https://')) {
+  console.log(`Processing cover photo URL (${finalCoverPhotoUrl.length} chars): ${finalCoverPhotoUrl.substring(0, 50)}...`);
+  
+  // Check if we need to perform URL truncation
+  if (finalCoverPhotoUrl.length > MAX_URL_LENGTH) {
+    console.log(`Cover photo URL exceeds ${MAX_URL_LENGTH} chars, truncating...`);
+    let successfullyTruncated = false;
+
+    // Determine URL type (absolute vs relative)
+    const isAbsoluteUrl = finalCoverPhotoUrl.startsWith('http://') || finalCoverPhotoUrl.startsWith('https://');
+    
+    if (isAbsoluteUrl) {
+      // For absolute URLs, try smart truncation with URL parsing
       try {
         const urlObj = new URL(finalCoverPhotoUrl);
         const pathParts = urlObj.pathname.split('/');
-        // Keep the filename and a few path segments for better context
-        const fileName = pathParts.pop() || ''; // e.g., 'image.jpg'
-        const significantPathStart = pathParts.slice(0, 5).join('/'); // e.g., /storage/v1/object/public/bucket-name
+        // Keep the filename and important path segments
+        const fileName = pathParts.pop() || '';
+        const significantPathStart = pathParts.slice(0, 3).join('/'); 
         
+        // Build truncated URL with origin, start of path, and filename
         const truncatedSmartUrl = `${urlObj.origin}${significantPathStart}/.../${fileName}`;
         
         if (truncatedSmartUrl.length <= MAX_URL_LENGTH) {
           finalCoverPhotoUrl = truncatedSmartUrl;
-          successfullySmartTruncated = true;
-          console.log(`Using smart-truncated URL: ${finalCoverPhotoUrl}`);
+          successfullyTruncated = true;
+          console.log(`Smart-truncated absolute URL to: ${finalCoverPhotoUrl.substring(0, 50)}...`);
         } else {
-          console.log(`Smart-truncated URL still too long (${truncatedSmartUrl.length}), will use basic truncation.`);
+          console.log(`Smart-truncated URL still too long (${truncatedSmartUrl.length}), will fallback`);
         }
       } catch (e) {
-        console.error('Error during smart URL truncation (will attempt basic if necessary):', e);
-        // Proceed to basic truncation if smart truncation fails or wasn't applicable
+        console.error('Error during URL parsing:', e);
+        // Continue to basic truncation
+      }
+    } else {
+      // For relative paths, use a simpler approach
+      console.log('Processing relative path URL');
+      
+      // Extract the filename from the path if possible
+      const pathParts = finalCoverPhotoUrl.split('/');
+      const fileName = pathParts.pop() || '';
+      
+      // For relative URLs, prefer keeping the filename intact if possible
+      if (fileName.length < MAX_URL_LENGTH / 2) {
+        const simplifiedPath = `/storage/.../${fileName}`;
+        if (simplifiedPath.length <= MAX_URL_LENGTH) {
+          finalCoverPhotoUrl = simplifiedPath;
+          successfullyTruncated = true;
+          console.log(`Simplified relative URL to: ${finalCoverPhotoUrl}`);
+        }
       }
     }
 
-    // If smart truncation didn't happen/apply, or if the URL is still too long, do basic substring truncation
-    if (!successfullySmartTruncated || finalCoverPhotoUrl.length > MAX_URL_LENGTH) {
-      console.log(`Applying basic truncation to current URL (length: ${finalCoverPhotoUrl.length}). Current value starts with: ${finalCoverPhotoUrl.substring(0,30)}...`);
+    // If no smart truncation worked, fall back to basic substring truncation
+    if (!successfullyTruncated) {
+      console.log(`Applying basic truncation to URL (length: ${finalCoverPhotoUrl.length})`);
       finalCoverPhotoUrl = finalCoverPhotoUrl.substring(0, MAX_URL_LENGTH - 3) + '...';
-      console.log(`After basic truncation: ${finalCoverPhotoUrl} (length: ${finalCoverPhotoUrl.length})`);
+      console.log(`Truncated to ${finalCoverPhotoUrl.length} chars`);
     }
   }
   
   // Prepare the final data for Supabase update
-  const finalUpdateData = { ...updateData, coverPhoto: finalCoverPhotoUrl };
+  const finalUpdateData = { ...updateData };
+  
+  // Only override the coverPhoto if we're processing it
+  if (updateData.coverPhoto !== undefined) {
+    finalUpdateData.coverPhoto = finalCoverPhotoUrl;
+  }
 
+  // Try a more direct approach first - explicitly check RLS permissions 
   console.log('Attempting Supabase update with data:', { 
     userId: user.id, 
-    coverPhoto: finalUpdateData.coverPhoto, 
-    coverPhotoLength: finalUpdateData.coverPhoto ? (typeof finalUpdateData.coverPhoto === 'string' ? finalUpdateData.coverPhoto.length : 'N/A') : 'undefined'
+    hasUserIdInUpdate: !!finalUpdateData.id, // ideally should be false - we use the eq filter
+    coverPhotoLength: finalUpdateData.coverPhoto ? finalUpdateData.coverPhoto.length : 'undefined',
+    updateFields: Object.keys(finalUpdateData).join(', ')
   });
   
-  // Now try the update with potentially truncated URL
+  // Verify user access first with a simple select
+  const { data: userCheck, error: userCheckError } = await supabase
+    .from('User')
+    .select('id')
+    .eq('id', user.id)
+    .single();
+    
+  if (userCheckError) {
+    console.error('Failed to validate user access before update:', userCheckError);
+    return { updatedUser: null, updateError: userCheckError };
+  }
+  
+  if (!userCheck) {
+    console.error('User not found or RLS permission denied');
+    return { 
+      updatedUser: null, 
+      updateError: {
+        message: 'User not found or permission denied', 
+        // Make it a PostgrestError-like object that works with the type check above
+        code: '403'
+      }
+    };
+  }
+  
+  // Now try the update - user access is confirmed
   const { data: updatedUser, error: updateError } = await supabase
     .from('User')
     .update(finalUpdateData)
@@ -315,9 +376,26 @@ export async function POST(request: Request) {
           }, {} as Record<string, any>)
         });
         
+        // Create a user-friendly response without type issues
+        let statusCode = 500;
+        let errorMessage = 'Failed to update profile';
+        
+        // Check for specific PostgrestError properties
+        if ('code' in updateError) {
+          // This is a PostgrestError
+          if (typeof updateError.code === 'string' && updateError.code.startsWith('4')) {
+            statusCode = 403;
+          }
+          errorMessage = updateError.message || errorMessage;
+        }
+        
         return NextResponse.json(
-          { error: 'Failed to update profile', details: updateError.message, code: updateError.code },
-          { status: 500 }
+          { 
+            error: errorMessage,
+            field: 'coverPhoto',
+            suggestion: 'Try using a shorter image path or contact support'
+          },
+          { status: statusCode }
         );
       }
 

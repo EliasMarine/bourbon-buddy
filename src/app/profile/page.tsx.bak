@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useSupabaseSession, useSession } from '@/hooks/use-supabase-session';
-import { redirect } from 'next/navigation';
+import { redirect, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Camera, MapPin, Briefcase, Calendar, Edit, Settings, Share2, Wine, Users, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -22,6 +22,7 @@ type UserWithCoverPhoto = {
 
 export default function ProfilePage() {
   const { data: session, status, update: updateSession, refreshAvatar } = useSession();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState('collection');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadType, setUploadType] = useState<'profile' | 'cover' | null>(null);
@@ -115,69 +116,143 @@ export default function ProfilePage() {
         throw new Error(errorMessage);
       }
       
-      const { imageUrl } = await uploadResponse.json();
+      const uploadData = await uploadResponse.json();
       
-      if (!imageUrl) {
+      if (!uploadData.url) {
         throw new Error('No image URL returned from upload');
       }
       
-      console.log(`Uploaded ${type} to: ${imageUrl}`);
+      console.log(`Uploaded ${type} to: ${uploadData.url}`);
       
       // Now update the user profile with the new image
       const fieldToUpdate = type === 'profile' ? 'image' : 'coverPhoto';
-      const formData2 = new FormData();
-      formData2.append(fieldToUpdate, imageUrl);
       
-      // Process the update
-      const updateResponse = await fetch('/api/user', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          [fieldToUpdate]: imageUrl 
-        })
+      // Parse the URL to get a potentially shorter path-only version as fallback
+      let originalUrl = uploadData.url;
+      let shorterUrl = originalUrl;
+      
+      try {
+        // Extract just the pathname which might be shorter
+        const parsedUrl = new URL(originalUrl);
+        shorterUrl = parsedUrl.pathname; // e.g., /storage/v1/object/public/...
+        console.log('URL parsing for potential fallback:', {
+          original: originalUrl.substring(0, 50) + '...',
+          shorter: shorterUrl,
+          originalLength: originalUrl.length,
+          shorterLength: shorterUrl.length
+        });
+      } catch (e) {
+        console.warn('Failed to parse URL for fallback:', e);
+      }
+      
+      console.log(`Attempting to update user ${fieldToUpdate} with URL:`, {
+        url: originalUrl.substring(0, 50) + '...',
+        field: fieldToUpdate,
+        hasCsrfToken: !!window._csrfToken,
+        urlLength: originalUrl.length
       });
+      
+      // First try with the full URL
+      try {
+        // Process the update
+        const updateResponse = await fetch('/api/user/profile', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            // Add CSRF token if available
+            ...(window._csrfToken ? { 'x-csrf-token': window._csrfToken } : {})
+          },
+          body: JSON.stringify({ 
+            [fieldToUpdate]: originalUrl 
+          }),
+          credentials: 'same-origin' // Include credentials for session authentication
+        });
 
-      if (!updateResponse.ok) {
-        let errorMessage = 'Failed to update profile';
-        try {
-          const errorData = await updateResponse.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch (e) {
-          // If we can't parse the response, use status text
-          errorMessage = `${errorMessage}: ${updateResponse.status} ${updateResponse.statusText}`;
+        if (!updateResponse.ok) {
+          const status = updateResponse.status;
+          console.warn(`Initial profile update failed with status ${status}, trying fallback with shorter URL...`);
+          
+          // If it's a 500 error and we have a shorter URL, try again with the shorter URL
+          if (status === 500 && shorterUrl !== originalUrl) {
+            // Try again with the shorter URL
+            const fallbackResponse = await fetch('/api/user/profile', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(window._csrfToken ? { 'x-csrf-token': window._csrfToken } : {})
+              },
+              body: JSON.stringify({ 
+                [fieldToUpdate]: shorterUrl 
+              }),
+              credentials: 'same-origin'
+            });
+            
+            if (!fallbackResponse.ok) {
+              let errorMessage = 'Failed to update profile (including fallback attempt)';
+              let errorDetails = {};
+              
+              try {
+                const errorData = await fallbackResponse.json();
+                errorMessage = errorData.error || errorMessage;
+                errorDetails = errorData;
+                console.error('Fallback profile update also failed with details:', {
+                  status: fallbackResponse.status,
+                  statusText: fallbackResponse.statusText,
+                  errorData,
+                  shorterUrl: shorterUrl.substring(0, 50) + '...'
+                });
+              } catch (e) {
+                // If we can't parse the response, use status text
+                errorMessage = `${errorMessage}: ${fallbackResponse.status} ${fallbackResponse.statusText}`;
+                console.error('Failed to parse fallback error response:', e);
+              }
+              
+              throw new Error(errorMessage);
+            }
+            
+            // Fallback was successful
+            console.log('Fallback with shorter URL succeeded');
+            const updateData = await fallbackResponse.json();
+            
+            // Update session with shorter URL
+            await updateSessionAndUI(shorterUrl);
+            return;
+          } else {
+            // Non-500 error or no shorter URL available
+            let errorMessage = 'Failed to update profile';
+            let errorDetails = {};
+            
+            try {
+              const errorData = await updateResponse.json();
+              errorMessage = errorData.error || errorMessage;
+              errorDetails = errorData;
+              console.error('Profile update failed with details:', {
+                status: updateResponse.status,
+                statusText: updateResponse.statusText,
+                errorData,
+                url: originalUrl.substring(0, 50) + '...'
+              });
+            } catch (e) {
+              // If we can't parse the response, use status text
+              errorMessage = `${errorMessage}: ${updateResponse.status} ${updateResponse.statusText}`;
+              console.error('Failed to parse error response:', e);
+            }
+            
+            throw new Error(errorMessage);
+          }
         }
-        throw new Error(errorMessage);
-      }
 
-      const { user } = await updateResponse.json();
-      
-      // Force a session update with the new user data but only update what changed
-      // to prevent unnecessary rerenders
-      const updateData = {
-        user: {
-          ...session.user,
-        }
-      };
-
-      // Add the updated field based on type
-      if (type === 'profile') {
-        updateData.user.image = imageUrl;
-      } else {
-        // Handle coverPhoto by using type assertion
-        (updateData.user as any).coverPhoto = imageUrl;
+        console.log('Profile update successful, parsing response...');
+        const updateData = await updateResponse.json();
+        console.log('Profile update response:', updateData);
+        
+        // Update session with original URL
+        await updateSessionAndUI(originalUrl);
+        return;
+      } catch (error) {
+        console.error('Error during profile update:', error);
+        throw error;
       }
-      
-      await updateSession(updateData);
-      
-      // Update timestamp to bust the cache only for the specific image that changed
-      setImageUpdateTimestamp(Date.now());
-      
-      // Use refreshAvatar to ensure everything is in sync
-      await refreshAvatar();
-      
-      toast.success(`${type === 'profile' ? 'Profile' : 'Cover'} photo updated successfully`);
     } catch (error) {
       console.error('Error uploading image:', error);
       toast.error(`Failed to update ${type === 'profile' ? 'profile' : 'cover'} photo: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -185,6 +260,35 @@ export default function ProfilePage() {
       setIsUploading(false);
       setUploadType(null);
     }
+  };
+
+  // Helper function to update session and UI
+  const updateSessionAndUI = async (url: string) => {
+    // Simplify session update to ensure it works
+    if (uploadType === 'profile') {
+      await updateSession({
+        user: {
+          ...session.user,
+          image: url
+        }
+      });
+    } else {
+      // For cover photo, use a simpler approach 
+      await updateSession({
+        user: {
+          ...session.user,
+          coverPhoto: url
+        }
+      });
+    }
+    
+    // Update timestamp to bust the cache only for the specific image that changed
+    setImageUpdateTimestamp(Date.now());
+    
+    // Use refreshAvatar to ensure everything is in sync
+    await refreshAvatar();
+    
+    toast.success(`${uploadType === 'profile' ? 'Profile' : 'Cover'} photo updated successfully`);
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: 'profile' | 'cover') => {
@@ -256,6 +360,165 @@ export default function ProfilePage() {
     const useTimestamp = uploadType === 'cover' && imageUpdateTimestamp !== null;
     return getCoverPhotoUrl(userWithCoverPhoto.coverPhoto, useTimestamp);
   }, [session?.user, uploadType, imageUpdateTimestamp]);
+
+  // Add getCsrfToken function if it doesn't exist
+  const getCsrfToken = () => {
+    return window._csrfToken || sessionStorage.getItem('csrfToken') || '';
+  };
+
+  // Add refreshSession function if it doesn't exist
+  const refreshSession = async () => {
+    // Update timestamp to force re-render of images
+    setImageUpdateTimestamp(Date.now());
+    
+    try {
+      // Use the existing refreshAvatar which correctly syncs metadata
+      if (refreshAvatar) {
+        await refreshAvatar();
+      }
+      
+      // Force UI refresh using Next.js router
+      router.refresh();
+    } catch (error) {
+      console.error('Failed to refresh session:', error);
+    }
+  };
+
+  const handleCoverPhotoChange = async (file: File | null) => {
+    if (!file) {
+      toast.error('No file selected');
+      return;
+    }
+    
+    if (isUploading) {
+      toast.error('An upload is already in progress');
+      return;
+    }
+    
+    setIsUploading(true);
+    setUploadType('cover');
+    
+    try {
+      console.log(`Uploading cover image: ${JSON.stringify({
+        filename: file.name,
+        size: file.size,
+        type: file.type,
+        timestamp: Date.now()
+      })}`);
+
+      // Further validation
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error('File is too large. Maximum size is 5MB.');
+      }
+      
+      if (!file.type.startsWith('image/')) {
+        throw new Error('File is not an image. Please select an image file.');
+      }
+      
+      // Create FormData for the file upload
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('type', 'cover');
+      formData.append('userId', session.user.id);
+      formData.append('_t', Date.now().toString()); // Timestamp for cache busting
+      
+      // Upload the image file to the storage bucket first
+      const uploadResponse = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || `Upload failed: ${uploadResponse.status}`);
+      }
+      
+      const uploadData = await uploadResponse.json();
+      
+      if (!uploadData.url) {
+        throw new Error('No image URL returned from upload');
+      }
+      
+      // File was successfully uploaded to storage, now update the user profile
+      const publicURL = uploadData.url;
+      console.log(`Uploaded cover to: ${publicURL}`);
+
+      // Try different approaches for the profile update - first use the path only if possible
+      let pathOnlyUrl;
+      try {
+        const urlObj = new URL(publicURL);
+        pathOnlyUrl = urlObj.pathname; // e.g., /storage/v1/object/public/...
+        console.log(`Extracted path-only URL for profile update: ${pathOnlyUrl}`);
+      } catch (e) {
+        console.warn('Failed to parse URL, will use full URL:', e);
+        pathOnlyUrl = publicURL;
+      }
+      
+      // Get CSRF token
+      const csrfToken = getCsrfToken();
+      
+      // Try with path-only URL first (typically shorter and meets RLS requirements)
+      try {
+        const response = await fetch('/api/user/profile', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
+          },
+          body: JSON.stringify({ coverPhoto: pathOnlyUrl }),
+          credentials: 'same-origin'
+        });
+
+        const data = await response.json();
+        
+        if (response.ok) {
+          // Success with path-only URL
+          await updateSessionAndUI(pathOnlyUrl);
+          toast.success('Cover photo updated successfully');
+          return;
+        } else {
+          // Log error but try again with full URL
+          console.warn(`Path-only URL update failed (${response.status}): ${data.error || 'Unknown error'}`);
+        }
+      } catch (err) {
+        console.warn('Error during path-only URL update:', err);
+      }
+      
+      // If path-only URL failed, try with full URL
+      try {
+        const response = await fetch('/api/user/profile', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
+          },
+          body: JSON.stringify({ coverPhoto: publicURL }),
+          credentials: 'same-origin'
+        });
+
+        const data = await response.json();
+        
+        if (response.ok) {
+          // Success with full URL
+          await updateSessionAndUI(publicURL);
+          toast.success('Cover photo updated successfully');
+          return;
+        } else {
+          // All attempts failed, throw error
+          throw new Error(data.error || data.details || `Profile update failed: ${response.status}`);
+        }
+      } catch (err) {
+        console.error('Error during full URL update:', err);
+        throw err;
+      }
+    } catch (err) {
+      const error = err as Error;
+      console.error(`Error updating cover photo:`, error);
+      toast.error(`Failed to update cover photo: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-900">
