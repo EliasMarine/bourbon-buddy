@@ -142,13 +142,13 @@ const updateUserWithLimitedCoverPhotoUrl = async (
   }
 
   try {
-    // Attempt a direct database update using the SERVICE_ROLE key instead of relying on RLS
-    console.log('Using server-side update for user profile...');
+    console.log('Using standard update for user profile...');
     
     // Add updatedAt field
     finalUpdateData.updatedAt = new Date().toISOString();
     
-    // Use PostgreSQL syntax to update the profile - this bypasses RLS
+    // We've already verified the user exists with a separate query
+    // Now perform a standard update which should respect RLS policies
     const { data: updatedUser, error: updateError } = await supabase
       .from('User')
       .update(finalUpdateData)
@@ -321,7 +321,7 @@ export async function POST(request: Request) {
     // Update the user in the database
     try {
       // First, attempt to retrieve the current user to verify access
-      const { data: currentUser, error: getUserError } = await supabase
+      const { data: userCheck, error: getUserError } = await supabase
         .from('User')
         .select('id')
         .eq('id', user.id)
@@ -335,8 +335,8 @@ export async function POST(request: Request) {
         );
       }
       
-      if (!currentUser) {
-        console.error('User not found in database');
+      if (!userCheck) {
+        console.error('User not found or RLS permission denied');
         return NextResponse.json(
           { error: 'User not found in database' },
           { status: 404 }
