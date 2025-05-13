@@ -101,7 +101,8 @@ export default function ProfilePage() {
       // Send the file to our API endpoint
       const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
-        body: formData
+        body: formData,
+        credentials: "include" // Ensure credentials are included
       });
       
       if (!uploadResponse.ok) {
@@ -304,10 +305,17 @@ export default function ProfilePage() {
       formData.append('userId', session.user.id);
       formData.append('_t', Date.now().toString()); // Timestamp for cache busting
       
+      // Get CSRF token for the request
+      const token = getCsrfToken();
+      if (token) {
+        formData.append('csrf_token', token);
+      }
+      
       // Upload the image file to the storage bucket first
       const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
-        body: formData
+        body: formData,
+        credentials: "include" // Ensure credentials are included
       });
       
       if (!uploadResponse.ok) {
@@ -368,7 +376,8 @@ export default function ProfilePage() {
         return false;
       }
       
-      // Always use POST method consistently - this is what our server API route is set up to handle
+      // Use POST method with proper credentials and CSRF token
+      console.log('Updating profile with proper credentials and CSRF token...');
       const response = await fetch("/api/user/profile", {
         method: "POST",
         headers: {
@@ -376,7 +385,7 @@ export default function ProfilePage() {
           "x-csrf-token": token
         },
         body: JSON.stringify({ [field]: imageUrl }),
-        credentials: "include"
+        credentials: "include" // Ensure credentials are included
       });
       
       if (response.ok) {

@@ -195,6 +195,17 @@ const updateUserWithLimitedCoverPhotoUrl = async (
  */
 export async function POST(request: Request) {
   try {
+    // Log the request details for debugging
+    console.log('API POST Request details:', {
+      method: request.method,
+      headers: {
+        csrf: request.headers.get('x-csrf-token') ? 'present' : 'missing',
+        contentType: request.headers.get('content-type'),
+        cookie: request.headers.get('cookie') ? 'present' : 'missing',
+        authorization: request.headers.get('authorization') ? 'present' : 'missing'
+      }
+    });
+    
     // Validate CSRF token
     const csrfToken = request.headers.get('x-csrf-token');
     
@@ -305,6 +316,16 @@ export async function POST(request: Request) {
     
     // Now perform the actual update
     console.log('Performing update with standard POST method...');
+    
+    // Log session token and auth status before update
+    const { data: sessionData } = await supabase.auth.getSession();
+    console.log('Session before update:', {
+      hasSession: !!sessionData?.session,
+      hasAccessToken: !!sessionData?.session?.access_token?.substring(0, 10),
+      userID: sessionData?.session?.user?.id,
+      expiresAt: sessionData?.session?.expires_at
+    });
+    
     const { data: updatedUser, error: updateError } = await supabase
       .from('User')
       .upsert({ 
