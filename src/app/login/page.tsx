@@ -1,12 +1,12 @@
 'use client';
 
-import React from 'react';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useSupabase } from '@/components/providers/SupabaseProvider';
 import { useSupabaseSession } from '@/hooks/use-supabase-session';
 import { CsrfToken } from '@/components/CsrfToken';
+import { getCsrfToken } from '@/lib/csrf-client';
 
 export default function LoginPage() {
   // 1. All hooks should be called at the top of the component and in the same order
@@ -16,14 +16,20 @@ export default function LoginPage() {
   const { status, data: session } = useSupabaseSession();
   
   // 2. State hooks
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [debugInfo, setDebugInfo] = useState<any | null>(null);
   
   // 3. Derived values
   const callbackUrl = searchParams?.get('callbackUrl') || '/dashboard';
   const registered = searchParams?.get('registered') === 'true';
+  const redirectPath = searchParams?.get('redirect') || '/dashboard';
+  
+  // Track retries to avoid infinite loops
+  const retryCountRef = useRef(0);
+  const MAX_RETRIES = 3;
 
   useEffect(() => {
     if (status === 'authenticated' && session) {
@@ -31,162 +37,137 @@ export default function LoginPage() {
     }
   }, [session, status, router, callbackUrl]);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setIsLoading(true);
-    setError('');
-
+    
     try {
-      // Get CSRF token from sessionStorage
-      let csrfToken;
-      try {
-        csrfToken = sessionStorage.getItem('csrfToken');
-        if (!csrfToken) {
-          console.warn('CSRF token not found in sessionStorage');
-        } else {
-          console.log('Using CSRF token from sessionStorage');
-        }
-      } catch (err) {
-        console.warn('Unable to access sessionStorage', err);
+      setIsLoading(true);
+      setError(null);
+      setDebugInfo(null);
+      
+      // Get CSRF token
+      const token = getCsrfToken();
+      
+      if (!token) {
+        console.error('No CSRF token available for login');
+        setError('Security token missing. Please refresh the page.');
+        setIsLoading(false);
+        return;
       }
-
-      // Use our proxy endpoint instead of direct Supabase auth
+      
+      // Reset retry counter for fresh attempts
+      retryCountRef.current = 0;
+      
+      try {
+        await attemptLogin(token);
+      } catch (error) {
+        console.error('Login form error:', error);
+        setError('An unexpected error occurred. Please try again.');
+        setIsLoading(false);
+      }
+    } catch (err) {
+      console.error('Unexpected login error:', err);
+      setError('An unexpected error occurred. Please try again.');
+      setIsLoading(false);
+    }
+  }
+  
+  const attemptLogin = async (csrfToken: string, isRetry = false) => {
+    try {
+      if (isRetry) {
+        retryCountRef.current++;
+        console.log(`Retry attempt ${retryCountRef.current}/${MAX_RETRIES}`);
+        
+        if (retryCountRef.current > MAX_RETRIES) {
+          console.error('Maximum retry attempts reached');
+          setError('Login failed after multiple attempts. Please try again later.');
+          setIsLoading(false);
+          return;
+        }
+      }
+      
       console.log('Adding CSRF token to POST request to /api/auth/login-proxy');
       
       const response = await fetch('/api/auth/login-proxy', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
+          'x-csrf-token': csrfToken,
         },
         body: JSON.stringify({ email, password }),
-        credentials: 'include',
+        credentials: 'include'
       });
       
-      if (!response.ok) {
-        if (response.status === 401) {
-          console.error('Login failed: Unauthorized (401)', { 
-            url: response.url,
-            statusText: response.statusText
-          });
-          setError('Invalid email or password. Please try again.');
-        } else if (response.status === 403) {
-          console.error('Login failed: CSRF failure (403)');
-          
-          // Refresh CSRF token and try again once
-          try {
-            const refreshResponse = await fetch('/api/csrf?_t=' + Date.now(), {
-              method: 'GET',
-              credentials: 'include'
-            });
-            
-            if (refreshResponse.ok) {
-              const refreshData = await refreshResponse.json();
-              if (refreshData.csrfToken) {
-                // Store new token
-                sessionStorage.setItem('csrfToken', refreshData.csrfToken);
-                console.log('Obtained new CSRF token, retrying login...');
-                
-                // Retry login with new token
-                const retryResponse = await fetch('/api/auth/login-proxy', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-Token': refreshData.csrfToken
-                  },
-                  body: JSON.stringify({ email, password }),
-                  credentials: 'include',
-                });
-                
-                if (retryResponse.ok) {
-                  console.log('Login successful after CSRF refresh');
-                  const data = await retryResponse.json();
-                  
-                  // Explicitly set the session in Supabase client
-                  if (data.session && supabase?.auth) {
-                    try {
-                      await supabase.auth.setSession({
-                        access_token: data.session.access_token,
-                        refresh_token: data.session.refresh_token
-                      });
-                      console.log('Session explicitly set after CSRF retry login');
-                      
-                      // Add a small delay to ensure state updates are complete before navigation
-                      setTimeout(() => {
-                        router.push(callbackUrl || '/dashboard');
-                      }, 100);
-                      return; // Stop execution after setting timeout
-                    } catch (sessionError) {
-                      console.error('Error setting session after CSRF retry:', sessionError);
-                    }
-                  }
-                } else {
-                  console.error('Login retry failed after CSRF refresh:', retryResponse.status);
-                  setError('Login failed. Please try refreshing the page and try again.');
-                }
-              }
-            } else {
-              console.error('Failed to refresh CSRF token');
-              setError('Security token refresh failed. Please try refreshing the page.');
-            }
-          } catch (retryError) {
-            console.error('Error during login retry:', retryError);
-            setError('Login error. Please try refreshing the page.');
-          }
+      let result;
+      try {
+        result = await response.json();
+      } catch (parseError) {
+        console.error('Error parsing login response:', parseError);
+        if (response.status >= 500) {
+          // Server error, retry
+          console.log('Server error detected, retrying after delay...');
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCountRef.current + 1)));
+          return attemptLogin(csrfToken, true);
         } else {
-          setError('Login failed. Please check your credentials and try again.');
+          setError('Server returned an invalid response. Please try again.');
+          setIsLoading(false);
+          return;
         }
+      }
+      
+      if (!response.ok) {
+        console.error('Login failed:', response.status, result);
+        
+        // If we got a 500 error, retry after a delay
+        if (response.status >= 500 && retryCountRef.current < MAX_RETRIES) {
+          console.log('Server error detected, retrying after delay...');
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCountRef.current + 1)));
+          return attemptLogin(csrfToken, true);
+        }
+        
+        // Handle specific error cases
+        let errorMessage = result.error || 'Login failed. Please check your credentials.';
+        
+        if (response.status === 403 && result.error === 'Invalid CSRF token') {
+          errorMessage = 'Security token expired. Please refresh the page and try again.';
+        } else if (result.error === 'Invalid login credentials') {
+          errorMessage = 'Incorrect email or password. Please try again.';
+        }
+        
+        setError(errorMessage);
+        
+        // Add more debugging context in non-production environments
+        if (process.env.NODE_ENV !== 'production') {
+          setDebugInfo({
+            status: response.status,
+            statusText: response.statusText,
+            error: result.error,
+            details: result.details || {},
+            timestamp: new Date().toISOString(),
+            retryCount: retryCountRef.current
+          });
+        }
+        
         setIsLoading(false);
         return;
       }
       
-      let data;
-      try {
-        data = await response.json();
-      } catch (jsonError) {
-        console.error('Failed to parse response as JSON:', jsonError);
-        setError('Invalid response from server. Please try again.');
-        setIsLoading(false);
-        return;
+      // Success! Redirect to dashboard or specified redirect path
+      console.log('Login successful, redirecting...');
+      router.push(redirectPath);
+      
+    } catch (error) {
+      console.error('Error during login attempt:', error);
+      
+      if (retryCountRef.current < MAX_RETRIES) {
+        console.log(`Retrying after unexpected error (attempt ${retryCountRef.current + 1}/${MAX_RETRIES})`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCountRef.current + 1)));
+        return attemptLogin(csrfToken, true);
       }
-
-      console.log('Login successful, setting session data');
-
-      // Explicitly set the session in Supabase client to ensure it's properly stored
-      if (data.session && supabase?.auth) {
-        try {
-          // Set the auth state with the session data
-          await supabase.auth.setSession({
-            access_token: data.session.access_token,
-            refresh_token: data.session.refresh_token
-          });
-          console.log('Session explicitly set in Supabase client');
-          
-          // Also store in localStorage as fallback mechanism
-          try {
-            localStorage.setItem('sb:session', JSON.stringify(data.session));
-            console.log('Session data also stored in localStorage');
-          } catch (storageError) {
-            console.warn('Unable to store session in localStorage:', storageError);
-          }
-          
-          // Add a small delay to ensure state updates are complete before navigation
-          setTimeout(() => {
-            router.push(callbackUrl || '/dashboard');
-          }, 100);
-          return; // Stop execution after setting timeout
-        } catch (sessionError) {
-          console.error('Error setting session:', sessionError);
-          setIsLoading(false);
-        }
-      } else {
-        // Redirect even if no session data (unusual case)
-        // router.push(callbackUrl || '/dashboard');
-      }
-    } catch (err) {
-      console.error('Login form error:', err);
-      setError('An unexpected error occurred. Please try again.');
-          setIsLoading(false);
+      
+      // Max retries reached or other error
+      setError('Login failed after multiple attempts. Please try again later.');
+      setIsLoading(false);
     }
   };
 
@@ -272,8 +253,28 @@ export default function LoginPage() {
           )}
           
           {error && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
-              <span className="block sm:inline">{error}</span>
+            <div className="rounded-md bg-red-50 p-4">
+              <div className="flex">
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-red-800">
+                    Login error
+                  </h3>
+                  <div className="mt-2 text-sm text-red-700">
+                    <p>{error}</p>
+                  </div>
+                  
+                  {debugInfo && (
+                    <details className="mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer">
+                        Debug info
+                      </summary>
+                      <pre className="mt-2 text-xs text-gray-500 overflow-auto max-h-32 p-2 bg-gray-100 rounded">
+                        {JSON.stringify(debugInfo, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -381,7 +382,17 @@ export default function LoginPage() {
                 disabled={isLoading}
                 className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-amber-600 hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLoading ? 'Signing in...' : 'Sign in'}
+                {isLoading ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Signing in...
+                  </>
+                ) : (
+                  <span>Sign in</span>
+                )}
               </button>
             </div>
           </form>
