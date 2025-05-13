@@ -307,8 +307,13 @@ export async function POST(request: Request) {
     console.log('Performing update with standard POST method...');
     const { data: updatedUser, error: updateError } = await supabase
       .from('User')
-      .update(updateData)
-      .eq('id', user.id)
+      .upsert({ 
+        id: user.id, 
+        ...updateData 
+      }, {
+        onConflict: 'id',
+        ignoreDuplicates: false
+      })
       .select('id, name, email, username, image, coverPhoto')
       .single();
     

@@ -118,3 +118,4 @@ tasks/
 sensitive-files.txt
 .cursor/rules/supabase-db-inspection.mdc
 scripts/fix_user_table_rls.sql
+scripts/update_user_rls_for_upsert.sql
