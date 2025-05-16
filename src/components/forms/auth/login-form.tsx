@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, FormEvent } from 'react'
+import { useState, FormEvent, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { CsrfFormWrapper } from './csrf-form-wrapper'
 import { useCsrf } from '@/hooks/use-csrf'
 import { useSupabase } from '@/components/providers/SupabaseProvider'
-import { signInWithProxyEndpoint } from '@/lib/supabase-singleton'
 
 interface LoginFormProps {
   callbackUrl?: string
@@ -20,6 +19,9 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
   const [debugInfo, setDebugInfo] = useState<any>(null)
   const router = useRouter()
   const { supabase, refreshSession } = useSupabase()
+  // Track retries to avoid infinite loops
+  const retryCountRef = useRef(0)
+  const MAX_RETRIES = 3
   
   const handleSubmit = async (e: FormEvent<HTMLFormElement>, csrfHeaders: Record<string, string>) => {
     e.preventDefault()
@@ -36,94 +38,20 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
         const validationError = 'Please enter both email and password'
         console.log('⚠️ Validation error:', validationError)
         setError(validationError)
+        setLoading(false)
         return
       }
       
       console.log('✅ Form validation passed, attempting authentication via proxy...')
       
+      // Reset retry counter on fresh attempts
+      retryCountRef.current = 0
+      
       try {
-        // Use the specialized proxy endpoint that avoids CORS issues
-        const response = await fetch('/api/auth/login-proxy', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...csrfHeaders
-          },
-          body: JSON.stringify({ email, password }),
-          credentials: 'include',
-          mode: 'same-origin'
-        })
-        
-        const result = await response.json()
-        
-        if (!response.ok) {
-          let errorMessage = result.error || 'Login failed. Please check your credentials.'
-          console.error('Login error:', errorMessage, response.status)
-          setError(errorMessage)
-          
-          // Add more debugging context in non-production environments
-          if (process.env.NODE_ENV !== 'production') {
-            setDebugInfo({
-              status: response.status,
-              statusText: response.statusText,
-              error: result.error,
-              details: result.details,
-              timestamp: new Date().toISOString()
-            })
-          }
-          return
-        }
-        
-        // Success - we have a session
-        console.log('Login successful, setting session data')
-        
-        // Even with a successful authentication, explicitly set the session
-        if (result?.session) {
-          try {
-            // Explicitly set session in the Supabase client to ensure auth state is updated
-            await supabase.auth.setSession({
-              access_token: result.session.access_token,
-              refresh_token: result.session.refresh_token,
-            })
-            
-            // Store session data also in localStorage as a fallback
-            try {
-              const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-              const prefix = supabaseUrl.includes('.')
-                ? supabaseUrl.split('//')[1]?.split('.')[0]
-                : ''
-              
-              const storageKey = `sb-${prefix}-auth-token`
-              localStorage.setItem(storageKey, JSON.stringify({
-                access_token: result.session.access_token,
-                refresh_token: result.session.refresh_token,
-                expires_at: Math.floor(Date.now() / 1000) + (result.session.expires_in || 3600),
-                user: result.user
-              }))
-              
-              console.log('Session data also stored in localStorage')
-            } catch (storageError) {
-              console.warn('Could not store session in localStorage:', storageError)
-            }
-          } catch (sessionError) {
-            console.error('Error setting session:', sessionError)
-            // Continue anyway as the auth cookie should still be set
-          }
-        }
-        
-        // Refresh user session in context
-        refreshSession()
-                
-        // Sometimes the router.push doesn't work immediately after auth
-        // Set a small timeout to ensure auth state has propagated
-        setTimeout(() => {
-          router.push(callbackUrl)
-        }, 100)
-        
+        await attemptLogin(csrfHeaders)
       } catch (error) {
         console.error('Login form error:', error)
         setError('An unexpected error occurred. Please try again.')
-      } finally {
         setLoading(false)
       }
     } catch (err) {
@@ -133,6 +61,151 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
         unexpectedError: err instanceof Error ? err.message : String(err),
         timestamp: new Date().toISOString()
       })
+      setLoading(false)
+    }
+  }
+  
+  const attemptLogin = async (csrfHeaders: Record<string, string>, isRetry = false) => {
+    try {
+      if (isRetry) {
+        retryCountRef.current++
+        console.log(`Retry attempt ${retryCountRef.current}/${MAX_RETRIES}`)
+        
+        if (retryCountRef.current > MAX_RETRIES) {
+          console.error('Maximum retry attempts reached')
+          setError('Login failed after multiple attempts. Please try again later.')
+          setLoading(false)
+          return
+        }
+      }
+      
+      // First try the regular login endpoint
+      let endpoint = '/api/auth/login-proxy'
+      
+      // On second retry, try the direct login endpoint
+      if (retryCountRef.current === 2) {
+        console.log('Trying direct login endpoint as fallback...')
+        endpoint = '/api/auth/direct-login'
+      }
+      
+      // Use the appropriate endpoint
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...csrfHeaders
+        },
+        body: JSON.stringify({ email, password }),
+        credentials: 'include',
+        mode: 'same-origin'
+      })
+      
+      // Attempt to parse the response - handle JSON parse errors
+      let result
+      try {
+        result = await response.json()
+      } catch (parseError) {
+        console.error('Error parsing login response:', parseError)
+        if (response.status >= 500) {
+          // Server error, retry
+          console.log('Server error detected, retrying after delay...')
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCountRef.current + 1)))
+          return attemptLogin(csrfHeaders, true)
+        } else {
+          setError('Server returned an invalid response. Please try again.')
+          setLoading(false)
+          return
+        }
+      }
+      
+      if (!response.ok) {
+        let errorMessage = result.error || 'Login failed. Please check your credentials.'
+        console.error('Login error:', errorMessage, response.status)
+        setError(errorMessage)
+        
+        // If we got a 500 error, retry after a delay
+        if (response.status >= 500 && retryCountRef.current < MAX_RETRIES) {
+          console.log('Server error detected, retrying after delay...')
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCountRef.current + 1)))
+          return attemptLogin(csrfHeaders, true)
+        }
+        
+        // Add more debugging context in non-production environments
+        if (process.env.NODE_ENV !== 'production') {
+          setDebugInfo({
+            status: response.status,
+            statusText: response.statusText,
+            error: result.error,
+            details: result.details || {},
+            timestamp: new Date().toISOString(),
+            retryCount: retryCountRef.current,
+            endpoint
+          })
+        }
+        
+        setLoading(false)
+        return
+      }
+      
+      // Success - we have a session
+      console.log('Login successful, setting session data')
+      
+      // Even with a successful authentication, explicitly set the session
+      if (result?.session) {
+        try {
+          // Explicitly set session in the Supabase client to ensure auth state is updated
+          await supabase.auth.setSession({
+            access_token: result.session.access_token,
+            refresh_token: result.session.refresh_token,
+          })
+          
+          // Store session data also in localStorage as a fallback
+          try {
+            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+            const prefix = supabaseUrl.includes('.')
+              ? supabaseUrl.split('//')[1]?.split('.')[0]
+              : ''
+            
+            const storageKey = `sb-${prefix}-auth-token`
+            localStorage.setItem(storageKey, JSON.stringify({
+              access_token: result.session.access_token,
+              refresh_token: result.session.refresh_token,
+              expires_at: Math.floor(Date.now() / 1000) + (result.session.expires_in || 3600),
+              user: result.user
+            }))
+            
+            console.log('Session data also stored in localStorage')
+          } catch (storageError) {
+            console.warn('Could not store session in localStorage:', storageError)
+          }
+        } catch (sessionError) {
+          console.error('Error setting session:', sessionError)
+          // Continue anyway as the auth cookie should still be set
+        }
+      }
+      
+      // Refresh user session in context
+      refreshSession()
+              
+      // Sometimes the router.push doesn't work immediately after auth
+      // Set a small timeout to ensure auth state has propagated
+      setTimeout(() => {
+        router.push(callbackUrl)
+      }, 100)
+      
+      setLoading(false)
+    } catch (error) {
+      console.error('Error during login attempt:', error)
+      
+      if (retryCountRef.current < MAX_RETRIES) {
+        console.log(`Retrying after unexpected error (attempt ${retryCountRef.current + 1}/${MAX_RETRIES})`)
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCountRef.current + 1)))
+        return attemptLogin(csrfHeaders, true)
+      }
+      
+      // Max retries reached or other error
+      setError('Login failed after multiple attempts. Please try again later.')
+      setLoading(false)
     }
   }
   
