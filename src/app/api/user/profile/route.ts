@@ -353,8 +353,12 @@ export async function POST(request: Request) {
         });
         
         if (metadataError) {
-          console.warn('Warning: Failed to update auth metadata:', metadataError);
-          // Continue without failing the request
+          console.error('CRITICAL: Failed to update auth metadata:', metadataError);
+          // Return an error to the client if metadata update fails
+          return NextResponse.json(
+            { error: 'Failed to update profile metadata', details: metadataError.message },
+            { status: 500 }
+          );
         } else {
           console.log('Auth metadata updated successfully');
         }
