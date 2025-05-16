@@ -20,6 +20,12 @@ type UserWithCoverPhoto = {
   coverPhoto?: string | null;
 };
 
+// Helper function to truncate long URLs for logging
+const truncateForLogging = (url: string) => {
+  if (!url || url.length <= 50) return url;
+  return url.substring(0, 25) + '...' + url.substring(url.length - 25);
+};
+
 export default function ProfilePage() {
   const { data: session, status, update: updateSession, refreshAvatar } = useSession();
   const router = useRouter();
@@ -167,8 +173,22 @@ export default function ProfilePage() {
     // Update timestamp to bust the cache only for the specific image that changed
     setImageUpdateTimestamp(Date.now());
     
-    // Use refreshAvatar to ensure everything is in sync
-    // await refreshAvatar(); // Commented out to test if direct session update + USER_UPDATED event is sufficient
+    // Force a full session refresh to ensure auth metadata is updated
+    try {
+      console.log('Forcing session refresh to update auth metadata');
+      
+      // Use refreshAvatar which handles the session refresh logic
+      if (refreshAvatar) {
+        console.log('Using refreshAvatar to update session metadata');
+        await refreshAvatar();
+      }
+      
+      // Force UI refresh
+      router.refresh();
+      console.log('UI refresh requested');
+    } catch (e) {
+      console.error('Exception during session refresh:', e);
+    }
     
     toast.success(`${uploadType === 'profile' ? 'Profile' : 'Cover'} photo updated successfully`);
   };
@@ -237,11 +257,20 @@ export default function ProfilePage() {
   const coverPhotoUrl = React.useMemo(() => {
     // Cast session.user to the extended type that includes coverPhoto
     const userWithCoverPhoto = session?.user as UserWithCoverPhoto;
+    
+    console.log('Regenerating coverPhotoUrl with data:', {
+      hasCoverPhoto: !!userWithCoverPhoto?.coverPhoto,
+      coverPhotoUrl: userWithCoverPhoto?.coverPhoto ? truncateForLogging(userWithCoverPhoto.coverPhoto) : 'none',
+      timestamp: imageUpdateTimestamp,
+      uploadType
+    });
+    
     if (!userWithCoverPhoto?.coverPhoto) return '';
-    // Only use timestamp for cache busting when the cover photo was just updated
-    const useTimestamp = uploadType === 'cover' && imageUpdateTimestamp !== null;
+    
+    // Always use timestamp for cache busting for cover photos to ensure fresh image
+    const useTimestamp = true;
     return getCoverPhotoUrl(userWithCoverPhoto.coverPhoto, useTimestamp);
-  }, [session?.user, uploadType, imageUpdateTimestamp]);
+  }, [session?.user, imageUpdateTimestamp, uploadType, truncateForLogging]);
 
   // Add getCsrfToken function if it doesn't exist
   const getCsrfToken = () => {
@@ -382,13 +411,21 @@ export default function ProfilePage() {
       if (response.ok) {
         console.log(`Successfully updated ${field}`);
         
-        // Commenting out refreshSession() here.
-        // The /api/user/profile endpoint updates auth.users.user_metadata.
-        // The updateSessionAndUI function (called by the event handler)
-        // will call updateSession(), which triggers USER_UPDATED event.
-        // AuthProvider listens to USER_UPDATED and calls router.refresh().
-        // This should be sufficient to update the UI.
-        // await refreshSession(); 
+        // Parse the response to verify the URL was actually updated
+        try {
+          const responseData = await response.json();
+          console.log(`Server response for ${field} update:`, responseData);
+          
+          // Verify the response contains the updated user with the new URL
+          if (responseData?.user?.[field] === imageUrl) {
+            console.log(`Server confirmed ${field} was updated to the new URL`);
+          } else {
+            console.warn(`Server response doesn't contain the expected ${field} value. Expected: ${truncateForLogging(imageUrl)}, Got: ${responseData?.user?.[field] ? truncateForLogging(responseData.user[field]) : 'undefined'}`);
+          }
+        } catch (parseError) {
+          console.warn(`Could not parse server response for ${field} update:`, parseError);
+        }
+        
         return true;
       }
       
@@ -410,12 +447,6 @@ export default function ProfilePage() {
       toast.error(`Failed to update ${fieldNames[field]}. Please try again.`);
       return false;
     }
-  };
-
-  // Helper function to truncate long URLs for logging
-  const truncateForLogging = (url: string) => {
-    if (!url || url.length <= 50) return url;
-    return url.substring(0, 25) + '...' + url.substring(url.length - 25);
   };
 
   return (
@@ -445,7 +476,7 @@ export default function ProfilePage() {
             fill
             className="object-cover"
             priority
-            useTimestamp={false}
+            useTimestamp={uploadType === 'cover' && imageUpdateTimestamp !== null}
             fallbackClassName="bg-gray-800"
           />
         </div>
