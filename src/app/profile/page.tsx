@@ -382,8 +382,13 @@ export default function ProfilePage() {
       if (response.ok) {
         console.log(`Successfully updated ${field}`);
         
-        // Refresh the session to reflect changes
-        await refreshSession();
+        // Commenting out refreshSession() here.
+        // The /api/user/profile endpoint updates auth.users.user_metadata.
+        // The updateSessionAndUI function (called by the event handler)
+        // will call updateSession(), which triggers USER_UPDATED event.
+        // AuthProvider listens to USER_UPDATED and calls router.refresh().
+        // This should be sufficient to update the UI.
+        // await refreshSession(); 
         return true;
       }
       
