@@ -180,10 +180,22 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          // When Supabase needs to set cookies (e.g., after token refresh),
-          // it will call this. We apply these to our 'response' object.
-          cookiesToSet.forEach((cookieToSet) => {
-            response.cookies.set(cookieToSet.name, cookieToSet.value, cookieToSet.options)
+          // Apply to request cookies first.
+          // This uses the object form of `request.cookies.set`.
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set({ name, value, ...options });
+          });
+
+          // Re-assign the 'response' variable from the outer scope to a new NextResponse object.
+          response = NextResponse.next({
+            request: {
+              headers: request.headers, // Preserve original request headers
+            },
+          });
+
+          // Set Supabase cookies on the newly created (or reassigned) response object.
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
           });
         },
       },
