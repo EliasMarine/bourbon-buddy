@@ -168,7 +168,7 @@ export default function ProfilePage() {
     setImageUpdateTimestamp(Date.now());
     
     // Use refreshAvatar to ensure everything is in sync
-    await refreshAvatar();
+    // await refreshAvatar(); // Commented out to test if direct session update + USER_UPDATED event is sufficient
     
     toast.success(`${uploadType === 'profile' ? 'Profile' : 'Cover'} photo updated successfully`);
   };
