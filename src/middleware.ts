@@ -136,7 +136,7 @@ function createCSPHeader(nonce: string): string {
   return `
     ${baseDirectives}
     script-src 'self' 'nonce-${nonce}' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com;
-    style-src 'self' 'nonce-${nonce}' https://vercel.com https://fonts.googleapis.com;
+    style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://vercel.com https://fonts.googleapis.com;
   `;
 }
 
@@ -162,26 +162,13 @@ export async function middleware(request: NextRequest) {
     requestHeaders.set('x-nonce', nonce);
   }
   
-  // Create response for cookie handling
+  // Initialize a base response. Supabase client might update this instance
+  // or we might replace it if we redirect.
   let response = NextResponse.next({
     request: {
       headers: requestHeaders,
     },
-  })
-  
-  // Generate the CSP header once for consistency
-  const contentSecurityPolicy = !isStaticAsset 
-    ? createCSPHeader(nonce).replace(/\s{2,}/g, ' ').trim()
-    : '';
-  
-  // Apply CSP with nonce if not a static asset
-  if (!isStaticAsset) {
-    response.headers.set('Content-Security-Policy', contentSecurityPolicy);
-  }
-  
-  // Skip public routes
-  const isPublicRoute = publicRoutes.some(route => path.startsWith(route))
-  if (isPublicRoute) return response;
+  });
   
   // Create Supabase client for SSR auth with correct cookie pattern
   const supabase = createServerClient(
@@ -193,51 +180,52 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          // Ensure the request object passed to NextResponse.next includes any
-          // modifications made by Supabase client to request.cookies
+          // When Supabase needs to set cookies (e.g., after token refresh),
+          // it will call this. We apply these to our 'response' object.
           cookiesToSet.forEach((cookieToSet) => {
-            // It's important that Supabase client can update request.cookies
-            // if it needs to during its operations (e.g. token refresh within getUser)
-            // request.cookies.set expects a RequestCookie object or (name, value)
-            request.cookies.set({ 
-              name: cookieToSet.name, 
-              value: cookieToSet.value, 
-              ...cookieToSet.options 
-            })
-          })
-
-          // Create the response object based on the potentially modified request
-          response = NextResponse.next({
-            request: { // Pass the full request object to ensure cookie updates are included
-              headers: request.headers, // Keep original headers, but rely on request.cookies for cookie state
-            },
-          })
-
-          // Set all cookies on the single response object
-          // This ensures the browser receives all necessary cookies
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options)
-          })
-          
-          // Re-apply CSP header to the final response object if it's not a static asset
-          if (!isStaticAsset) {
-            // Ensure contentSecurityPolicy variable is in scope and correctly generated
-            response.headers.set('Content-Security-Policy', contentSecurityPolicy);
-          }
+            response.cookies.set(cookieToSet.name, cookieToSet.value, cookieToSet.options)
+          });
         },
       },
     }
   )
     
-  // Get user session
+  // IMPORTANT: Call supabase.auth.getUser() to handle session refresh and allow Supabase
+  // to set cookies on our 'response' object via the 'setAll' handler if needed.
   const { data: { user } } = await supabase.auth.getUser()
+
+  // Now that Supabase has had a chance to work with 'response', set CSP.
+  const contentSecurityPolicy = !isStaticAsset 
+    ? createCSPHeader(nonce).replace(/\s{2,}/g, ' ').trim()
+    : '';
+  if (!isStaticAsset) {
+    response.headers.set('Content-Security-Policy', contentSecurityPolicy);
+  }
+  
+  // Handle public routes first
+  const isPublicRoute = publicRoutes.some(route => path.startsWith(route))
+  if (isPublicRoute) {
+    // For public routes, return the response that might have Supabase cookies (e.g., session refreshed)
+    // and definitely has our CSP.
+    return response;
+  }
     
   // If route is protected and user is not authenticated, redirect to login
   const isProtectedRoute = protectedRoutes.some(route => path.startsWith(route))
   if (isProtectedRoute && !user) {
     const redirectUrl = new URL('/login', request.url)
     redirectUrl.searchParams.set('redirect', path)
-    return NextResponse.redirect(redirectUrl)
+    // Create a new response for the redirect
+    const redirectResponse = NextResponse.redirect(redirectUrl);
+    // Copy any cookies that Supabase might have set (captured in our 'response' object)
+    // and also our CSP header to the redirectResponse.
+    response.cookies.getAll().forEach(cookie => {
+        redirectResponse.cookies.set(cookie.name, cookie.value, cookie);
+    });
+    if (!isStaticAsset) { // Also copy CSP
+        redirectResponse.headers.set('Content-Security-Policy', contentSecurityPolicy);
+    }
+    return redirectResponse;
   }
   
   // Trigger background health check for video syncing on the past-tastings page
