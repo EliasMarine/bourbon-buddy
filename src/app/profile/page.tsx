@@ -26,6 +26,12 @@ interface SessionUser extends User {
   hasAvatar?: boolean;
 }
 
+// Define the expected shape of the session state from useSession
+interface SessionState {
+  user: SessionUser | null;
+  // Add other potential session properties if known, e.g., expires?: string;
+}
+
 // Helper function to truncate long URLs for logging
 const truncateForLogging = (url: string) => {
   if (!url || url.length <= 50) return url;
@@ -44,6 +50,11 @@ export default function ProfilePage() {
 
   // Cast session.user to our more specific SessionUser type
   const currentUser = session?.user as SessionUser | undefined;
+
+  // ADDED: useEffect to log changes to currentUser.user_metadata.coverPhoto
+  useEffect(() => {
+    console.log('[EFFECT_COVER_PHOTO_CHANGE] currentUser.user_metadata.coverPhoto:', currentUser?.user_metadata?.coverPhoto);
+  }, [currentUser?.user_metadata?.coverPhoto]);
 
   // Log session updates
   // useEffect(() => {
@@ -161,55 +172,58 @@ export default function ProfilePage() {
 
   // Helper function to update session and UI
   const updateSessionAndUI = async (url: string) => {
-    // Simplify session update to ensure it works
+    console.log('[UPDATE_SESSION_UI] Received URL:', url);
+    console.log('[UPDATE_SESSION_UI] uploadType:', uploadType);
+    console.log('[UPDATE_SESSION_UI] currentUser.user_metadata.coverPhoto BEFORE update:', currentUser?.user_metadata?.coverPhoto);
+
     if (uploadType === 'profile') {
-      await updateSession({
-        user: {
-          ...currentUser,
-          image: url,
-          user_metadata: {
-            ...currentUser?.user_metadata,
-            avatar_url: url
+      const newProfileMetadata = {
+        ...currentUser?.user_metadata,
+        avatar_url: url
+      };
+      console.log('[UPDATE_SESSION_UI] Intended new user_metadata for PROFILE:', newProfileMetadata);
+      updateSession((prevSession: SessionState | null) => { 
+        if (!prevSession?.user) return prevSession; 
+        const typedUser = prevSession.user as SessionUser; 
+        return {
+          ...prevSession,
+          user: {
+            ...typedUser,
+            image: url,
+            user_metadata: newProfileMetadata
           }
-        }
+        };
       });
-    } else {
-      // For cover photo, update it within user_metadata
-      await updateSession({
-        user: {
-          ...currentUser,
-          user_metadata: {
-            ...currentUser?.user_metadata,
-            coverPhoto: url
+    } else { // For cover photo
+      const newCoverMetadata = {
+        ...currentUser?.user_metadata,
+        coverPhoto: url
+      };
+      console.log('[UPDATE_SESSION_UI] Intended new user_metadata for COVER:', newCoverMetadata);
+      updateSession((prevSession: SessionState | null) => { 
+        if (!prevSession?.user) return prevSession; 
+        const typedUser = prevSession.user as SessionUser; 
+        return {
+          ...prevSession,
+          user: {
+            ...typedUser,
+            user_metadata: newCoverMetadata
           }
-        }
+        };
       });
     }
 
-    // Update timestamp to bust the cache only for the specific image that changed
     setImageUpdateTimestamp(Date.now());
 
-    // Force a full session refresh to ensure auth metadata is updated
     try {
-      console.log('Forcing session refresh to update auth metadata');
-
-      // Use refreshAvatar which handles the session refresh logic
-      if (uploadType === 'profile' && refreshAvatar) {
-        console.log('Using refreshAvatar to update session metadata for profile image');
-        await refreshAvatar();
-      } else if (uploadType === 'cover') {
-        console.log('Skipping refreshAvatar for cover photo, relying on USER_UPDATED event and router.refresh()');
-        // Potentially, if USER_UPDATED event is not reliably updating across all scenarios,
-        // a more generic session refresh might be needed here if available from the hook.
-        // For now, we assume the /api/user/profile correctly updates auth metadata,
-        // and USER_UPDATED event + router.refresh() handles the client.
-      }
-
-      // Force UI refresh
+      // We are now relying on the functional update to updateSession for immediate client state,
+      // and the USER_UPDATED event handled by useSession for eventual consistency from the server.
+      // router.refresh() will re-fetch server components if needed.
+      console.log('Relying on functional updateSession and router.refresh() for UI updates.');
       router.refresh();
-      console.log('UI refresh requested');
+      console.log('UI refresh requested after session update and timestamp change.');
     } catch (e) {
-      console.error('Exception during session refresh:', e);
+      console.error('Exception during UI refresh:', e);
     }
     
     toast.success(`${uploadType === 'profile' ? 'Profile' : 'Cover'} photo updated successfully`);
@@ -280,7 +294,8 @@ export default function ProfilePage() {
     // Access coverPhoto from user_metadata of currentUser
     const coverPhotoFromMetadata = currentUser?.user_metadata?.coverPhoto;
     
-    console.log('Regenerating coverPhotoUrl with data:', {
+    console.log('[MEMO_COVER_URL] Regenerating with currentUser.user_metadata.coverPhoto:', coverPhotoFromMetadata);
+    console.log('[MEMO_COVER_URL] Regenerating coverPhotoUrl with data:', {
       hasCoverPhoto: !!coverPhotoFromMetadata,
       coverPhotoUrl: coverPhotoFromMetadata ? truncateForLogging(coverPhotoFromMetadata) : 'none',
       timestamp: imageUpdateTimestamp,
