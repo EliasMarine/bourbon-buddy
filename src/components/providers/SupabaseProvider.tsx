@@ -443,41 +443,37 @@ export function SupabaseProvider({
     const { data: authListener } = supabase.auth.onAuthStateChange((event, eventSession) => {
       const now = Date.now();
       
-      // --- MODIFICATION FOR TESTING: Bypass debounce for USER_UPDATED --- 
-      if (event !== 'USER_UPDATED') {
-        // Apply existing debounce logic for all other events
+      // --- MODIFIED DEBOUNCE ---
+      // Apply debounce ONLY to USER_UPDATED and TOKEN_REFRESHED to prevent rapid loops with these specific events.
+      // INITIAL_SESSION, SIGNED_IN, SIGNED_OUT should be processed more immediately.
+      if (event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
         const lastEventTime = lastAuthEventRef.current[event] || 0;
-        if (now - lastEventTime < MIN_AUTH_EVENT_INTERVAL) { // MIN_AUTH_EVENT_INTERVAL is 10s
-          console.log(`[SupabaseProvider] Debouncing auth event ${event} - too soon. Last: ${lastEventTime}, Now: ${now}, Diff: ${now-lastEventTime}ms. Interval: ${MIN_AUTH_EVENT_INTERVAL}ms`);
+        // Custom shorter debounce for USER_UPDATED if needed, or use MIN_AUTH_EVENT_INTERVAL
+        const interval = event === 'USER_UPDATED' ? 1000 : MIN_AUTH_EVENT_INTERVAL; // Shorter for USER_UPDATED, longer for TOKEN_REFRESHED
+        if (now - lastEventTime < interval) { 
+          console.log(`[SupabaseProvider] Debouncing auth event ${event} - too soon. Last: ${lastEventTime}, Now: ${now}, Diff: ${now-lastEventTime}ms. Interval: ${interval}ms`);
           return;
         }
-      } else {
-        // For USER_UPDATED, log that we are bypassing the custom debounce for this test
-        console.log(`[SupabaseProvider] Processing USER_UPDATED event - bypassing custom debounce for this test.`);
-      }
-      // --- END MODIFICATION ---
+      } 
+      // --- END MODIFIED DEBOUNCE ---
 
-      // Still update the last event timestamp for all processed events
       lastAuthEventRef.current[event] = now;
       globalAuthEvents[event] = now;
-      
       console.log(`[SupabaseProvider] Auth event: ${event}`, { session: eventSession }); 
 
-      // Specific logging for USER_UPDATED event
-      if (event === 'USER_UPDATED') {
-        console.log('[SupabaseProvider] USER_UPDATED event detected.');
-        console.log('[SupabaseProvider] User object from USER_UPDATED event session:', eventSession?.user);
-        console.log('[SupabaseProvider] User metadata from USER_UPDATED event session:', eventSession?.user?.user_metadata);
-        console.log('[SupabaseProvider] Cover photo from USER_UPDATED event session metadata:', eventSession?.user?.user_metadata?.coverPhoto);
-      }
-      
-      // For SIGNED_IN events, always update session and user state right away
-      // This ensures the UI reflects the authenticated state promptly
-      if (event === 'SIGNED_IN' && eventSession) {
+      if (event === 'INITIAL_SESSION') {
+        if (isMountedRef.current) {
+          console.log('[SupabaseProvider] INITIAL_SESSION: Setting state based on eventSession:', eventSession);
+          setSession(eventSession); // Could be null or a restored session
+          setUser(eventSession?.user || null);
+          setIsLoading(false);
+          setIsSessionStable(true); // Initial state is considered stable
+        }
+      } else if (event === 'SIGNED_IN' && eventSession) {
         if (isMountedRef.current) {
           console.log('[SupabaseProvider] SIGNED_IN: Initiating session update.');
-          setIsLoading(true);         // Explicitly set/keep isLoading true
-          setIsSessionStable(false);  // Mark unstable during transition
+          setIsLoading(true);         
+          setIsSessionStable(false);  
           
           setSession(eventSession);
           setUser(eventSession.user);
@@ -493,72 +489,45 @@ export function SupabaseProvider({
             }
           }, 0); // Using setTimeout with 0ms delay
         }
-      }
-      // Special handling for TOKEN_REFRESHED to prevent infinite loops
-      else if (event === 'TOKEN_REFRESHED') {
-        // Only process token refreshed events once every 30 seconds max
-        const lastTokenRefreshTime = lastAuthEventRef.current['TOKEN_REFRESHED'] || 0;
-        
-        if (now - lastTokenRefreshTime < 30000) {
-          console.log('Ignoring TOKEN_REFRESHED event - throttling to max once per 30s');
-          return;
-        }
-        
+      } else if (event === 'SIGNED_OUT') {
         if (isMountedRef.current) {
-          console.log('Processing allowed TOKEN_REFRESHED event with session update');
-          setSession(eventSession);
-          setUser(eventSession?.user || null);
-        }
-      } 
-      // Special handling for SIGNED_OUT events
-      else if (event === 'SIGNED_OUT') {
-        if (isMountedRef.current) {
-          // Mark explicitly signed out in localStorage to prevent auto-restore
+          console.log('[SupabaseProvider] SIGNED_OUT: Clearing session.');
           try {
             localStorage.setItem('auth_state', 'SIGNED_OUT');
-          } catch (e) {
-            // Ignore storage errors
-          }
+          } catch (e) {/* ignore */}
           
-          // Small delay before clearing session to allow any in-flight renders to complete
-          setTimeout(() => {
-            if (isMountedRef.current) {
-              setSession(null);
-              setUser(null);
-              setIsLoading(false);
-              setIsSessionStable(true); // After signing out, session is stable (and null)
-            }
-          }, 100);
+          setSession(null);
+          setUser(null);
+          setIsLoading(false);
+          setIsSessionStable(true); 
         }
-      }
-      else { // For other events (INITIAL_SESSION, USER_UPDATED)
+      } else if (event === 'USER_UPDATED' && eventSession) { // Typically means metadata changed
+         if (isMountedRef.current) {
+            console.log('[SupabaseProvider] USER_UPDATED: Updating session with new metadata.');
+            setSession(eventSession);
+            setUser(eventSession.user); // Corrected to eventSession.user
+            // Don't change isLoading/isSessionStable unless necessary,
+            // assume it was already stable if USER_UPDATED fires.
+            // However, if it was loading, ensure it becomes not loading.
+            if (isLoading) setIsLoading(false);
+            if (!isSessionStable) setIsSessionStable(true);
+         }
+      } else if (event === 'TOKEN_REFRESHED' && eventSession) {
+         if (isMountedRef.current) {
+            console.log('[SupabaseProvider] TOKEN_REFRESHED: Updating session.');
+            setSession(eventSession);
+            setUser(eventSession.user); // Corrected to eventSession.user
+            if (isLoading) setIsLoading(false);
+            if (!isSessionStable) setIsSessionStable(true);
+         }
+      } else if (eventSession === null) {
+        // Catch-all for other events that might have a null session (e.g. USER_UPDATED with error resulting in null session)
         if (isMountedRef.current) {
-          if (event === 'INITIAL_SESSION' && eventSession === null) {
-            // Use sessionRef.current to check the LATEST session state
-            if (sessionRef.current !== null) { 
-              console.log(`[SupabaseProvider] Event: INITIAL_SESSION (null). sessionRef.current is NOT null. SKIPPING session clear.`);
-              setIsLoading(false); 
-              setIsSessionStable(true);
-            } else {
-              console.log(`[SupabaseProvider] Event: INITIAL_SESSION (null). sessionRef.current is null. Setting session to null.`);
-              setSession(null); 
-              setUser(null);
-              setIsLoading(false);
-              setIsSessionStable(true);
-            }
-          } else if (eventSession) { // For USER_UPDATED or INITIAL_SESSION with data
-            console.log(`[SupabaseProvider] Event: ${event}. Setting session/user from eventSession.user:`, eventSession?.user);
-            setSession(eventSession); 
-            setUser(eventSession.user);
-            setIsLoading(false);
-            setIsSessionStable(true); 
-          } else { // eventSession is null, and event is not INITIAL_SESSION (e.g. USER_UPDATED with null session)
-             console.log(`[SupabaseProvider] Event: ${event} with null eventSession. Setting session to null.`);
-             setSession(null);
-             setUser(null);
-             setIsLoading(false);
-             setIsSessionStable(true);
-          }
+          console.log(`[SupabaseProvider] Event: ${event} with null eventSession. Setting session to null.`);
+          setSession(null);
+          setUser(null);
+          setIsLoading(false);
+          setIsSessionStable(true);
         }
       }
       
