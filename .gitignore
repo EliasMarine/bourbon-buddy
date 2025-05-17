@@ -107,6 +107,7 @@ node_modules/
 *.njsproj
 *.sln
 *.sw?
+*.sql
 # OS specific
 
 # Task files

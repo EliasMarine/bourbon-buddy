@@ -161,7 +161,7 @@ export default function ProfilePage() {
         }
       });
     } else {
-      // For cover photo, use a simpler approach 
+      // For cover photo, use a simpler approach
       await updateSession({
         user: {
           ...session.user,
@@ -169,20 +169,26 @@ export default function ProfilePage() {
         }
       });
     }
-    
+
     // Update timestamp to bust the cache only for the specific image that changed
     setImageUpdateTimestamp(Date.now());
-    
+
     // Force a full session refresh to ensure auth metadata is updated
     try {
       console.log('Forcing session refresh to update auth metadata');
-      
+
       // Use refreshAvatar which handles the session refresh logic
-      if (refreshAvatar) {
-        console.log('Using refreshAvatar to update session metadata');
+      if (uploadType === 'profile' && refreshAvatar) {
+        console.log('Using refreshAvatar to update session metadata for profile image');
         await refreshAvatar();
+      } else if (uploadType === 'cover') {
+        console.log('Skipping refreshAvatar for cover photo, relying on USER_UPDATED event and router.refresh()');
+        // Potentially, if USER_UPDATED event is not reliably updating across all scenarios,
+        // a more generic session refresh might be needed here if available from the hook.
+        // For now, we assume the /api/user/profile correctly updates auth metadata,
+        // and USER_UPDATED event + router.refresh() handles the client.
       }
-      
+
       // Force UI refresh
       router.refresh();
       console.log('UI refresh requested');
