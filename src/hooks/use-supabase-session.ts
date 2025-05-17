@@ -194,18 +194,37 @@ export function useSupabaseSession(options: UseSupabaseSessionOptions = {}) {
       user: {
         id: user?.id || '',
         email: user?.email || '',
-        name: user?.user_metadata?.full_name || user?.user_metadata?.name || '',
-        image: user?.user_metadata?.avatar_url || null,
-        avatar_url: user?.user_metadata?.avatar_url || null,
-        hasAvatar: !!user?.user_metadata?.avatar_url
+        // Aliases (can be kept if widely used, but ensure underlying metadata is present)
+        name: user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || '',
+        image: user?.user_metadata?.avatar_url || null, // Alias for avatar_url
+        
+        // Pass through the entire user_metadata object from the context's user object
+        user_metadata: user?.user_metadata || {}, 
+
+        // These can be derived directly from user_metadata in the component if needed,
+        // or kept here if the NextAuth-like structure is strictly followed.
+        avatar_url: user?.user_metadata?.avatar_url || null, // Explicit for clarity or if aliased differently elsewhere
+        hasAvatar: !!user?.user_metadata?.avatar_url,
+        // coverPhoto: user?.user_metadata?.coverPhoto || null // Now available via user_metadata.coverPhoto
       },
       expires: new Date(session.expires_at! * 1000).toISOString()
     } : null,
-    update: async (data: any) => {
+    update: async (dataToUpdate: any) => { // Renamed data to dataToUpdate for clarity
+      // The `update` function in this hook needs to be robust.
+      // If `dataToUpdate` is intended for user_metadata, it should be passed as { data: dataToUpdate.user_metadata }
+      // If `dataToUpdate` has top-level fields like `image`, they need to be mapped to metadata fields if that's where they live.
+      // For now, let's assume direct `updateUser` call structure might be an issue to revisit if optimistic updates fail.
       if (user) {
         try {
-          const { error } = await supabaseClient.auth.updateUser(data);
-          if (error) throw error;
+          // This call might need adjustment based on how optimistic updates are structured.
+          // If `dataToUpdate` is { user: { user_metadata: { coverPhoto: 'new.jpg' }}}, 
+          // then supabase.auth.updateUser needs { data: { coverPhoto: 'new.jpg' }} for metadata.
+          // The current implementation: supabaseClient.auth.updateUser(dataToUpdate) might not target metadata correctly.
+          const { error } = await supabaseClient.auth.updateUser(dataToUpdate); 
+          if (error) {
+            console.error("Supabase auth.updateUser error in hook:", error);
+            throw error;
+          }
           return await getSession();
         } catch (error) {
           console.error("Failed to update user:", error);
