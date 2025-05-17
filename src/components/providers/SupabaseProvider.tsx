@@ -61,6 +61,7 @@ export function SupabaseProvider({
   const supabase = useMemo(() => getSupabaseClient(), []);
   
   const [session, setSession] = useState<Session | null>(null);
+  const sessionRef = useRef<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<AuthError | null>(null);
@@ -81,6 +82,11 @@ export function SupabaseProvider({
   const isMountedRef = useRef<boolean>(false);
   // Track session stabilization to prevent premature rendering
   const [isSessionStable, setIsSessionStable] = useState(false);
+  
+  // Keep sessionRef.current updated with session state
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
   
   // Refresh session data with improved timing
   async function refreshSession() {
@@ -468,25 +474,14 @@ export function SupabaseProvider({
       // For SIGNED_IN events, always update session and user state right away
       // This ensures the UI reflects the authenticated state promptly
       if (event === 'SIGNED_IN' && eventSession) {
-        // Mark session unstable during state transition
-        // setIsSessionStable(false); // Defer this until after state is set
-        
         if (isMountedRef.current) {
-          setIsLoading(true); // Explicitly keep loading until session is stable
+          console.log('[SupabaseProvider] SIGNED_IN: Setting session, user, and making stable.');
           setSession(eventSession);
           setUser(eventSession.user);
-          setError(null); // Clear any previous errors
-          
-          // Mark successful refresh time to avoid immediate refresh after login
-          lastSuccessfulRefresh = Date.now();
-          
-          // Wait a bit for session to stabilize before marking as stable
-          setTimeout(() => {
-            if (isMountedRef.current) {
-              setIsLoading(false); // Now set loading to false
-              setIsSessionStable(true);
-            }
-          }, 100); // Reduced delay, order is important
+          setError(null); 
+          setIsLoading(false); // Set immediately
+          setIsSessionStable(true); // Set immediately
+          lastSuccessfulRefresh = Date.now(); 
         }
       }
       // Special handling for TOKEN_REFRESHED to prevent infinite loops
@@ -528,23 +523,31 @@ export function SupabaseProvider({
       }
       else { // For other events (INITIAL_SESSION, USER_UPDATED)
         if (isMountedRef.current) {
-          // If event is INITIAL_SESSION and its payload (eventSession) is null,
-          // but we already have a valid session in our state (`session` from useState), don't overwrite.
-          if (event === 'INITIAL_SESSION' && eventSession === null && session !== null) { 
-            console.log(`[SupabaseProvider] Handling event: ${event}. Current session in state exists, incoming event session is null. SKIPPING update.`);
-            setIsLoading(false); // Ensure loading is false
-            setIsSessionStable(true); // And session is stable
-          } else {
-            console.log(`[SupabaseProvider] Handling event: ${event}. Setting user from eventSession.user:`, eventSession?.user);
-            setSession(eventSession);
-            setUser(eventSession?.user || null);
-            setIsLoading(false);
-            // For USER_UPDATED, ensure session stability is re-affirmed if it was already stable
-            if (event === 'USER_UPDATED' && isSessionStable) {
-                setIsSessionStable(true);
-            } else if (event === 'INITIAL_SESSION') {
-                setIsSessionStable(true);
+          if (event === 'INITIAL_SESSION' && eventSession === null) {
+            // Use sessionRef.current to check the LATEST session state
+            if (sessionRef.current !== null) { 
+              console.log(`[SupabaseProvider] Event: INITIAL_SESSION (null). sessionRef.current is NOT null. SKIPPING session clear.`);
+              setIsLoading(false); 
+              setIsSessionStable(true);
+            } else {
+              console.log(`[SupabaseProvider] Event: INITIAL_SESSION (null). sessionRef.current is null. Setting session to null.`);
+              setSession(null); 
+              setUser(null);
+              setIsLoading(false);
+              setIsSessionStable(true);
             }
+          } else if (eventSession) { // For USER_UPDATED or INITIAL_SESSION with data
+            console.log(`[SupabaseProvider] Event: ${event}. Setting session/user from eventSession.user:`, eventSession?.user);
+            setSession(eventSession); 
+            setUser(eventSession.user);
+            setIsLoading(false);
+            setIsSessionStable(true); 
+          } else { // eventSession is null, and event is not INITIAL_SESSION (e.g. USER_UPDATED with null session)
+             console.log(`[SupabaseProvider] Event: ${event} with null eventSession. Setting session to null.`);
+             setSession(null);
+             setUser(null);
+             setIsLoading(false);
+             setIsSessionStable(true);
           }
         }
       }
