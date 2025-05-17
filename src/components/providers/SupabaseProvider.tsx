@@ -449,7 +449,15 @@ export function SupabaseProvider({
       lastAuthEventRef.current[event] = now;
       globalAuthEvents[event] = now;
       
-      console.log(`Auth state changed: ${event}`);
+      console.log(`[SupabaseProvider] Auth event: ${event}`, { session }); // Log session object for full detail
+
+      // Specific logging for USER_UPDATED event
+      if (event === 'USER_UPDATED') {
+        console.log('[SupabaseProvider] USER_UPDATED event detected.');
+        console.log('[SupabaseProvider] User object from USER_UPDATED event session:', session?.user);
+        console.log('[SupabaseProvider] User metadata from USER_UPDATED event session:', session?.user?.user_metadata);
+        console.log('[SupabaseProvider] Cover photo from USER_UPDATED event session metadata:', session?.user?.user_metadata?.coverPhoto);
+      }
       
       // For SIGNED_IN events, always update session and user state right away
       // This ensures the UI reflects the authenticated state promptly
@@ -510,8 +518,9 @@ export function SupabaseProvider({
         }
       }
       else {
-        // For other events, update normally
+        // For other events, update normally (USER_UPDATED falls here)
         if (isMountedRef.current) {
+          console.log(`[SupabaseProvider] Handling event: ${event}. Setting user from session.user:`, session?.user);
           setSession(session);
           setUser(session?.user || null);
           setIsLoading(false);
