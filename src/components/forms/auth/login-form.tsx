@@ -150,6 +150,14 @@ export function LoginForm({ callbackUrl = '/dashboard', className = '' }: LoginF
       // Success - we have a session
       console.log('Login successful, setting session data')
       
+      // Clear any explicit sign-out state from localStorage
+      try {
+        localStorage.removeItem('auth_state');
+        console.log('Cleared auth_state from localStorage after successful login.');
+      } catch (e) {
+        console.warn('Could not clear auth_state from localStorage:', e);
+      }
+      
       // Even with a successful authentication, explicitly set the session
       if (result?.session) {
         try {
