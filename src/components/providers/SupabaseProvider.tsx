@@ -475,13 +475,23 @@ export function SupabaseProvider({
       // This ensures the UI reflects the authenticated state promptly
       if (event === 'SIGNED_IN' && eventSession) {
         if (isMountedRef.current) {
-          console.log('[SupabaseProvider] SIGNED_IN: Setting session, user, and making stable.');
+          console.log('[SupabaseProvider] SIGNED_IN: Initiating session update.');
+          setIsLoading(true);         // Explicitly set/keep isLoading true
+          setIsSessionStable(false);  // Mark unstable during transition
+          
           setSession(eventSession);
           setUser(eventSession.user);
           setError(null); 
-          setIsLoading(false); // Set immediately
-          setIsSessionStable(true); // Set immediately
           lastSuccessfulRefresh = Date.now(); 
+
+          // Schedule stable state for the next tick or slightly after
+          setTimeout(() => {
+            if (isMountedRef.current) {
+              console.log('[SupabaseProvider] SIGNED_IN: Completing session update, setting stable.');
+              setIsLoading(false);
+              setIsSessionStable(true);
+            }
+          }, 0); // Using setTimeout with 0ms delay
         }
       }
       // Special handling for TOKEN_REFRESHED to prevent infinite loops
