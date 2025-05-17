@@ -8,17 +8,23 @@ import { Camera, MapPin, Briefcase, Calendar, Edit, Settings, Share2, Wine, User
 import { toast } from 'sonner';
 import { getProfileImageUrl, getCoverPhotoUrl, getInitialLetter, DEFAULT_AVATAR_BG } from '@/lib/utils';
 import SafeImage from '@/components/ui/SafeImage';
+import { User } from '@supabase/supabase-js'; // Import User type
 
 // No need for additional icon imports, using Lucide icons
 
-// Extend the session user type to support coverPhoto
-type UserWithCoverPhoto = {
-  id: string;
-  email: string;
-  name?: string | null;
-  image?: string | null;
-  coverPhoto?: string | null;
-};
+// Define a more specific type for the session user
+interface SessionUser extends User {
+  user_metadata: {
+    [key: string]: any; // Keep other metadata flexible
+    coverPhoto?: string | null;
+    avatar_url?: string | null; // Often used for profile image in metadata
+    // name?: string | null; // Name can also be in metadata or top-level
+  };
+  // These might be custom additions by your useSession hook or app logic
+  name?: string | null; // name is often part of user_metadata or a separate DB field
+  image?: string | null; // image is often an alias for avatar_url from metadata
+  hasAvatar?: boolean;
+}
 
 // Helper function to truncate long URLs for logging
 const truncateForLogging = (url: string) => {
@@ -36,15 +42,18 @@ export default function ProfilePage() {
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
+  // Cast session.user to our more specific SessionUser type
+  const currentUser = session?.user as SessionUser | undefined;
+
   // Log session updates
   // useEffect(() => {
-  //   if (session) {
+  //   if (currentUser) {
   //     console.log('Session updated:', {
-  //       profileImage: session.user?.image,
-  //       coverPhoto: session.user?.coverPhoto
+  //       profileImage: currentUser.image,
+  //       coverPhoto: currentUser.user_metadata.coverPhoto
   //     });
   //   }
-  // }, [session]);
+  // }, [currentUser]);
 
   if (status === 'loading') {
     return (
@@ -59,7 +68,7 @@ export default function ProfilePage() {
   }
 
   const handleImageUpload = async (file: File, type: 'profile' | 'cover') => {
-    if (!file || !session?.user) {
+    if (!file || !currentUser) {
       toast.error('No file selected or user not logged in');
       return;
     }
@@ -86,7 +95,7 @@ export default function ProfilePage() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('type', type);
-      formData.append('userId', session.user.id);
+      formData.append('userId', currentUser.id);
       
       // If we have a CSRF token in window global, add it to the request
       if (window._csrfToken) {
@@ -156,16 +165,23 @@ export default function ProfilePage() {
     if (uploadType === 'profile') {
       await updateSession({
         user: {
-          ...session.user,
-          image: url
+          ...currentUser,
+          image: url,
+          user_metadata: {
+            ...currentUser?.user_metadata,
+            avatar_url: url
+          }
         }
       });
     } else {
-      // For cover photo, use a simpler approach
+      // For cover photo, update it within user_metadata
       await updateSession({
         user: {
-          ...session.user,
-          coverPhoto: url
+          ...currentUser,
+          user_metadata: {
+            ...currentUser?.user_metadata,
+            coverPhoto: url
+          }
         }
       });
     }
@@ -243,40 +259,38 @@ export default function ProfilePage() {
 
   // Prepare profile image URL using memoization to prevent regeneration on each render
   const profileImageUrl = React.useMemo(() => {
-    if (!session?.user?.image) return '';
+    if (!currentUser?.image && !currentUser?.user_metadata?.avatar_url) return '';
     
     // Check if session user has hasAvatar flag set to true
-    if (session.user.hasAvatar === false) {
+    if (currentUser?.hasAvatar === false) {
       console.log('Profile page: hasAvatar flag is false, skipping image URL generation');
       return '';
     }
     
-    // Check both image and avatar_url fields
-    const imageUrl = session.user.avatar_url || session.user.image;
+    // Prefer avatar_url from metadata, fallback to image
+    const imageUrl = currentUser?.user_metadata?.avatar_url || currentUser?.image;
     if (!imageUrl) return '';
     
     // Only use timestamp for cache busting when the profile image was just updated
     const useTimestamp = imageUpdateTimestamp !== null;
     return getProfileImageUrl(imageUrl, useTimestamp);
-  }, [session?.user?.image, session?.user?.avatar_url, session?.user?.hasAvatar, imageUpdateTimestamp]);
+  }, [currentUser?.image, currentUser?.user_metadata?.avatar_url, currentUser?.hasAvatar, imageUpdateTimestamp]);
   
   const coverPhotoUrl = React.useMemo(() => {
-    // Cast session.user to the extended type that includes coverPhoto
-    const userWithCoverPhoto = session?.user as UserWithCoverPhoto;
+    // Access coverPhoto from user_metadata of currentUser
+    const coverPhotoFromMetadata = currentUser?.user_metadata?.coverPhoto;
     
     console.log('Regenerating coverPhotoUrl with data:', {
-      hasCoverPhoto: !!userWithCoverPhoto?.coverPhoto,
-      coverPhotoUrl: userWithCoverPhoto?.coverPhoto ? truncateForLogging(userWithCoverPhoto.coverPhoto) : 'none',
+      hasCoverPhoto: !!coverPhotoFromMetadata,
+      coverPhotoUrl: coverPhotoFromMetadata ? truncateForLogging(coverPhotoFromMetadata) : 'none',
       timestamp: imageUpdateTimestamp,
-      uploadType
     });
     
-    if (!userWithCoverPhoto?.coverPhoto) return '';
+    if (!coverPhotoFromMetadata) return '';
     
-    // Always use timestamp for cache busting for cover photos to ensure fresh image
-    const useTimestamp = true;
-    return getCoverPhotoUrl(userWithCoverPhoto.coverPhoto, useTimestamp);
-  }, [session?.user, imageUpdateTimestamp, uploadType, truncateForLogging]);
+    const useTimestamp = imageUpdateTimestamp !== null; 
+    return getCoverPhotoUrl(coverPhotoFromMetadata, useTimestamp);
+  }, [currentUser?.user_metadata?.coverPhoto, imageUpdateTimestamp, truncateForLogging]);
 
   // Add getCsrfToken function if it doesn't exist
   const getCsrfToken = () => {
@@ -304,6 +318,14 @@ export default function ProfilePage() {
   const handleCoverPhotoChange = async (file: File | null) => {
     if (!file) {
       toast.error('No file selected');
+      return;
+    }
+
+    // Ensure currentUser is available before proceeding
+    if (!currentUser) {
+      toast.error('User session not found. Please log in again.');
+      setIsUploading(false); // Reset uploading state if we bail early
+      setUploadType(null);
       return;
     }
     
@@ -336,7 +358,7 @@ export default function ProfilePage() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('type', 'cover');
-      formData.append('userId', session.user.id);
+      formData.append('userId', currentUser.id);
       formData.append('_t', Date.now().toString()); // Timestamp for cache busting
       
       // Upload the image file to the storage bucket first
@@ -504,14 +526,14 @@ export default function ProfilePage() {
             <div className="w-[168px] h-[168px] rounded-full border-4 border-gray-900 overflow-hidden relative bg-gray-800">
               <SafeImage
                 src={profileImageUrl}
-                alt={session.user?.name || 'Profile'}
+                alt={currentUser?.name || 'Profile'}
                 fill
                 className="object-cover"
                 priority
                 useTimestamp={false}
                 fallback={
                   <div className={`w-full h-full flex items-center justify-center ${DEFAULT_AVATAR_BG} text-white text-4xl font-bold`}>
-                    {getInitialLetter(session.user?.name)}
+                    {getInitialLetter(currentUser?.name)}
                   </div>
                 }
               />
@@ -535,7 +557,7 @@ export default function ProfilePage() {
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <h1 className="text-3xl font-bold text-white mb-2">
-                  {session.user?.name || 'New User'}
+                  {currentUser?.name || 'New User'}
                   <button 
                     className="ml-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white p-1 rounded inline-flex items-center"
                     title="Force sync profile data"
@@ -546,7 +568,7 @@ export default function ProfilePage() {
                           method: 'GET',
                           cache: 'no-store'
                         });
-                        await updateSession({ user: { ...session.user } });
+                        await updateSession({ user: { ...currentUser } });
                         toast.success('Profile data synced successfully');
                         // Force refresh the page
                         window.location.reload();
