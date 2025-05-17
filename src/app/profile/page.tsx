@@ -177,6 +177,8 @@ export default function ProfilePage() {
     console.log('[UPDATE_SESSION_UI] currentUser.user_metadata.coverPhoto BEFORE update:', currentUser?.user_metadata?.coverPhoto);
 
     if (currentUploadType === 'profile') {
+      // For profile, we update the local session optimistically as it might involve top-level aliases
+      // like `image` in addition to `user_metadata.avatar_url`.
       const newProfileMetadata = {
         ...currentUser?.user_metadata,
         avatar_url: url
@@ -189,43 +191,29 @@ export default function ProfilePage() {
           ...prevSession,
           user: {
             ...typedUser,
-            image: url,
-            user_metadata: newProfileMetadata
+            image: url, // Update top-level alias if used
+            user_metadata: newProfileMetadata // Update metadata
           }
         };
       });
     } else { // For cover photo
-      const newCoverMetadata = {
-        ...currentUser?.user_metadata,
-        coverPhoto: url
-      };
-      console.log('[UPDATE_SESSION_UI] Intended new user_metadata for COVER:', newCoverMetadata);
-      updateSession((prevSession: SessionState | null) => { 
-        if (!prevSession?.user) return prevSession; 
-        const typedUser = prevSession.user as SessionUser; 
-        return {
-          ...prevSession,
-          user: {
-            ...typedUser,
-            user_metadata: newCoverMetadata
-          }
-        };
-      });
+      // For cover photo, let's rely SOLELY on the USER_UPDATED event handled by useSession
+      // to propagate the change from auth.users.user_metadata. This tests if useSession correctly
+      // picks up metadata changes from Supabase auth events.
+      console.log('[UPDATE_SESSION_UI] For cover photo, skipping direct/optimistic updateSession call. Relying on USER_UPDATED event via useSession hook.');
     }
 
-    setImageUpdateTimestamp(Date.now());
+    setImageUpdateTimestamp(Date.now()); // Crucial for cache-busting image URL
 
     try {
-      // We are now relying on the functional update to updateSession for immediate client state,
-      // and the USER_UPDATED event handled by useSession for eventual consistency from the server.
-      // router.refresh() will re-fetch server components if needed.
-      console.log('Relying on functional updateSession and router.refresh() for UI updates.');
+      console.log('Calling router.refresh() to re-fetch server components and re-render.');
       router.refresh();
-      console.log('UI refresh requested after session update and timestamp change.');
+      console.log('UI refresh via router.refresh() requested.');
     } catch (e) {
-      console.error('Exception during UI refresh:', e);
+      console.error('Exception during router.refresh():', e);
     }
     
+    // Toast success message can be shown optimistically
     toast.success(`${currentUploadType === 'profile' ? 'Profile' : 'Cover'} photo updated successfully`);
   };
 
