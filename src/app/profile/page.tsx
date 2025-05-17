@@ -158,7 +158,7 @@ export default function ProfilePage() {
       
       if (success) {
         // Update session with the image URL
-        await updateSessionAndUI(uploadData.url);
+        await updateSessionAndUI(uploadData.url, type);
       }
       
     } catch (error) {
@@ -171,12 +171,12 @@ export default function ProfilePage() {
   };
 
   // Helper function to update session and UI
-  const updateSessionAndUI = async (url: string) => {
+  const updateSessionAndUI = async (url: string, currentUploadType: 'profile' | 'cover') => {
     console.log('[UPDATE_SESSION_UI] Received URL:', url);
-    console.log('[UPDATE_SESSION_UI] uploadType:', uploadType);
+    console.log('[UPDATE_SESSION_UI] currentUploadType:', currentUploadType);
     console.log('[UPDATE_SESSION_UI] currentUser.user_metadata.coverPhoto BEFORE update:', currentUser?.user_metadata?.coverPhoto);
 
-    if (uploadType === 'profile') {
+    if (currentUploadType === 'profile') {
       const newProfileMetadata = {
         ...currentUser?.user_metadata,
         avatar_url: url
@@ -226,7 +226,7 @@ export default function ProfilePage() {
       console.error('Exception during UI refresh:', e);
     }
     
-    toast.success(`${uploadType === 'profile' ? 'Profile' : 'Cover'} photo updated successfully`);
+    toast.success(`${currentUploadType === 'profile' ? 'Profile' : 'Cover'} photo updated successfully`);
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: 'profile' | 'cover') => {
@@ -404,7 +404,7 @@ export default function ProfilePage() {
         toast.success('Cover photo updated successfully');
         
         // Update session and UI
-        await updateSessionAndUI(imageUrl);
+        await updateSessionAndUI(imageUrl, 'cover');
       }
       
     } catch (error) {
