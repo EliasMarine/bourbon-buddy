@@ -197,10 +197,24 @@ export default function ProfilePage() {
         };
       });
     } else { // For cover photo
-      // For cover photo, let's rely SOLELY on the USER_UPDATED event handled by useSession
-      // to propagate the change from auth.users.user_metadata. This tests if useSession correctly
-      // picks up metadata changes from Supabase auth events.
-      console.log('[UPDATE_SESSION_UI] For cover photo, skipping direct/optimistic updateSession call. Relying on USER_UPDATED event via useSession hook.');
+      // REVERT to optimistic update for cover photo as USER_UPDATED event is unreliable for immediate UI refresh.
+      console.log('[UPDATE_SESSION_UI] For cover photo, updating session directly for immediate UI refresh.');
+      const newCoverMetadata = {
+        ...currentUser?.user_metadata,
+        coverPhoto: url // 'url' is the newCoverPhotoUrl
+      };
+      console.log('[UPDATE_SESSION_UI] Intended new user_metadata for COVER_PHOTO:', newCoverMetadata);
+      updateSession((prevSession: SessionState | null) => {
+        if (!prevSession?.user) return prevSession;
+        const typedUser = prevSession.user as SessionUser;
+        return {
+          ...prevSession,
+          user: {
+            ...typedUser,
+            user_metadata: newCoverMetadata
+          }
+        };
+      });
     }
 
     setImageUpdateTimestamp(Date.now()); // Crucial for cache-busting image URL

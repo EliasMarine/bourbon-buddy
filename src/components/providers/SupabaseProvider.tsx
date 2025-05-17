@@ -434,7 +434,7 @@ export function SupabaseProvider({
     }
     
     // Set up auth state change listener
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, eventSession) => {
       const now = Date.now();
       
       // --- MODIFICATION FOR TESTING: Bypass debounce for USER_UPDATED --- 
@@ -455,26 +455,27 @@ export function SupabaseProvider({
       lastAuthEventRef.current[event] = now;
       globalAuthEvents[event] = now;
       
-      console.log(`[SupabaseProvider] Auth event: ${event}`, { session }); 
+      console.log(`[SupabaseProvider] Auth event: ${event}`, { session: eventSession }); 
 
       // Specific logging for USER_UPDATED event
       if (event === 'USER_UPDATED') {
         console.log('[SupabaseProvider] USER_UPDATED event detected.');
-        console.log('[SupabaseProvider] User object from USER_UPDATED event session:', session?.user);
-        console.log('[SupabaseProvider] User metadata from USER_UPDATED event session:', session?.user?.user_metadata);
-        console.log('[SupabaseProvider] Cover photo from USER_UPDATED event session metadata:', session?.user?.user_metadata?.coverPhoto);
+        console.log('[SupabaseProvider] User object from USER_UPDATED event session:', eventSession?.user);
+        console.log('[SupabaseProvider] User metadata from USER_UPDATED event session:', eventSession?.user?.user_metadata);
+        console.log('[SupabaseProvider] Cover photo from USER_UPDATED event session metadata:', eventSession?.user?.user_metadata?.coverPhoto);
       }
       
       // For SIGNED_IN events, always update session and user state right away
       // This ensures the UI reflects the authenticated state promptly
-      if (event === 'SIGNED_IN' && session) {
+      if (event === 'SIGNED_IN' && eventSession) {
         // Mark session unstable during state transition
-        setIsSessionStable(false);
+        // setIsSessionStable(false); // Defer this until after state is set
         
         if (isMountedRef.current) {
-          setSession(session);
-          setUser(session.user);
-          setIsLoading(false);
+          setIsLoading(true); // Explicitly keep loading until session is stable
+          setSession(eventSession);
+          setUser(eventSession.user);
+          setError(null); // Clear any previous errors
           
           // Mark successful refresh time to avoid immediate refresh after login
           lastSuccessfulRefresh = Date.now();
@@ -482,9 +483,10 @@ export function SupabaseProvider({
           // Wait a bit for session to stabilize before marking as stable
           setTimeout(() => {
             if (isMountedRef.current) {
+              setIsLoading(false); // Now set loading to false
               setIsSessionStable(true);
             }
-          }, 500);
+          }, 100); // Reduced delay, order is important
         }
       }
       // Special handling for TOKEN_REFRESHED to prevent infinite loops
@@ -499,8 +501,8 @@ export function SupabaseProvider({
         
         if (isMountedRef.current) {
           console.log('Processing allowed TOKEN_REFRESHED event with session update');
-          setSession(session);
-          setUser(session?.user || null);
+          setSession(eventSession);
+          setUser(eventSession?.user || null);
         }
       } 
       // Special handling for SIGNED_OUT events
@@ -519,31 +521,45 @@ export function SupabaseProvider({
               setSession(null);
               setUser(null);
               setIsLoading(false);
+              setIsSessionStable(true); // After signing out, session is stable (and null)
             }
           }, 100);
         }
       }
-      else {
-        // For other events, update normally (USER_UPDATED falls here)
+      else { // For other events (INITIAL_SESSION, USER_UPDATED)
         if (isMountedRef.current) {
-          console.log(`[SupabaseProvider] Handling event: ${event}. Setting user from session.user:`, session?.user);
-          setSession(session);
-          setUser(session?.user || null);
-          setIsLoading(false);
+          // If event is INITIAL_SESSION and its payload (eventSession) is null,
+          // but we already have a valid session in our state (`session` from useState), don't overwrite.
+          if (event === 'INITIAL_SESSION' && eventSession === null && session !== null) { 
+            console.log(`[SupabaseProvider] Handling event: ${event}. Current session in state exists, incoming event session is null. SKIPPING update.`);
+            setIsLoading(false); // Ensure loading is false
+            setIsSessionStable(true); // And session is stable
+          } else {
+            console.log(`[SupabaseProvider] Handling event: ${event}. Setting user from eventSession.user:`, eventSession?.user);
+            setSession(eventSession);
+            setUser(eventSession?.user || null);
+            setIsLoading(false);
+            // For USER_UPDATED, ensure session stability is re-affirmed if it was already stable
+            if (event === 'USER_UPDATED' && isSessionStable) {
+                setIsSessionStable(true);
+            } else if (event === 'INITIAL_SESSION') {
+                setIsSessionStable(true);
+            }
+          }
         }
       }
       
       // Only sync on SIGNED_IN event when we don't have a synced user already
-      if (session?.user && event === 'SIGNED_IN' && !userSynced && isMountedRef.current) {
+      if (eventSession?.user && event === 'SIGNED_IN' && !userSynced && isMountedRef.current) {
         // Check if user is registered via metadata first
-        if (session.user.app_metadata?.is_registered === true) {
+        if (eventSession.user.app_metadata?.is_registered === true) {
           setUserSynced(true);
           globalUserSynced = true;
         } else {
           // For SIGNED_IN, use a slight delay to avoid race conditions
           setTimeout(() => {
-            if (isMountedRef.current && session?.user) {
-              syncUserToDatabase(session.user);
+            if (isMountedRef.current && eventSession?.user) {
+              syncUserToDatabase(eventSession.user);
             }
           }, 1000);
         }
@@ -605,7 +621,7 @@ export function useSessionContext() {
   // Calculate status based on loading and session state
   let status: 'loading' | 'authenticated' | 'unauthenticated';
   
-  if (context.isLoading) {
+  if (context.isLoading || !context.isSessionStable) { // Check isSessionStable as well
     status = 'loading';
   } else if (context.session) {
     status = 'authenticated';
