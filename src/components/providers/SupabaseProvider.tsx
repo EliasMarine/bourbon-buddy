@@ -437,11 +437,20 @@ export function SupabaseProvider({
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       // Implement aggressive debouncing for auth events to prevent rapid state changes
       const now = Date.now();
+      
+      // --- MODIFICATION FOR TESTING: Less aggressive debounce for USER_UPDATED ---
+      let debounceInterval = MIN_AUTH_EVENT_INTERVAL; // Default 10 seconds
+      if (event === 'USER_UPDATED') {
+        debounceInterval = 1000; // Reduce to 1 second for USER_UPDATED for this test
+        console.log(`[SupabaseProvider] Applying reduced debounce interval for USER_UPDATED: ${debounceInterval}ms`);
+      }
+      // --- END MODIFICATION ---
+
       const lastEventTime = lastAuthEventRef.current[event] || 0;
       
       // Don't process the same event if it occurred too recently
-      if (now - lastEventTime < MIN_AUTH_EVENT_INTERVAL) {
-        console.log(`Debouncing auth event ${event} - too soon after previous event`);
+      if (now - lastEventTime < debounceInterval) {
+        console.log(`[SupabaseProvider] Debouncing auth event ${event} - too soon. Last: ${lastEventTime}, Now: ${now}, Diff: ${now-lastEventTime}ms. Interval: ${debounceInterval}ms`);
         return;
       }
       
