@@ -352,6 +352,7 @@ export function SupabaseProvider({
   useEffect(() => {
     // Set mounted flag
     isMountedRef.current = true;
+    let explicitlySignedOut = false; // Flag to track if we encountered this
     
     // Try to load persisted session data from localStorage first
     if (typeof window !== 'undefined') {
@@ -359,73 +360,74 @@ export function SupabaseProvider({
         // Check if we have explicit sign-out state
         const authStateItem = localStorage.getItem('auth_state');
         if (authStateItem === 'SIGNED_OUT') {
-          console.log('Found explicit sign-out state, skipping session restoration');
+          console.log('[SupabaseProvider useEffect] Found explicit sign-out state. Initializing as logged out.');
+          explicitlySignedOut = true;
           setSession(null);
           setUser(null);
           setIsLoading(false);
           setIsSessionStable(true);
-          return;
+          // IMPORTANT: Remove the flag so it doesn't interfere with subsequent logins on this client
+          // without a hard page refresh.
+          try {
+            localStorage.removeItem('auth_state');
+            console.log('[SupabaseProvider useEffect] Removed \'auth_state=SIGNED_OUT\' from localStorage.');
+          } catch (e) { console.warn('[SupabaseProvider useEffect] Failed to remove auth_state from localStorage', e); }
+          // DO NOT return here. Allow onAuthStateChange to take over if tokens in URL / subsequent login.
         }
-        
-        // Check for stored session data
+      } catch (storageError) {
+        console.warn('[SupabaseProvider useEffect] Error accessing localStorage for auth_state:', storageError);
+      }
+      
+      // If not explicitly signed out by the flag above, proceed with trying to load from persisted session / refresh
+      if (!explicitlySignedOut) {
         const sessionDataStr = localStorage.getItem('supabase.auth.session');
-        
         if (sessionDataStr) {
           try {
             const sessionData = JSON.parse(sessionDataStr);
-            
-            // Validate stored session to ensure it's recent and well-formed
-            if (sessionData && 
-                sessionData.user && 
-                sessionData.expires_at && 
-                sessionData.refresh_token) {
-              
-              console.log('Found session data in localStorage, setting as fallback');
-              
+            if (sessionData && sessionData.user && sessionData.expires_at && sessionData.refresh_token) {
+              console.log('[SupabaseProvider useEffect] Found session data in localStorage, setting as temporary fallback.');
               if (isMountedRef.current) {
-                // Set temporary UI state from storage while we verify with server
                 setSession(sessionData);
                 setUser(sessionData.user);
+                // Still keep isLoading potentially true until refreshSession confirms or onAuthStateChange fires
               }
             }
           } catch (parseError) {
-            console.warn('Error parsing stored session data:', parseError);
-            // Remove corrupted data
+            console.warn('[SupabaseProvider useEffect] Error parsing stored session data:', parseError);
             try {
               localStorage.removeItem('supabase.auth.session');
             } catch (storageError) {
-              console.warn('Error accessing localStorage:', storageError);
+              console.warn('[SupabaseProvider useEffect] Error accessing localStorage for supabase.auth.session removal:', storageError);
             }
           }
         } else {
-          // If we have no session data, mark as not loading to prevent flicker
-          console.log('No session data found in storage, starting in logged-out state');
-          setIsLoading(false);
-          setIsSessionStable(true);
+            console.log('[SupabaseProvider useEffect] No supabase.auth.session data found in storage. Initial state likely logged-out (unless URL tokens provide one via onAuthStateChange).');
+            // Avoid setting isLoading to false here if we might still get a session from URL tokens via onAuthStateChange
+            // If no persisted session indicators either, then it's safe to assume not loading.
         }
-      } catch (storageError) {
-        console.warn('Error accessing localStorage:', storageError);
-      }
-      
-      // Use session persistence check to avoid unnecessary refresh attempts
-      const hasPersistedSession = 
-        !!localStorage.getItem('supabase.auth.token') || 
-        !!localStorage.getItem('supabase.auth.session') ||
-        document.cookie.includes('sb-');
         
-      // Only attempt refresh if there's a persisted session
-      // This prevents unnecessary auth errors when not logged in
-      if (hasPersistedSession) {
-        // Delay the initial session refresh to give cookies time to settle
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            refreshSession();
+        const hasPersistedSession = 
+          !!localStorage.getItem('supabase.auth.token') || 
+          !!localStorage.getItem('supabase.auth.session') || // Check again in case it was set above
+          document.cookie.includes('sb-');
+          
+        if (hasPersistedSession) {
+          console.log('[SupabaseProvider useEffect] Persisted session indicators found, scheduling refreshSession.');
+          setTimeout(() => {
+            if (isMountedRef.current) {
+              refreshSession();
+            }
+          }, 800); 
+        } else {
+          console.log('[SupabaseProvider useEffect] No persisted session indicators, skipping initial refreshSession call.');
+          // If not explicitly signed out and no persisted session indicators at all, 
+          // then we are truly starting fresh and not loading a session.
+          // onAuthStateChange will still fire INITIAL_SESSION (likely null).
+          if (!explicitlySignedOut) { // Re-check as localStorage might have been cleared
+            setIsLoading(false);
+            setIsSessionStable(true);
           }
-        }, 800); // Increased from 500ms to give cookies more time to settle
-      } else {
-        console.log('No persisted session detected, skipping initial refresh');
-        setIsLoading(false);
-        setIsSessionStable(true);
+        }
       }
     }
     
@@ -553,7 +555,7 @@ export function SupabaseProvider({
       isMountedRef.current = false;
       authListener.subscription.unsubscribe();
     };
-  }, [supabase, userSynced]);
+  }, [supabase]); // Removed userSynced from dependency array
   
   const value = {
     supabase,
