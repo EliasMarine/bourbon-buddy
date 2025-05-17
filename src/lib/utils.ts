@@ -72,8 +72,15 @@ export function getProfileImageUrl(imageId: string | null, addTimestamp = true):
 export function getCoverPhotoUrl(photoId: string | null, addTimestamp = true): string {
   if (!photoId) return ""
   
-  // If already a full URL, return as is
-  if (photoId.startsWith('http')) return photoId
+  // If already a full URL, add cache busting if needed
+  if (photoId.startsWith('http')) {
+    if (addTimestamp) {
+      // Add cache busting parameter for external URLs too
+      const separator = photoId.includes('?') ? '&' : '?'
+      return `${photoId}${separator}t=${Date.now()}`
+    }
+    return photoId
+  }
   
   // If already an API path, just add timestamp if needed
   if (photoId.startsWith('/api/images')) {
@@ -82,6 +89,28 @@ export function getCoverPhotoUrl(photoId: string | null, addTimestamp = true): s
       return `${photoId}${separator}t=${Date.now()}`
     }
     return photoId
+  }
+  
+  // Check if it's a Supabase storage path
+  if (photoId.includes('user-uploads/') || photoId.includes('/storage/v1/object/')) {
+    // It's likely a Supabase path - construct the proper URL
+    // If it's not a full URL but contains the storage path, ensure it has the base URL
+    if (!photoId.startsWith('http')) {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+      const publicUrl = `${supabaseUrl}/storage/v1/object/public/bourbon-buddy-prod/${photoId}`;
+      
+      if (addTimestamp) {
+        return `${publicUrl}?t=${Date.now()}`;
+      }
+      return publicUrl;
+    }
+    
+    // It's already a full URL, just add timestamp if needed
+    if (addTimestamp) {
+      const separator = photoId.includes('?') ? '&' : '?';
+      return `${photoId}${separator}t=${Date.now()}`;
+    }
+    return photoId;
   }
   
   // Otherwise, construct API path

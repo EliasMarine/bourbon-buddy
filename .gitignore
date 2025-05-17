@@ -107,6 +107,7 @@ node_modules/
 *.njsproj
 *.sln
 *.sw?
+*.sql
 # OS specific
 
 # Task files
@@ -117,6 +118,3 @@ tasks/
 .cursor/rules/bourbonbuddy-database-schem.mdc
 sensitive-files.txt
 .cursor/rules/supabase-db-inspection.mdc
-scripts/fix_user_table_rls.sql
-scripts/comprehensive_user_rls_fix.sql
-scripts/update_user_rls_for_upsert.sql

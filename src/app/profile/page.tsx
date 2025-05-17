@@ -173,17 +173,19 @@ export default function ProfilePage() {
     // Update timestamp to bust the cache only for the specific image that changed
     setImageUpdateTimestamp(Date.now());
     
-    // Force a full session refresh to ensure auth metadata is updated
+    // Force a full metadata sync to ensure auth and database are consistent
     try {
-      console.log('Forcing session refresh to update auth metadata');
-      
-      // Use refreshAvatar which handles the session refresh logic
+      // First update the session
       if (refreshAvatar) {
         console.log('Using refreshAvatar to update session metadata');
         await refreshAvatar();
       }
       
-      // Force UI refresh
+      // Then force a sync between database and auth metadata
+      console.log('Forcing explicit metadata sync...');
+      await forceSyncMetadata();
+      
+      // Finally, force UI refresh
       router.refresh();
       console.log('UI refresh requested');
     } catch (e) {
@@ -228,6 +230,40 @@ export default function ProfilePage() {
     handleImageUpload(file, type);
   };
 
+  // Add a function to force metadata synchronization
+  const forceSyncMetadata = async () => {
+    try {
+      console.log('Forcing metadata synchronization...');
+      const response = await fetch('/api/user/refresh-meta', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-token': getCsrfToken()
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to sync metadata: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('Metadata sync result:', data);
+      
+      // Update the timestamp to force re-render of images
+      setImageUpdateTimestamp(Date.now());
+      
+      // Force a router refresh to update the UI
+      router.refresh();
+      
+      toast.success('Profile data synchronized');
+      return data;
+    } catch (error) {
+      console.error('Error syncing metadata:', error);
+      toast.error('Failed to synchronize profile data');
+      return null;
+    }
+  };
+
   const tabs = [
     { id: 'collection', label: 'Collection' },
     { id: 'activity', label: 'Activity' },
@@ -270,7 +306,7 @@ export default function ProfilePage() {
     // Always use timestamp for cache busting for cover photos to ensure fresh image
     const useTimestamp = true;
     return getCoverPhotoUrl(userWithCoverPhoto.coverPhoto, useTimestamp);
-  }, [session?.user, imageUpdateTimestamp, uploadType, truncateForLogging]);
+  }, [session?.user, imageUpdateTimestamp, uploadType]);
 
   // Add getCsrfToken function if it doesn't exist
   const getCsrfToken = () => {
@@ -449,6 +485,46 @@ export default function ProfilePage() {
     }
   };
 
+  // Add function to clear the image cache
+  const clearImageCache = () => {
+    setImageUpdateTimestamp(Date.now());
+    // Force immediate re-render
+    router.refresh();
+    toast.success('Image cache cleared');
+  };
+
+  // Update debug panel with more information
+  const debugPanel = (
+    <div className="mt-2 p-2 bg-gray-800/70 rounded-md text-xs text-gray-400 max-w-md">
+      <p className="mb-1">Cover photo: {(session?.user as UserWithCoverPhoto)?.coverPhoto ? 'Present' : 'None'}</p>
+      <p className="mb-1">Last update: {imageUpdateTimestamp ? new Date(imageUpdateTimestamp).toLocaleTimeString() : 'None'}</p>
+      <div className="flex gap-2">
+        <button 
+          onClick={forceSyncMetadata}
+          className="bg-amber-600/60 hover:bg-amber-600/80 text-white px-2 py-1 rounded text-xs"
+        >
+          Force Sync
+        </button>
+        <button 
+          onClick={clearImageCache}
+          className="bg-blue-600/60 hover:bg-blue-600/80 text-white px-2 py-1 rounded text-xs"
+        >
+          Clear Cache
+        </button>
+      </div>
+      <div className="mt-2">
+        <a 
+          href="/debug/cover-photo" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="text-blue-400 hover:text-blue-300 underline text-xs"
+        >
+          Open Debug Tools
+        </a>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-gray-900">
       {/* Hidden file inputs */}
@@ -476,7 +552,8 @@ export default function ProfilePage() {
             fill
             className="object-cover"
             priority
-            useTimestamp={uploadType === 'cover' && imageUpdateTimestamp !== null}
+            useTimestamp={true}
+            key={`cover-photo-${imageUpdateTimestamp || 'default'}`}
             fallbackClassName="bg-gray-800"
           />
         </div>
@@ -502,7 +579,8 @@ export default function ProfilePage() {
                 fill
                 className="object-cover"
                 priority
-                useTimestamp={false}
+                useTimestamp={true}
+                key={`profile-image-${imageUpdateTimestamp || 'default'}`}
                 fallback={
                   <div className={`w-full h-full flex items-center justify-center ${DEFAULT_AVATAR_BG} text-white text-4xl font-bold`}>
                     {getInitialLetter(session.user?.name)}
@@ -523,6 +601,9 @@ export default function ProfilePage() {
               )}
             </button>
           </div>
+
+          {/* Debug info for cover photo */}
+          {debugPanel}
 
           {/* Profile Info */}
           <div className="flex-1 pt-4">
