@@ -20,7 +20,7 @@
       "files": ["*.css"],
       "rules": {
         "at-rule-no-unknown": [
-          true,
+          2,
           {
             "ignoreAtRules": ["tailwind", "apply", "variants", "responsive", "screen", "layer"]
           }

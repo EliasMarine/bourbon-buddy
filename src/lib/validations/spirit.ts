@@ -109,4 +109,55 @@ export const SpiritSchema = z.object({
     .optional(),
 });
 
-export type SpiritFormData = z.infer<typeof SpiritSchema>; 
+export type SpiritFormData = z.infer<typeof SpiritSchema>;
+
+export const spiritSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1, "Name is required").max(100),
+  brand: z.string().min(1, "Brand is required").max(100),
+  type: z.string().min(1, "Type is required").max(50),
+  category: z.string().max(50).default("whiskey"),
+  description: z.string().max(2000).nullable().optional(),
+  imageUrl: z.string().url().nullable().optional(),
+  proof: z.number().nonnegative().nullable().optional(),
+  price: z.number().nonnegative().nullable().optional(),
+  rating: z.number().min(0).max(100).nullable().optional(),
+  nose: z.string().max(1000).nullable().optional(),
+  palate: z.string().max(1000).nullable().optional(),
+  finish: z.string().max(1000).nullable().optional(),
+  notes: z.string().max(2000).nullable().optional(),
+  dateAcquired: z.string().nullable().optional(),
+  bottleSize: z.string().max(50).nullable().optional(),
+  distillery: z.string().max(100).nullable().optional(),
+  bottleLevel: z.number().min(0).max(100).nullable().optional(),
+  isFavorite: z.boolean().default(false),
+  country: z.string().max(50).nullable().optional(),
+  region: z.string().max(50).nullable().optional(),
+  releaseYear: z.number().positive().int().nullable().optional(),
+  ownerId: z.string().uuid().optional(),
+});
+
+export const spiritFilterSchema = z.object({
+  name: z.string().optional(),
+  brand: z.string().optional(),
+  type: z.string().optional(),
+  category: z.string().optional(),
+  country: z.string().optional(),
+  region: z.string().optional(),
+  minPrice: z.number().nonnegative().optional(),
+  maxPrice: z.number().nonnegative().optional(),
+  minProof: z.number().nonnegative().optional(),
+  maxProof: z.number().nonnegative().optional(),
+  minRating: z.number().min(0).optional(),
+  maxRating: z.number().max(100).optional(),
+  minYear: z.number().positive().int().optional(),
+  maxYear: z.number().positive().int().optional(),
+  favorite: z.boolean().optional(),
+  page: z.number().int().positive().default(1),
+  limit: z.number().int().positive().default(9),
+  sortBy: z.string().optional(),
+  sortDir: z.enum(["asc", "desc"]).default("asc"),
+});
+
+export type Spirit = z.infer<typeof spiritSchema>;
+export type SpiritFilter = z.infer<typeof spiritFilterSchema>; 
