@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { spiritFilterSchema, spiritSchema } from "@/lib/validations/spirit";
+import type { SpiritFilter } from "@/lib/validations/spirit";
+import { ZodError } from "zod";
 import { getServerSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { v4 as uuidv4 } from "uuid";
@@ -42,7 +44,20 @@ export async function GET(request: NextRequest) {
     }
 
     // Validate parameters
-    const validatedParams = spiritFilterSchema.parse(parsedParams);
+    let validatedParams: SpiritFilter;
+    try {
+      validatedParams = spiritFilterSchema.parse(parsedParams);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        console.error("Zod validation error in spirits GET route:", error.issues);
+        return NextResponse.json(
+          { error: "Invalid filter parameters", details: error.issues },
+          { status: 400 }
+        );
+      }
+      // Re-throw other errors to be caught by the outer try-catch
+      throw error;
+    }
     
     // Extract pagination
     const page = validatedParams.page;
@@ -159,6 +174,13 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Error in spirits GET route:", error);
+    // Check if it's a ZodError that slipped through (shouldn't happen with above catch)
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        { error: "Invalid filter parameters", details: error.issues },
+        { status: 400 }
+      );
+    }
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

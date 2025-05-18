@@ -50,21 +50,31 @@ export function createCSPHeader(nonce: string): string {
   const isDevelopment = isDevelopmentMode();
   
   // Base CSP directives common to all environments
-  return `
+  // Merged sources from previous middleware for broader compatibility
+  const baseCsp = `
     default-src 'self';
-    font-src 'self' https://vercel.live;
+    font-src 'self' https://vercel.live https://fonts.googleapis.com https://fonts.gstatic.com;
     object-src 'none';
     base-uri 'self';
     form-action 'self';
     frame-ancestors 'none';
-    img-src 'self' data: blob: https://image.mux.com https://vercel.live https://vercel.com https://*.pusher.com/;
-    media-src 'self' blob: https://stream.mux.com https://assets.mux.com https://image.mux.com https://*.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com;
-    connect-src 'self' https://hjodvataujilredguzig.supabase.co wss://hjodvataujilredguzig.supabase.co https://api.mux.com https://inferred.litix.io https://stream.mux.com https://assets.mux.com https://*.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://storage.googleapis.com https://vercel.live https://vercel.com https://*.pusher.com wss://*.pusher.com https://vitals.vercel-insights.com;
-    frame-src 'self' https://vercel.live https://vercel.com;
-    script-src 'self' 'nonce-${nonce}' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com ${isDevelopment ? "'unsafe-eval'" : ''};
-    style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://vercel.com;
+    img-src 'self' data: blob: https://*.mux.com https://image.mux.com https://mux.com https://vercel.live https://vercel.com https://*.pusher.com/ https://*.amazonaws.com https://*.supabase.co https://avatars.githubusercontent.com https://lh3.googleusercontent.com https://*.redd.it https://preview.redd.it https://i.redd.it https://www.buffalotracedistillery.com https://www.blantonsbourbon.com https://barbank.com https://woodencork.com https://whiskeycaviar.com https://bdliquorwine.com https://bourbonbuddy.s3.ca-west-1.s4.mega.io;
+    media-src 'self' blob: https://*.mux.com https://mux.com https://stream.mux.com https://assets.mux.com https://image.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://*.litix.io;
+    connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.mux.com https://mux.com https://inferred.litix.io https://*.litix.io https://stream.mux.com https://assets.mux.com https://*.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://storage.googleapis.com https://vercel.live https://vercel.com https://*.pusher.com wss://*.pusher.com https://vitals.vercel-insights.com;
+    frame-src 'self' https://vercel.live https://vercel.com https://*.mux.com;
+    script-src 'self' 'nonce-${nonce}' https://www.gstatic.com https://assets.mux.com https://mux.com https://cdn.jsdelivr.net https://vercel.live https://vercel.com ${isDevelopment ? "'unsafe-eval'" : ''};
     upgrade-insecure-requests;
-  `.replace(/\s{2,}/g, ' ').trim();
+  `;
+
+  // Conditional style-src
+  let styleSrcDirective = `'self' 'nonce-${nonce}' https://vercel.com https://fonts.googleapis.com`;
+  if (isDevelopment) {
+    // In development, allow 'unsafe-inline' for styles for easier DX (e.g. HMR).
+    styleSrcDirective += " 'unsafe-inline'";
+  }
+  // In production, 'unsafe-inline' is deliberately omitted. Inline styles MUST use the nonce.
+  
+  return `${baseCsp} style-src ${styleSrcDirective};`.replace(/\s{2,}/g, ' ').trim();
 }
 
 /**
