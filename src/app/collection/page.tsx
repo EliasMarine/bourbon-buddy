@@ -10,6 +10,7 @@ import { Spirit } from '@/types';
 import { toast } from 'react-hot-toast';
 import { ChevronDown, ChevronUp, Plus, RefreshCw } from 'lucide-react';
 import useSWR, { SWRConfiguration } from 'swr';
+import { v4 as uuidv4 } from 'uuid';
 
 // Create a custom error class with the additional properties
 class FetchError extends Error {
@@ -150,31 +151,51 @@ export default function CollectionPage() {
   const [filterProofMax, setFilterProofMax] = useState<string>('');
   
   // Sorting States
-  const [sortBy, setSortBy] = useState<SortableField>('name');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [sortBy, setSortBy] = useState<SortableField>('createdAt');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   
   // Pagination States
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 9; // Or make this a state if you want it user-configurable
+  const ITEMS_PER_PAGE = 9;
   
-  // Define SWR key based on authentication state
+  // Define SWR key based on authentication state and current filters/sort/pagination
   const shouldFetch = status === 'authenticated' && session?.user;
-  const swrKey = shouldFetch ? '/api/collection' : null;
   
-  // Use SWR for data fetching with configurable retry and error handling
+  const swrKey = useMemo(() => {
+    if (!shouldFetch) return null;
+
+    const params = new URLSearchParams();
+    if (filterName) params.append('name', filterName);
+    if (filterType) params.append('type', filterType);
+    if (filterPriceMin) params.append('priceMin', filterPriceMin);
+    if (filterPriceMax) params.append('priceMax', filterPriceMax);
+    if (filterCountry) params.append('country', filterCountry);
+    if (filterRegion) params.append('region', filterRegion);
+    if (filterProofMin) params.append('proofMin', filterProofMin);
+    if (filterProofMax) params.append('proofMax', filterProofMax);
+    
+    params.append('sortBy', sortBy);
+    params.append('sortOrder', sortOrder);
+    params.append('page', currentPage.toString());
+    params.append('limit', ITEMS_PER_PAGE.toString());
+
+    return `/api/collection?${params.toString()}`;
+  }, [shouldFetch, filterName, filterType, filterPriceMin, filterPriceMax, filterCountry, filterRegion, filterProofMin, filterProofMax, sortBy, sortOrder, currentPage]);
+
+  // Use SWR for data fetching
   const { 
-    data, 
+    data: apiResponse, // Renamed to apiResponse to avoid conflict 
     error, 
     isLoading: isSWRLoading, 
     isValidating,
     mutate 
   } = useSWR<
-    { spirits: Spirit[] } | undefined, // Data type
-    FetchError, // Error type
-    string | null // Key type
+    { spirits: Spirit[], totalItems: number, totalPages: number, currentPage: number } | undefined,
+    FetchError,
+    string | null // Key type for SWR
   >(swrKey, collectionFetcher, {
     revalidateIfStale: true,
-    revalidateOnFocus: false,  // Prevents unneeded fetches on tab focus
+    revalidateOnFocus: false,
     revalidateOnReconnect: true,
     refreshInterval: 0,        // Disable polling
     shouldRetryOnError: true,
@@ -193,9 +214,13 @@ export default function CollectionPage() {
     }
   });
   
-  // Process the data
-  const spirits = data?.spirits || [];
-  
+  // Process the data from API response
+  const spirits = apiResponse?.spirits || [];
+  const totalPages = apiResponse?.totalPages || 0;
+  // const totalItems = apiResponse?.totalItems || 0; // Available if needed
+  // Note: currentPage state is the source of truth for the request, 
+  // apiResponse.currentPage can be used for asserting or display if needed.
+
   // Derive available options for filters from the spirits data
   const availableTypes = useMemo(() => {
     if (!Array.isArray(spirits)) return [];
@@ -299,10 +324,6 @@ export default function CollectionPage() {
     return sortedSpirits.slice(startIndex, endIndex);
   }, [sortedSpirits, currentPage]);
 
-  const totalPages = useMemo(() => {
-    return Math.ceil(sortedSpirits.length / ITEMS_PER_PAGE);
-  }, [sortedSpirits]);
-
   // Handler functions for pagination
   const handleNextPage = () => {
     setCurrentPage(prev => Math.min(prev + 1, totalPages));
@@ -375,13 +396,13 @@ export default function CollectionPage() {
 
       // Update the local data with SWR
       mutate(current => {
-        if (!current || !current.spirits) return { spirits: [] };
+        if (!current) return current; // Return current (undefined) if no data to update
         
         const updatedSpirits = current.spirits.map((spirit: Spirit) => 
           spirit.id === id ? { ...spirit, isFavorite } : spirit
         );
         
-        return { ...current, spirits: updatedSpirits };
+        return { ...current, spirits: updatedSpirits }; // Preserve other fields like totalItems, totalPages
       }, false); // false means don't revalidate
 
       // Show success message
@@ -406,7 +427,9 @@ export default function CollectionPage() {
       }
 
       // Convert FormData to a JavaScript object
-      const jsonData: Record<string, any> = {};
+      const jsonData: Record<string, any> = {
+        id: uuidv4(), // Generate a UUID for the new spirit
+      };
       formData.forEach((value, key) => {
         // Try to parse JSON values from the FormData
         if (key === 'nose' || key === 'palate' || key === 'finish') {
@@ -425,8 +448,9 @@ export default function CollectionPage() {
         }
       });
       
-      // Add user ID
-      jsonData.userId = session.user.id;
+      // Add user ID as ownerId
+      jsonData.ownerId = session.user.id; // Ensure ownerId is set, API also does this but good practice
+      // jsonData.userId = session.user.id; // Remove or ensure this doesn't conflict if API relies on it
       
       console.log('Sending JSON data:', jsonData);
       
@@ -476,10 +500,17 @@ export default function CollectionPage() {
 
       // Update the cache using SWR's mutate
       mutate(current => {
-        if (!current || !current.spirits) return { spirits: [] };
+        if (!current) return current; // Return current (undefined) if no data to update
+        
+        const updatedSpirits = current.spirits.filter((spirit: Spirit) => spirit.id !== id);
+        const newTotalItems = current.totalItems > 0 ? current.totalItems - 1 : 0;
+        // totalPages will be fully accurate on re-fetch. For optimistic UI, this is a reasonable state.
         return {
           ...current,
-          spirits: current.spirits.filter((spirit: Spirit) => spirit.id !== id)
+          spirits: updatedSpirits,
+          totalItems: newTotalItems,
+          // Potentially recalculate totalPages if it's critical for optimistic UI, otherwise let SWR handle it:
+          // totalPages: Math.ceil(newTotalItems / ITEMS_PER_PAGE), 
         };
       }, false); // false means don't revalidate
 
@@ -587,7 +618,20 @@ export default function CollectionPage() {
                 <label htmlFor="filterType" className="block text-sm font-medium text-gray-300 mb-1">Type</label>
                 <select id="filterType" value={filterType} onChange={e => setFilterType(e.target.value)} className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
                   <option value="">All Types</option>
-                  {availableTypes.map(type => <option key={type} value={type}>{type}</option>)}
+                  {/* Dynamic options removed for now; API should provide these or fetch separately */}
+                  {/* Example static options: */}
+                  <option value="Whiskey">Whiskey</option>
+                  <option value="Bourbon">Bourbon</option>
+                  <option value="Scotch">Scotch</option>
+                  <option value="Rye">Rye</option>
+                  <option value="Rum">Rum</option>
+                  <option value="Gin">Gin</option>
+                  <option value="Vodka">Vodka</option>
+                  <option value="Tequila">Tequila</option>
+                  <option value="Mezcal">Mezcal</option>
+                  <option value="Brandy">Brandy</option>
+                  <option value="Liqueur">Liqueur</option>
+                  <option value="Other">Other</option>
                 </select>
               </div>
               <div>
@@ -602,14 +646,24 @@ export default function CollectionPage() {
                 <label htmlFor="filterCountry" className="block text-sm font-medium text-gray-300 mb-1">Country</label>
                 <select id="filterCountry" value={filterCountry} onChange={e => setFilterCountry(e.target.value)} className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
                   <option value="">All Countries</option>
-                  {availableCountries.map(country => <option key={country} value={country}>{country}</option>)}
+                  {/* Dynamic options removed; consider fetching these from an API endpoint or adding statically */}
+                  <option value="USA">USA</option>
+                  <option value="Scotland">Scotland</option>
+                  <option value="Ireland">Ireland</option>
+                  <option value="Canada">Canada</option>
+                  <option value="Japan">Japan</option>
                 </select>
               </div>
               <div>
                 <label htmlFor="filterRegion" className="block text-sm font-medium text-gray-300 mb-1">Region</label>
                 <select id="filterRegion" value={filterRegion} onChange={e => setFilterRegion(e.target.value)} className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
                   <option value="">All Regions</option>
-                  {availableRegions.map(region => <option key={region} value={region}>{region}</option>)}
+                  {/* Dynamic options removed; consider fetching these from an API endpoint or adding statically */}
+                  <option value="Kentucky">Kentucky (USA)</option>
+                  <option value="Tennessee">Tennessee (USA)</option>
+                  <option value="Highlands">Highlands (Scotland)</option>
+                  <option value="Islay">Islay (Scotland)</option>
+                  <option value="Speyside">Speyside (Scotland)</option>
                 </select>
               </div>
               <div>
@@ -661,10 +715,10 @@ export default function CollectionPage() {
                 error={error} 
                 onRetry={() => mutate()} 
               />
-            ) : spirits.length === 0 ? (
+            ) : spirits.length === 0 && !isSWRLoading ? (
               <div className="text-center py-20 border border-dashed border-white/20 rounded-lg bg-white/5 backdrop-blur-sm">
                 <p className="text-xl text-gray-200 mb-4">Your collection is empty</p>
-                <p className="text-gray-400">Add your first spirit using the form above</p>
+                <p className="text-gray-400">Add your first spirit using the form above, or adjust your filters.</p>
                 {!isFormVisible && (
                   <button 
                     onClick={() => setIsFormVisible(true)}
