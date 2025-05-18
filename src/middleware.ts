@@ -136,7 +136,7 @@ function createCSPHeader(nonce: string): string {
   return `
     ${baseDirectives}
     script-src 'self' 'nonce-${nonce}' https://www.gstatic.com https://assets.mux.com https://vercel.live https://vercel.com;
-    style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://vercel.com https://fonts.googleapis.com;
+    style-src 'self' 'nonce-${nonce}' https://vercel.com https://fonts.googleapis.com;
   `;
 }
 

@@ -1,8 +1,57 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
+import type { CSSProperties } from 'react'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+// Get the CSP nonce from the meta tag
+export function getNonce(): string | undefined {
+  if (typeof document === 'undefined') return undefined;
+  
+  const nonceMeta = document.querySelector('meta[property="csp-nonce"]');
+  return nonceMeta ? nonceMeta.getAttribute('content') || undefined : undefined;
+}
+
+// Helper function to create style props with nonce
+export function nonceStyle(styles: CSSProperties): { style: CSSProperties, nonce?: string } {
+  return {
+    style: styles,
+    nonce: getNonce()
+  };
+}
+
+// Default background color for avatar
+export const DEFAULT_AVATAR_BG = '#1E293B'; // Slate-800
+
+// Get initial letter from name or email
+export function getInitialLetter(name?: string | null, email?: string | null): string {
+  if (name?.trim()) {
+    return name.trim().charAt(0).toUpperCase();
+  }
+  if (email?.trim()) {
+    return email.trim().charAt(0).toUpperCase();
+  }
+  return '?';
+}
+
+// Get profile image URL with optional timestamp to prevent caching
+export function getProfileImageUrl(imageUrl?: string | null, addTimestamp = false): string | null {
+  if (!imageUrl) return null;
+  
+  if (addTimestamp) {
+    // Add timestamp to prevent caching
+    const separator = imageUrl.includes('?') ? '&' : '?';
+    return `${imageUrl}${separator}t=${Date.now()}`;
+  }
+  
+  return imageUrl;
+}
+
+// Get cover photo URL with optional timestamp
+export function getCoverPhotoUrl(coverUrl?: string | null, addTimestamp = false): string | null {
+  return getProfileImageUrl(coverUrl, addTimestamp);
 }
 
 // Add file validation function
