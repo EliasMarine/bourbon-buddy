@@ -15,10 +15,13 @@ export function getNonce(): string | undefined {
 }
 
 // Helper function to create style props with nonce
-export function nonceStyle(styles: CSSProperties): { style: CSSProperties, nonce?: string } {
+// This approach avoids directly setting nonce on the element
+// to work correctly with React's expectations
+export function nonceStyle(styles: CSSProperties): { style: CSSProperties } {
+  // Instead of returning the nonce directly, we use getNonce() where needed
+  // and let the React CSP implementation handle it
   return {
-    style: styles,
-    nonce: getNonce()
+    style: styles
   };
 }
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { getNonce, nonceStyle } from '@/lib/utils';
+import { nonceStyle } from '@/lib/utils';
 
 interface LoadingDotsProps {
   color?: string;
@@ -12,30 +12,30 @@ export function LoadingDots({ color = '#fff', size = 4, className = '' }: Loadin
     <span className={`inline-flex text-center items-center leading-7 ${className}`}>
       <span
         className="animate-bounce mx-0.5 rounded-full"
-        {...nonceStyle({
+        style={{
           backgroundColor: color,
           width: `${size}px`,
           height: `${size}px`,
           animationDelay: '0ms',
-        })}
+        }}
       />
       <span
         className="animate-bounce mx-0.5 rounded-full"
-        {...nonceStyle({
+        style={{
           backgroundColor: color,
           width: `${size}px`,
           height: `${size}px`,
           animationDelay: '150ms',
-        })}
+        }}
       />
       <span
         className="animate-bounce mx-0.5 rounded-full"
-        {...nonceStyle({
+        style={{
           backgroundColor: color,
           width: `${size}px`,
           height: `${size}px`,
           animationDelay: '300ms',
-        })}
+        }}
       />
     </span>
   );
