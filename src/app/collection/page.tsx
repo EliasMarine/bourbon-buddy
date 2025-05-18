@@ -9,7 +9,7 @@ import AddSpiritForm from '@/components/collection/AddSpiritForm';
 import { Spirit } from '@/types';
 import { toast } from 'react-hot-toast';
 import { ChevronDown, ChevronUp, Plus, RefreshCw } from 'lucide-react';
-import useSWR from 'swr';
+import useSWR, { SWRConfiguration } from 'swr';
 
 // Create a custom error class with the additional properties
 class FetchError extends Error {
@@ -66,15 +66,48 @@ const collectionFetcher = async (url: string) => {
   }
 };
 
-// Function to sort spirits - favorites first, then by name
-const sortSpirits = (spiritsList: Spirit[]): Spirit[] => {
+// Define SortableField type before its use
+type SortableField = 'name' | 'price' | 'rating' | 'createdAt' | 'proof';
+
+// Function to sort spirits
+const sortSpirits = (spiritsList: Spirit[], sortBy: SortableField, sortOrder: 'asc' | 'desc'): Spirit[] => {
   return [...spiritsList].sort((a, b) => {
-    // First sort by favorite status (favorites first)
     if (a.isFavorite && !b.isFavorite) return -1;
     if (!a.isFavorite && b.isFavorite) return 1;
-    
-    // Then sort alphabetically by name
-    return a.name.localeCompare(b.name);
+
+    let comparison = 0;
+
+    switch (sortBy) {
+      case 'name':
+        comparison = (a.name || '').localeCompare(b.name || '');
+        break;
+      case 'price':
+        const priceA = typeof a.price === 'number' ? a.price : (sortOrder === 'asc' ? Infinity : -Infinity);
+        const priceB = typeof b.price === 'number' ? b.price : (sortOrder === 'asc' ? Infinity : -Infinity);
+        comparison = priceA - priceB;
+        break;
+      case 'rating':
+        const ratingA = typeof a.rating === 'number' ? a.rating : (sortOrder === 'asc' ? Infinity : -Infinity);
+        const ratingB = typeof b.rating === 'number' ? b.rating : (sortOrder === 'asc' ? Infinity : -Infinity);
+        comparison = ratingA - ratingB;
+        break;
+      case 'proof':
+        const proofA = typeof a.proof === 'number' ? a.proof : (sortOrder === 'asc' ? Infinity : -Infinity);
+        const proofB = typeof b.proof === 'number' ? b.proof : (sortOrder === 'asc' ? Infinity : -Infinity);
+        comparison = proofA - proofB;
+        break;
+      case 'createdAt':
+        const dateA = a.createdAt instanceof Date ? a.createdAt.getTime() : (sortOrder === 'asc' ? Infinity : -Infinity);
+        const dateB = b.createdAt instanceof Date ? b.createdAt.getTime() : (sortOrder === 'asc' ? Infinity : -Infinity);
+        comparison = dateA - dateB;
+        break;
+      default:
+        // Should not happen with SortableField type, but as a fallback:
+        const exhaustiveCheck: never = sortBy;
+        return exhaustiveCheck;
+    }
+
+    return sortOrder === 'asc' ? comparison : comparison * -1;
   });
 };
 
@@ -106,6 +139,24 @@ export default function CollectionPage() {
   const [isManualLoading, setIsManualLoading] = useState(false);
   const syncAttempted = useRef(false);
   
+  // Filter States
+  const [filterName, setFilterName] = useState('');
+  const [filterType, setFilterType] = useState<string>(''); // Single type selection for now
+  const [filterPriceMin, setFilterPriceMin] = useState<string>('');
+  const [filterPriceMax, setFilterPriceMax] = useState<string>('');
+  const [filterCountry, setFilterCountry] = useState<string>('');
+  const [filterRegion, setFilterRegion] = useState<string>('');
+  const [filterProofMin, setFilterProofMin] = useState<string>('');
+  const [filterProofMax, setFilterProofMax] = useState<string>('');
+  
+  // Sorting States
+  const [sortBy, setSortBy] = useState<SortableField>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  
+  // Pagination States
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 9; // Or make this a state if you want it user-configurable
+  
   // Define SWR key based on authentication state
   const shouldFetch = status === 'authenticated' && session?.user;
   const swrKey = shouldFetch ? '/api/collection' : null;
@@ -117,13 +168,17 @@ export default function CollectionPage() {
     isLoading: isSWRLoading, 
     isValidating,
     mutate 
-  } = useSWR(swrKey, collectionFetcher, {
+  } = useSWR<
+    { spirits: Spirit[] } | undefined, // Data type
+    FetchError, // Error type
+    string | null // Key type
+  >(swrKey, collectionFetcher, {
     revalidateIfStale: true,
     revalidateOnFocus: false,  // Prevents unneeded fetches on tab focus
     revalidateOnReconnect: true,
     refreshInterval: 0,        // Disable polling
     shouldRetryOnError: true,
-    retry: 3,                  // Limit retries
+    errorRetryCount: 3,        // Corrected from retry: 3
     errorRetryInterval: 5000,  // 5 seconds between retries
     onErrorRetry: (error, key, config, revalidate, { retryCount }) => {
       // Don't retry on 404s or 401s
@@ -140,6 +195,23 @@ export default function CollectionPage() {
   
   // Process the data
   const spirits = data?.spirits || [];
+  
+  // Derive available options for filters from the spirits data
+  const availableTypes = useMemo(() => {
+    if (!Array.isArray(spirits)) return [];
+    return Array.from(new Set(spirits.map(s => s.type).filter(Boolean) as string[])).sort();
+  }, [spirits]);
+
+  const availableCountries = useMemo(() => {
+    if (!Array.isArray(spirits)) return [];
+    return Array.from(new Set(spirits.map(s => s.country).filter(Boolean) as string[])).sort();
+  }, [spirits]);
+
+  const availableRegions = useMemo(() => {
+    // This could be more dynamic based on selected country in a more advanced setup
+    if (!Array.isArray(spirits)) return [];
+    return Array.from(new Set(spirits.map(s => s.region).filter(Boolean) as string[])).sort();
+  }, [spirits]);
   
   // Filter and sanitize spirits to prevent display issues
   const sanitizedSpirits = useMemo(() => {
@@ -173,7 +245,7 @@ export default function CollectionPage() {
       };
       
       if (!isValidUrl(validImageUrl)) {
-        validImageUrl = null;
+        validImageUrl = undefined;
       }
       
       return {
@@ -183,8 +255,62 @@ export default function CollectionPage() {
     }).filter(Boolean); // Remove any null entries
   }, [spirits]);
   
+  // Apply filters to sanitized spirits
+  const filteredSpirits = useMemo<Spirit[]>(() => {
+    if (!Array.isArray(sanitizedSpirits)) return [];
+    // Ensure we are working with an array of actual Spirit objects after sanitization
+    const trulySanitizedSpirits = sanitizedSpirits.filter(Boolean) as Spirit[];
+
+    return trulySanitizedSpirits.filter(spirit => {
+      // The 'spirit' here is now guaranteed to be Spirit, not Spirit | null
+      // if (!spirit) return false; // This check is theoretically not needed if trulySanitizedSpirits is Spirit[]
+
+      const nameMatch = filterName ? spirit.name.toLowerCase().includes(filterName.toLowerCase()) : true;
+      const typeMatch = filterType ? spirit.type === filterType : true;
+      
+      const priceMin = parseFloat(filterPriceMin);
+      const priceMax = parseFloat(filterPriceMax);
+      const spiritPrice = spirit.price ?? null;
+
+      const priceMinMatch = !isNaN(priceMin) && spiritPrice !== null ? spiritPrice >= priceMin : true;
+      const priceMaxMatch = !isNaN(priceMax) && spiritPrice !== null ? spiritPrice <= priceMax : true;
+      
+      const countryMatch = filterCountry ? spirit.country === filterCountry : true;
+      const regionMatch = filterRegion ? spirit.region === filterRegion : true;
+
+      const proofMin = parseFloat(filterProofMin);
+      const proofMax = parseFloat(filterProofMax);
+      const spiritProof = spirit.proof ?? null;
+
+      const proofMinMatch = !isNaN(proofMin) && spiritProof !== null ? spiritProof >= proofMin : true;
+      const proofMaxMatch = !isNaN(proofMax) && spiritProof !== null ? spiritProof <= proofMax : true;
+
+      return nameMatch && typeMatch && priceMinMatch && priceMaxMatch && countryMatch && regionMatch && proofMinMatch && proofMaxMatch;
+    });
+  }, [sanitizedSpirits, filterName, filterType, filterPriceMin, filterPriceMax, filterCountry, filterRegion, filterProofMin, filterProofMax]);
+  
   // Sort the sanitized spirits
-  const sortedSpirits = useMemo(() => sortSpirits(sanitizedSpirits), [sanitizedSpirits]);
+  const sortedSpirits = useMemo<Spirit[]>(() => sortSpirits(filteredSpirits, sortBy, sortOrder), [filteredSpirits, sortBy, sortOrder]);
+  
+  // Paginate the sorted spirits
+  const paginatedSpirits = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return sortedSpirits.slice(startIndex, endIndex);
+  }, [sortedSpirits, currentPage]);
+
+  const totalPages = useMemo(() => {
+    return Math.ceil(sortedSpirits.length / ITEMS_PER_PAGE);
+  }, [sortedSpirits]);
+
+  // Handler functions for pagination
+  const handleNextPage = () => {
+    setCurrentPage(prev => Math.min(prev + 1, totalPages));
+  };
+
+  const handlePreviousPage = () => {
+    setCurrentPage(prev => Math.max(prev - 1, 1));
+  };
   
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -249,9 +375,9 @@ export default function CollectionPage() {
 
       // Update the local data with SWR
       mutate(current => {
-        if (!current) return { spirits: [] };
+        if (!current || !current.spirits) return { spirits: [] };
         
-        const updatedSpirits = current.spirits.map(spirit => 
+        const updatedSpirits = current.spirits.map((spirit: Spirit) => 
           spirit.id === id ? { ...spirit, isFavorite } : spirit
         );
         
@@ -350,10 +476,10 @@ export default function CollectionPage() {
 
       // Update the cache using SWR's mutate
       mutate(current => {
-        if (!current) return { spirits: [] };
+        if (!current || !current.spirits) return { spirits: [] };
         return {
           ...current,
-          spirits: current.spirits.filter(spirit => spirit.id !== id)
+          spirits: current.spirits.filter((spirit: Spirit) => spirit.id !== id)
         };
       }, false); // false means don't revalidate
 
@@ -449,12 +575,79 @@ export default function CollectionPage() {
             )}
           </div>
 
+          {/* Filter Section */}
+          <div className="mb-8 p-4 bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 shadow-lg">
+            <h3 className="text-xl font-semibold text-white mb-4">Filter Collection</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div>
+                <label htmlFor="filterName" className="block text-sm font-medium text-gray-300 mb-1">Name</label>
+                <input type="text" id="filterName" value={filterName} onChange={e => setFilterName(e.target.value)} placeholder="Filter by name" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
+              </div>
+              <div>
+                <label htmlFor="filterType" className="block text-sm font-medium text-gray-300 mb-1">Type</label>
+                <select id="filterType" value={filterType} onChange={e => setFilterType(e.target.value)} className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
+                  <option value="">All Types</option>
+                  {availableTypes.map(type => <option key={type} value={type}>{type}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="filterPriceMin" className="block text-sm font-medium text-gray-300 mb-1">Min Price</label>
+                <input type="number" id="filterPriceMin" value={filterPriceMin} onChange={e => setFilterPriceMin(e.target.value)} placeholder="Min" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
+              </div>
+              <div>
+                <label htmlFor="filterPriceMax" className="block text-sm font-medium text-gray-300 mb-1">Max Price</label>
+                <input type="number" id="filterPriceMax" value={filterPriceMax} onChange={e => setFilterPriceMax(e.target.value)} placeholder="Max" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
+              </div>
+              <div>
+                <label htmlFor="filterCountry" className="block text-sm font-medium text-gray-300 mb-1">Country</label>
+                <select id="filterCountry" value={filterCountry} onChange={e => setFilterCountry(e.target.value)} className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
+                  <option value="">All Countries</option>
+                  {availableCountries.map(country => <option key={country} value={country}>{country}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="filterRegion" className="block text-sm font-medium text-gray-300 mb-1">Region</label>
+                <select id="filterRegion" value={filterRegion} onChange={e => setFilterRegion(e.target.value)} className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
+                  <option value="">All Regions</option>
+                  {availableRegions.map(region => <option key={region} value={region}>{region}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="filterProofMin" className="block text-sm font-medium text-gray-300 mb-1">Min Proof</label>
+                <input type="number" id="filterProofMin" value={filterProofMin} onChange={e => setFilterProofMin(e.target.value)} placeholder="Min Proof" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
+              </div>
+              <div>
+                <label htmlFor="filterProofMax" className="block text-sm font-medium text-gray-300 mb-1">Max Proof</label>
+                <input type="number" id="filterProofMax" value={filterProofMax} onChange={e => setFilterProofMax(e.target.value)} placeholder="Max Proof" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
+              </div>
+            </div>
+          </div>
+
           {/* Collection Section */}
           <div>
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-2xl font-bold text-white">Your Spirits</h2>
-              <div className="flex gap-2">
-                {/* Add filters and sorting here in the future */}
+              <div className="flex gap-2 items-center">
+                <label htmlFor="sortBy" className="text-sm font-medium text-gray-300">Sort by:</label>
+                <select 
+                  id="sortBy" 
+                  value={sortBy}
+                  onChange={e => setSortBy(e.target.value as SortableField)}
+                  className="bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm"
+                >
+                  <option value="name">Name</option>
+                  <option value="price">Price</option>
+                  <option value="rating">Rating</option>
+                  <option value="createdAt">Date Added (Newest/Oldest)</option>
+                  <option value="proof">Proof</option>
+                </select>
+                <button 
+                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                  className="p-2 bg-white/10 border-white/20 rounded-md text-white hover:bg-white/15 transition-colors"
+                  aria-label={sortOrder === 'asc' ? 'Sort descending' : 'Sort ascending'}
+                >
+                  {sortOrder === 'asc' ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+                </button>
               </div>
             </div>
 
@@ -484,7 +677,7 @@ export default function CollectionPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {sortedSpirits.map((spirit) => (
+                {paginatedSpirits.map((spirit) => (
                   <SpiritCard
                     key={spirit.id}
                     spirit={spirit}
@@ -492,6 +685,28 @@ export default function CollectionPage() {
                     onToggleFavorite={handleToggleFavorite}
                   />
                 ))}
+              </div>
+            )}
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="mt-12 flex justify-center items-center gap-4 text-white">
+                <button 
+                  onClick={handlePreviousPage} 
+                  disabled={currentPage === 1}
+                  className="px-4 py-2 bg-white/10 border-white/20 rounded-md hover:bg-white/15 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span>
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button 
+                  onClick={handleNextPage} 
+                  disabled={currentPage === totalPages}
+                  className="px-4 py-2 bg-white/10 border-white/20 rounded-md hover:bg-white/15 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
               </div>
             )}
           </div>

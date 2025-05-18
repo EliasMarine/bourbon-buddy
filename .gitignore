@@ -108,6 +108,8 @@ node_modules/
 *.sln
 *.sw?
 *.sql
+*.taskmaster*
+*.taskmasterconfig
 # OS specific
 
 # Task files

@@ -11,6 +11,8 @@ export interface Spirit {
   name: string;
   type: string;
   brand: string;
+  country?: string;
+  region?: string;
   description?: string;
   imageUrl?: string;
   webImageUrl?: string;
