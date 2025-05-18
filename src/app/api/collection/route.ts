@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
 
     // Initialize Supabase client
-    const supabase = createClient();
+    const supabase = await createClient();
 
     // Start building query
     let query = supabase
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
       query = query.ilike("brand", `%${validatedParams.brand}%`);
     }
     
-    if (validatedParams.type) {
+    if (validatedParams.type && validatedParams.type !== '') {
       query = query.eq("type", validatedParams.type);
     }
     
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
       query = query.eq("category", validatedParams.category);
     }
     
-    if (validatedParams.country) {
+    if (validatedParams.country && validatedParams.country !== '') {
       query = query.eq("country", validatedParams.country);
     }
     
@@ -194,7 +194,7 @@ export async function POST(request: NextRequest) {
     const validatedData = spiritSchema.parse(spiritData);
 
     // Initialize Supabase client (using service role for RLS bypass if needed)
-    const supabase = createClient();
+    const supabase = await createClient();
 
     // Insert the new spirit
     const { data, error } = await supabase

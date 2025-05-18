@@ -43,8 +43,8 @@ export default function CollectionView() {
   
   // Filter states
   const [name, setName] = useState(searchParams?.get('name') || '');
-  const [type, setType] = useState(searchParams?.get('type') || '');
-  const [country, setCountry] = useState(searchParams?.get('country') || '');
+  const [type, setType] = useState<string | undefined>(searchParams?.get('type') || undefined);
+  const [country, setCountry] = useState<string | undefined>(searchParams?.get('country') || undefined);
   const [minPrice, setMinPrice] = useState(searchParams?.get('minPrice') || '');
   const [maxPrice, setMaxPrice] = useState(searchParams?.get('maxPrice') || '');
   const [minProof, setMinProof] = useState(searchParams?.get('minProof') || '');
@@ -146,12 +146,12 @@ export default function CollectionView() {
             </div>
             
             <div>
-              <Select value={type} onValueChange={setType}>
+              <Select value={type || ''} onValueChange={(v) => setType(v === 'all' ? undefined : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Types</SelectItem>
+                  <SelectItem value="all">All Types</SelectItem>
                   <SelectItem value="Bourbon">Bourbon</SelectItem>
                   <SelectItem value="Scotch">Scotch</SelectItem>
                   <SelectItem value="Rye">Rye</SelectItem>
@@ -162,12 +162,12 @@ export default function CollectionView() {
             </div>
             
             <div>
-              <Select value={country} onValueChange={setCountry}>
+              <Select value={country || ''} onValueChange={(v) => setCountry(v === 'all' ? undefined : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Country" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Countries</SelectItem>
+                  <SelectItem value="all">All Countries</SelectItem>
                   <SelectItem value="USA">USA</SelectItem>
                   <SelectItem value="Scotland">Scotland</SelectItem>
                   <SelectItem value="Ireland">Ireland</SelectItem>
