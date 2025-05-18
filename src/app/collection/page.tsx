@@ -578,7 +578,7 @@ export default function CollectionPage() {
         </div>
 
         {/* Filter Section - Fixed at top */}
-        <div className="fixed top-0 left-0 right-0 z-50 px-4 py-2 mt-40 pointer-events-auto">
+        <div className="fixed top-0 left-0 right-0 z-50 px-4 py-2 mt-60 pointer-events-auto">
           <div className="container mx-auto">
             <div className="p-4 bg-black/80 backdrop-blur-md rounded-xl border border-white/10 shadow-xl">
               <h3 className="text-xl font-semibold text-white mb-4">Filter Collection</h3>
@@ -653,7 +653,7 @@ export default function CollectionPage() {
         </div>
 
         {/* Content Section */}
-        <div className="container mx-auto px-4 py-12 pt-40 relative overflow-visible">
+        <div className="container mx-auto px-4 py-12 pt-60 relative overflow-visible">
           {/* Decorative blurred circles */}
           <div className="absolute -left-20 top-40 w-72 h-72 rounded-full bg-amber-500/10 blur-3xl pointer-events-none opacity-30"></div>
           <div className="absolute right-10 bottom-20 w-96 h-96 rounded-full bg-blue-500/10 blur-3xl pointer-events-none opacity-20"></div>
