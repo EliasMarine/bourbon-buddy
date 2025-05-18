@@ -307,6 +307,7 @@ export type Database = {
           price: number | null
           proof: number | null
           rating: number | null
+          releaseYear: number | null
           type: string
           updatedAt: string
         }
@@ -332,8 +333,9 @@ export type Database = {
           price?: number | null
           proof?: number | null
           rating?: number | null
+          releaseYear?: number | null
           type: string
-          updatedAt: string
+          updatedAt?: string
         }
         Update: {
           bottleLevel?: number | null
@@ -357,6 +359,7 @@ export type Database = {
           price?: number | null
           proof?: number | null
           rating?: number | null
+          releaseYear?: number | null
           type?: string
           updatedAt?: string
         }

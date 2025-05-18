@@ -19,6 +19,7 @@ export interface Spirit {
   proof?: number;
   price?: number;
   rating?: number;
+  releaseYear?: number;
   nose?: string | string[];
   palate?: string | string[];
   finish?: string | string[];

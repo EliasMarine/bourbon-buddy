@@ -27,6 +27,12 @@ export const SpiritSchema = z.object({
     .max(1000, 'Description must be less than 1000 characters')
     .nullable()
     .optional(),
+  releaseYear: z.coerce.number()
+    .positive('Release year must be a positive number')
+    .min(1800, 'Release year seems too old')
+    .max(new Date().getFullYear() + 5, 'Release year seems too far in the future')
+    .nullable()
+    .optional(),
   proof: z.coerce.number()
     .positive('Proof must be positive')
     .max(200, 'Proof must be at most 200')
