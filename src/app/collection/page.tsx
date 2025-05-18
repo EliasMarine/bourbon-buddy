@@ -607,7 +607,7 @@ export default function CollectionPage() {
           </div>
 
           {/* Filter Section */}
-          <div className="mb-8 p-4 bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 shadow-lg">
+          <div className="mb-8 p-4 bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 shadow-lg sticky top-0 z-30">
             <h3 className="text-xl font-semibold text-white mb-4">Filter Collection</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               <div>
