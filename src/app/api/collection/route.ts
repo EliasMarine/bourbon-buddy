@@ -103,6 +103,15 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Missing required spirit fields (name, type, brand)' }, { status: 400 });
     }
 
+    // Ensure rating is an integer
+    if (spiritData.rating !== undefined && spiritData.rating !== null) {
+      // If it's a decimal, convert it to integer
+      if (typeof spiritData.rating === 'number' && !Number.isInteger(spiritData.rating)) {
+        console.log(`[api/collection] Converting decimal rating ${spiritData.rating} to integer`);
+        spiritData.rating = Math.round(spiritData.rating);
+      }
+    }
+
     console.log(`[api/collection] Attempting to add spirit for user: ${user.id}`, spiritData);
 
     const { data: newSpirit, error } = await supabase // Using the imported supabase client

@@ -44,7 +44,16 @@ export const SpiritSchema = z.object({
     .optional(),
   rating: z.coerce.number()
     .min(1, 'Rating must be at least 1')
-    .max(10, 'Rating must be at most 10')
+    .max(100, 'Rating must be at most 100')
+    .transform(val => {
+      // If value is between 1-10, it's likely a decimal rating (e.g. 7.8)
+      // Convert it to integer scale (10-100) by multiplying by 10
+      if (val <= 10) {
+        return Math.round(val * 10);
+      }
+      // If it's already an integer in the 10-100 range, keep it as is
+      return Math.round(val);
+    })
     .nullable()
     .optional(),
   isFavorite: z.boolean()

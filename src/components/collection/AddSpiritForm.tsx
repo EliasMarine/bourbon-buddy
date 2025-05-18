@@ -395,7 +395,17 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
       formData.set('type', (document.getElementById('type') as HTMLSelectElement)?.value || '');
       formData.set('proof', (document.getElementById('proof') as HTMLInputElement)?.value || '');
       formData.set('price', (document.getElementById('price') as HTMLInputElement)?.value || '');
-      formData.set('rating', (document.getElementById('rating') as HTMLInputElement)?.value || '');
+      
+      // Convert decimal rating (1-10) to integer (10-100) before sending
+      const ratingInput = (document.getElementById('rating') as HTMLInputElement)?.value;
+      if (ratingInput && !isNaN(parseFloat(ratingInput))) {
+        // Convert decimal to integer: multiply by 10 and round
+        const ratingAsInteger = Math.round(parseFloat(ratingInput) * 10);
+        formData.set('rating', ratingAsInteger.toString());
+      } else {
+        formData.set('rating', '');
+      }
+      
       formData.set('releaseYear', (document.getElementById('releaseYear') as HTMLInputElement)?.value || '');
       formData.set('isFavorite', isFavorite.toString());
       formData.set('nose', JSON.stringify(selectedNotes.nose));
@@ -426,8 +436,12 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
           jsonData[key] = JSON.parse(value as string);
         } else if (key === 'isFavorite') {
           jsonData[key] = value === 'true';
-        } else if (key === 'proof' || key === 'price' || key === 'rating' || key === 'bottleLevel' || key === 'releaseYear') {
+        } else if (key === 'proof' || key === 'price' || key === 'bottleLevel' || key === 'releaseYear') {
           const numValue = parseFloat(value as string);
+          jsonData[key] = isNaN(numValue) ? null : numValue;
+        } else if (key === 'rating') {
+          // For the rating, we already converted it to integer above
+          const numValue = parseInt(value as string);
           jsonData[key] = isNaN(numValue) ? null : numValue;
         } else {
           jsonData[key] = value;
@@ -646,8 +660,10 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
         {/* Rating */}
         <div>
           <label htmlFor="rating" className="block text-sm font-medium text-gray-300 mb-1 flex items-center gap-1">
-            <Wine className="w-4 h-4 text-amber-400" />
-            Rating (out of 10)
+            <span>
+              Rating (out of 10)
+            </span>
+            <span className="text-xs text-gray-400">(e.g. 7.5, 8.0)</span>
           </label>
           <input
             type="number"
@@ -659,6 +675,9 @@ export default function AddSpiritForm({ onAdd }: AddSpiritFormProps) {
             placeholder="Enter a rating from 1.0 to 10.0"
             className="mt-0 block w-full px-3 py-2 border border-gray-700 rounded-md bg-gray-800 text-white placeholder-gray-400 focus:outline-none focus:ring-amber-500 focus:border-amber-500"
           />
+          <p className="mt-1 text-xs text-gray-400">
+            Enter a decimal value (e.g., 7.8). It will be stored appropriately in our system.
+          </p>
         </div>
 
         <TastingNotesSelector

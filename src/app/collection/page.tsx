@@ -577,8 +577,83 @@ export default function CollectionPage() {
           </div>
         </div>
 
+        {/* Filter Section - Fixed at top */}
+        <div className="fixed top-0 left-0 right-0 z-50 px-4 py-2 mt-16 pointer-events-auto">
+          <div className="container mx-auto">
+            <div className="p-4 bg-black/80 backdrop-blur-md rounded-xl border border-white/10 shadow-xl">
+              <h3 className="text-xl font-semibold text-white mb-4">Filter Collection</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div>
+                  <label htmlFor="filterName" className="block text-sm font-medium text-gray-300 mb-1">Name</label>
+                  <input type="text" id="filterName" value={filterName} onChange={e => setFilterName(e.target.value)} placeholder="Filter by name" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
+                </div>
+                <div>
+                  <label htmlFor="filterType" className="block text-sm font-medium text-gray-300 mb-1">Type</label>
+                  <select id="filterType" value={filterType} onChange={e => setFilterType(e.target.value)} className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
+                    <option value="">All Types</option>
+                    {/* Dynamic options removed for now; API should provide these or fetch separately */}
+                    {/* Example static options: */}
+                    <option value="Whiskey">Whiskey</option>
+                    <option value="Bourbon">Bourbon</option>
+                    <option value="Scotch">Scotch</option>
+                    <option value="Rye">Rye</option>
+                    <option value="Rum">Rum</option>
+                    <option value="Gin">Gin</option>
+                    <option value="Vodka">Vodka</option>
+                    <option value="Tequila">Tequila</option>
+                    <option value="Mezcal">Mezcal</option>
+                    <option value="Brandy">Brandy</option>
+                    <option value="Liqueur">Liqueur</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="filterPriceMin" className="block text-sm font-medium text-gray-300 mb-1">Min Price</label>
+                  <input type="number" id="filterPriceMin" value={filterPriceMin} onChange={e => setFilterPriceMin(e.target.value)} placeholder="Min" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
+                </div>
+                <div>
+                  <label htmlFor="filterPriceMax" className="block text-sm font-medium text-gray-300 mb-1">Max Price</label>
+                  <input type="number" id="filterPriceMax" value={filterPriceMax} onChange={e => setFilterPriceMax(e.target.value)} placeholder="Max" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
+                </div>
+                <div>
+                  <label htmlFor="filterCountry" className="block text-sm font-medium text-gray-300 mb-1">Country</label>
+                  <select id="filterCountry" value={filterCountry} onChange={e => setFilterCountry(e.target.value)} className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
+                    <option value="">All Countries</option>
+                    {/* Dynamic options removed; consider fetching these from an API endpoint or adding statically */}
+                    <option value="USA">USA</option>
+                    <option value="Scotland">Scotland</option>
+                    <option value="Ireland">Ireland</option>
+                    <option value="Canada">Canada</option>
+                    <option value="Japan">Japan</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="filterRegion" className="block text-sm font-medium text-gray-300 mb-1">Region</label>
+                  <select id="filterRegion" value={filterRegion} onChange={e => setFilterRegion(e.target.value)} className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
+                    <option value="">All Regions</option>
+                    {/* Dynamic options removed; consider fetching these from an API endpoint or adding statically */}
+                    <option value="Kentucky">Kentucky (USA)</option>
+                    <option value="Tennessee">Tennessee (USA)</option>
+                    <option value="Highlands">Highlands (Scotland)</option>
+                    <option value="Islay">Islay (Scotland)</option>
+                    <option value="Speyside">Speyside (Scotland)</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="filterProofMin" className="block text-sm font-medium text-gray-300 mb-1">Min Proof</label>
+                  <input type="number" id="filterProofMin" value={filterProofMin} onChange={e => setFilterProofMin(e.target.value)} placeholder="Min Proof" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
+                </div>
+                <div>
+                  <label htmlFor="filterProofMax" className="block text-sm font-medium text-gray-300 mb-1">Max Proof</label>
+                  <input type="number" id="filterProofMax" value={filterProofMax} onChange={e => setFilterProofMax(e.target.value)} placeholder="Max Proof" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Content Section */}
-        <div className="container mx-auto px-4 py-12 relative">
+        <div className="container mx-auto px-4 py-12 pt-40 relative overflow-visible">
           {/* Decorative blurred circles */}
           <div className="absolute -left-20 top-40 w-72 h-72 rounded-full bg-amber-500/10 blur-3xl pointer-events-none opacity-30"></div>
           <div className="absolute right-10 bottom-20 w-96 h-96 rounded-full bg-blue-500/10 blur-3xl pointer-events-none opacity-20"></div>
@@ -604,77 +679,6 @@ export default function CollectionPage() {
                 <AddSpiritForm onAdd={handleAddSpirit} />
               </div>
             )}
-          </div>
-
-          {/* Filter Section */}
-          <div className="mb-8 p-4 bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 shadow-lg sticky top-0 z-30">
-            <h3 className="text-xl font-semibold text-white mb-4">Filter Collection</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              <div>
-                <label htmlFor="filterName" className="block text-sm font-medium text-gray-300 mb-1">Name</label>
-                <input type="text" id="filterName" value={filterName} onChange={e => setFilterName(e.target.value)} placeholder="Filter by name" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
-              </div>
-              <div>
-                <label htmlFor="filterType" className="block text-sm font-medium text-gray-300 mb-1">Type</label>
-                <select id="filterType" value={filterType} onChange={e => setFilterType(e.target.value)} className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
-                  <option value="">All Types</option>
-                  {/* Dynamic options removed for now; API should provide these or fetch separately */}
-                  {/* Example static options: */}
-                  <option value="Whiskey">Whiskey</option>
-                  <option value="Bourbon">Bourbon</option>
-                  <option value="Scotch">Scotch</option>
-                  <option value="Rye">Rye</option>
-                  <option value="Rum">Rum</option>
-                  <option value="Gin">Gin</option>
-                  <option value="Vodka">Vodka</option>
-                  <option value="Tequila">Tequila</option>
-                  <option value="Mezcal">Mezcal</option>
-                  <option value="Brandy">Brandy</option>
-                  <option value="Liqueur">Liqueur</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="filterPriceMin" className="block text-sm font-medium text-gray-300 mb-1">Min Price</label>
-                <input type="number" id="filterPriceMin" value={filterPriceMin} onChange={e => setFilterPriceMin(e.target.value)} placeholder="Min" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
-              </div>
-              <div>
-                <label htmlFor="filterPriceMax" className="block text-sm font-medium text-gray-300 mb-1">Max Price</label>
-                <input type="number" id="filterPriceMax" value={filterPriceMax} onChange={e => setFilterPriceMax(e.target.value)} placeholder="Max" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
-              </div>
-              <div>
-                <label htmlFor="filterCountry" className="block text-sm font-medium text-gray-300 mb-1">Country</label>
-                <select id="filterCountry" value={filterCountry} onChange={e => setFilterCountry(e.target.value)} className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
-                  <option value="">All Countries</option>
-                  {/* Dynamic options removed; consider fetching these from an API endpoint or adding statically */}
-                  <option value="USA">USA</option>
-                  <option value="Scotland">Scotland</option>
-                  <option value="Ireland">Ireland</option>
-                  <option value="Canada">Canada</option>
-                  <option value="Japan">Japan</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="filterRegion" className="block text-sm font-medium text-gray-300 mb-1">Region</label>
-                <select id="filterRegion" value={filterRegion} onChange={e => setFilterRegion(e.target.value)} className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
-                  <option value="">All Regions</option>
-                  {/* Dynamic options removed; consider fetching these from an API endpoint or adding statically */}
-                  <option value="Kentucky">Kentucky (USA)</option>
-                  <option value="Tennessee">Tennessee (USA)</option>
-                  <option value="Highlands">Highlands (Scotland)</option>
-                  <option value="Islay">Islay (Scotland)</option>
-                  <option value="Speyside">Speyside (Scotland)</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="filterProofMin" className="block text-sm font-medium text-gray-300 mb-1">Min Proof</label>
-                <input type="number" id="filterProofMin" value={filterProofMin} onChange={e => setFilterProofMin(e.target.value)} placeholder="Min Proof" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
-              </div>
-              <div>
-                <label htmlFor="filterProofMax" className="block text-sm font-medium text-gray-300 mb-1">Max Proof</label>
-                <input type="number" id="filterProofMax" value={filterProofMax} onChange={e => setFilterProofMax(e.target.value)} placeholder="Max Proof" className="w-full bg-white/10 border-white/20 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm" />
-              </div>
-            </div>
           </div>
 
           {/* Collection Section */}
