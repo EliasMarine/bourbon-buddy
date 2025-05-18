@@ -11,7 +11,8 @@ import ModernBottleLevelIndicator from '@/components/ui/ModernBottleLevelIndicat
 import Image from 'next/image';
 import SafeImage from '@/components/ui/SafeImage';
 import { getSafeImageUrl } from '@/lib/spiritUtils';
-import ImagePickerModal from '@/components/collection/ImagePickerModal';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/Button';
 
 interface WebData {
   query: string;
@@ -67,6 +68,98 @@ interface GoogleImageResult {
 interface GoogleImageSearchResponse {
   images: GoogleImageResult[];
   query: string;
+}
+
+// A simplified ImagePickerModal component
+function ImagePickerModal({
+  open,
+  onClose,
+  images,
+  onSelectImage,
+  title = 'Select an Image'
+}: {
+  open: boolean;
+  onClose: () => void;
+  images: GoogleImageResult[];
+  onSelectImage: (imageUrl: string) => void;
+  title?: string;
+}) {
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+
+  // Reset selected image when modal opens
+  useEffect(() => {
+    if (open) {
+      setSelectedImageUrl(null);
+    }
+  }, [open]);
+
+  const handleSelect = () => {
+    if (selectedImageUrl) {
+      onSelectImage(selectedImageUrl);
+      onClose();
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-auto">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <button 
+            onClick={onClose}
+            className="absolute top-4 right-4 p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </DialogHeader>
+        
+        {images.length === 0 ? (
+          <div className="py-8 text-center">
+            <p>No images found.</p>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 py-4">
+              {images.map((image, index) => (
+                <div 
+                  key={index}
+                  className={`relative border-2 rounded-lg overflow-hidden cursor-pointer transition-all
+                    ${selectedImageUrl === image.url ? 'border-primary scale-[1.02]' : 'border-transparent'}
+                  `}
+                  onClick={() => setSelectedImageUrl(image.url)}
+                >
+                  <div className="aspect-square bg-gray-100 relative overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={image.url}
+                      alt={image.alt || 'Image'}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                    
+                    {selectedImageUrl === image.url && (
+                      <div className="absolute top-2 right-2 bg-primary text-primary-foreground rounded-full p-1">
+                        <Check className="h-4 w-4" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
+              <Button variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button onClick={handleSelect} disabled={!selectedImageUrl}>
+                Select Image
+              </Button>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export default function SpiritDetailPage() {

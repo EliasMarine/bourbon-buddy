@@ -8,16 +8,96 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import toast from 'react-hot-toast';
 import { 
-  ArrowLeft, Loader2, Upload, X 
+  ArrowLeft, Loader2, Upload, X, Plus 
 } from 'lucide-react';
 import { SpiritSchema, type SpiritFormData } from '@/lib/validations/spirit';
 import spiritCategories from '@/lib/spiritCategories';
-import TastingNotesSelector, { TastingNoteCategory } from '@/components/collection/TastingNotesSelector';
 import { validateFile, sanitizeHtml } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/Button';
+import { Textarea } from '@/components/ui/textarea';
 
 interface EditSpiritData extends SpiritFormData {
   id?: string;
   imageUrl?: string | null;
+}
+
+// Define TastingNoteCategory type
+export type TastingNoteCategory = 'nose' | 'palate' | 'finish';
+
+// Define a simple TastingNotesSelector component
+function TastingNotesSelector({
+  category,
+  selectedNotes,
+  onNotesChange,
+  label
+}: {
+  category: TastingNoteCategory;
+  selectedNotes: string[];
+  onNotesChange: (notes: string[]) => void;
+  label: string;
+}) {
+  const [newNote, setNewNote] = useState('');
+
+  const handleAddNote = () => {
+    if (newNote.trim() === '') return;
+    
+    const updatedNotes = [...selectedNotes, newNote.trim()];
+    onNotesChange(updatedNotes);
+    setNewNote('');
+  };
+
+  const handleRemoveNote = (index: number) => {
+    const updatedNotes = [...selectedNotes];
+    updatedNotes.splice(index, 1);
+    onNotesChange(updatedNotes);
+  };
+
+  return (
+    <div className="space-y-3">
+      <Label>{label}</Label>
+      
+      <div className="flex flex-wrap gap-2 mb-2">
+        {selectedNotes.map((note, index) => (
+          <div 
+            key={index}
+            className="inline-flex items-center bg-gray-700 px-3 py-1 rounded-full text-sm"
+          >
+            {note}
+            <button
+              type="button"
+              onClick={() => handleRemoveNote(index)}
+              className="ml-2 text-gray-400 hover:text-white"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ))}
+      </div>
+      
+      <div className="flex gap-2">
+        <Input
+          value={newNote}
+          onChange={(e) => setNewNote(e.target.value)}
+          placeholder={`Add ${label.toLowerCase()} note...`}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleAddNote();
+            }
+          }}
+        />
+        <Button 
+          type="button" 
+          onClick={handleAddNote}
+          variant="outline"
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 // Component that uses useSearchParams wrapped in its own function

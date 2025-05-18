@@ -3,12 +3,15 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSupabaseSession } from '@/hooks/use-supabase-session';
-import { ArrowLeft, X, Search, Check } from 'lucide-react';
+import { ArrowLeft, X, Search, Check, Plus } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import spiritCategories from '@/lib/spiritCategories';
-import BottleLevelIndicator from '@/components/collection/BottleLevelIndicator';
-import TastingNotesSelector, { TastingNoteCategory } from '@/components/collection/TastingNotesSelector';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/Button';
+import BottleLevelIndicator from '@/components/ui/BottleLevelIndicator';
 
 // Add interface for Google image search results
 interface GoogleImageResult {
@@ -17,9 +20,86 @@ interface GoogleImageResult {
   source: string;
 }
 
+// Define TastingNoteCategory type
+export type TastingNoteCategory = 'nose' | 'palate' | 'finish';
+
 interface GoogleImageSearchResponse {
   images: GoogleImageResult[];
   query: string;
+}
+
+// Define a simple TastingNotesSelector component
+function TastingNotesSelector({
+  category,
+  selectedNotes,
+  onNotesChange,
+  label
+}: {
+  category: TastingNoteCategory;
+  selectedNotes: string[];
+  onNotesChange: (notes: string[]) => void;
+  label: string;
+}) {
+  const [newNote, setNewNote] = useState('');
+
+  const handleAddNote = () => {
+    if (newNote.trim() === '') return;
+    
+    const updatedNotes = [...selectedNotes, newNote.trim()];
+    onNotesChange(updatedNotes);
+    setNewNote('');
+  };
+
+  const handleRemoveNote = (index: number) => {
+    const updatedNotes = [...selectedNotes];
+    updatedNotes.splice(index, 1);
+    onNotesChange(updatedNotes);
+  };
+
+  return (
+    <div className="space-y-3">
+      <Label>{label}</Label>
+      
+      <div className="flex flex-wrap gap-2 mb-2">
+        {selectedNotes.map((note, index) => (
+          <div 
+            key={index}
+            className="inline-flex items-center bg-gray-700 px-3 py-1 rounded-full text-sm"
+          >
+            {note}
+            <button
+              type="button"
+              onClick={() => handleRemoveNote(index)}
+              className="ml-2 text-gray-400 hover:text-white"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ))}
+      </div>
+      
+      <div className="flex gap-2">
+        <Input
+          value={newNote}
+          onChange={(e) => setNewNote(e.target.value)}
+          placeholder={`Add ${label.toLowerCase()} note...`}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleAddNote();
+            }
+          }}
+        />
+        <Button 
+          type="button" 
+          onClick={handleAddNote}
+          variant="outline"
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 export default function EditSpiritPage() {
