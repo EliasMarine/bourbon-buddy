@@ -19,7 +19,7 @@ import {
   Calendar,
   MessageCircle
 } from 'lucide-react';
-import Button from "@/components/ui/Button"
+import { Button } from "@/components/ui/Button"
 
 // Debug helper
 const generateDebugId = () => Math.random().toString(36).substring(2, 8);
@@ -283,7 +283,7 @@ export default function DashboardPage() {
                   
                   <div className="mt-4 flex flex-wrap gap-4">
                     <Button 
-                      variant="primary" 
+                      variant="default" 
                       onClick={() => router.push('/collection?add=true')}
                       className="group"
                     >
