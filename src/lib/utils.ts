@@ -88,3 +88,46 @@ export function getCoverPhotoUrl(photoId: string | null, addTimestamp = true): s
   const baseUrl = `/api/images/covers/${photoId}`
   return addTimestamp ? `${baseUrl}?t=${Date.now()}` : baseUrl
 }
+
+/**
+ * Validates a file to ensure it meets size and type requirements
+ * @param file The file to validate
+ * @returns An object with validation result
+ */
+export function validateFile(file: File): { isValid: boolean; error?: string } {
+  // Check file size (max 5MB)
+  const maxSize = 5 * 1024 * 1024; // 5MB
+  if (file.size > maxSize) {
+    return {
+      isValid: false,
+      error: `File size exceeds the maximum allowed (5MB). Current size: ${(file.size / 1024 / 1024).toFixed(2)}MB`
+    };
+  }
+
+  // Check file type (only images)
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    return {
+      isValid: false,
+      error: 'Only image files (JPEG, PNG, GIF, WebP) are allowed'
+    };
+  }
+
+  return { isValid: true };
+}
+
+/**
+ * Sanitizes HTML content to prevent XSS attacks
+ * @param html The HTML string to sanitize
+ * @returns The sanitized HTML string
+ */
+export function sanitizeHtml(html: string): string {
+  if (!html) return '';
+  
+  // Simple sanitization - remove script tags and potentially dangerous attributes
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/on\w+="[^"]*"/g, '') // Remove on* attributes
+    .replace(/javascript:[^"']+/g, '') // Remove javascript: protocol
+    .trim();
+}

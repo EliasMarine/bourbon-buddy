@@ -17,13 +17,14 @@ import { validateFile, sanitizeHtml } from '@/lib/utils';
 
 interface EditSpiritData extends SpiritFormData {
   id?: string;
+  imageUrl?: string | null;
 }
 
 // Component that uses useSearchParams wrapped in its own function
 function AddSpiritForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const isEditMode = searchParams.get('edit') === 'true';
+  const isEditMode = searchParams?.get('edit') === 'true';
   const { data: session, status } = useSupabaseSession({ required: true });
   const [isLoading, setIsLoading] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -464,17 +465,17 @@ function AddSpiritForm() {
                   {/* Rating */}
                   <div>
                     <label htmlFor="rating" className="block text-sm font-medium text-gray-300 mb-1">
-                      Rating (1-10)
+                      Rating (1-10, decimals allowed)
                     </label>
                     <input
                       id="rating"
                       type="number"
                       min="1"
                       max="10"
-                      step="1"
+                      step="0.1"
                       {...register('rating', { valueAsNumber: true })}
                       className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      placeholder="E.g., 8"
+                      placeholder="E.g., 8.5"
                     />
                     {errors.rating && (
                       <p className="mt-1 text-sm text-red-400">{errors.rating.message}</p>

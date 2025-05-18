@@ -97,22 +97,65 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const spiritData = { ...body, ownerId: user.id };
+    
+    // Log the incoming request body for debugging
+    console.log('[api/collection] Received POST request body:', JSON.stringify(body));
+    
+    // Ensure ownerId is set and matches the authenticated user
+    const spiritData = { 
+      ...body, 
+      ownerId: user.id 
+    };
+    
+    console.log('[api/collection] User ID from auth:', user.id);
+    console.log('[api/collection] Owner ID in spirit data:', spiritData.ownerId);
     
     if (!spiritData.name || !spiritData.type || !spiritData.brand) {
         return NextResponse.json({ error: 'Missing required spirit fields (name, type, brand)' }, { status: 400 });
     }
 
-    // Ensure rating is an integer
+    // Handle rating - first check if it exists
     if (spiritData.rating !== undefined && spiritData.rating !== null) {
-      // If it's a decimal, convert it to integer
-      if (typeof spiritData.rating === 'number' && !Number.isInteger(spiritData.rating)) {
-        console.log(`[api/collection] Converting decimal rating ${spiritData.rating} to integer`);
-        spiritData.rating = Math.round(spiritData.rating);
+      const originalRating = spiritData.rating;
+      
+      try {
+        // Ensure it's a number
+        const ratingNum = typeof originalRating === 'number' 
+          ? originalRating 
+          : parseFloat(String(originalRating));
+        
+        if (!isNaN(ratingNum)) {
+          if (ratingNum >= 1 && ratingNum <= 10) {
+            // Scale up from 1-10 to 10-100 range (database expects integer)
+            const scaledRating = Math.round(ratingNum * 10);
+            console.log(`[api/collection] Converting rating from ${ratingNum} to ${scaledRating}`);
+            spiritData.rating = scaledRating;
+          } else if (ratingNum > 10 && ratingNum <= 100) {
+            // Already in correct range, just ensure it's an integer
+            spiritData.rating = Math.round(ratingNum);
+            console.log(`[api/collection] Rating ${ratingNum} already in appropriate range, rounded to ${spiritData.rating}`);
+          } else {
+            // Invalid range
+            console.log(`[api/collection] Invalid rating value: ${ratingNum}, setting to null`);
+            spiritData.rating = null;
+          }
+        } else {
+          // Not a valid number
+          console.log(`[api/collection] Non-numeric rating value: ${originalRating}, setting to null`);
+          spiritData.rating = null;
+        }
+      } catch (err) {
+        console.error(`[api/collection] Error processing rating:`, err);
+        spiritData.rating = null;
       }
     }
 
-    console.log(`[api/collection] Attempting to add spirit for user: ${user.id}`, spiritData);
+    // Final safety check - ensure rating is an integer (critical for database compatibility)
+    if (spiritData.rating !== null && spiritData.rating !== undefined) {
+      spiritData.rating = Math.round(spiritData.rating);
+    }
+
+    console.log(`[api/collection] Final spirit data being sent to database:`, JSON.stringify(spiritData));
 
     const { data: newSpirit, error } = await supabase // Using the imported supabase client
       .from('Spirit')
@@ -123,7 +166,21 @@ export async function POST(request: Request) {
     if (error) {
       console.error('[api/collection] Error adding spirit to collection:', error);
       if (error.code === '42501') {
-          console.error('[api/collection] Permission denied. Check RLS policies for Spirit table INSERT for authenticated users.');
+          console.error('[api/collection] Permission denied. RLS policy violation. Details:', error);
+          console.error('[api/collection] This is likely an issue with the Supabase RLS policies for the Spirit table');
+          console.error('[api/collection] Ensure the RLS policy allows insert for authenticated users with matching ownerId');
+          
+          // Check if the user exists in the auth system
+          try {
+            const { data: authUser, error: authError } = await supabase.auth.getUser();
+            if (authError) {
+              console.error('[api/collection] Error checking auth user:', authError);
+            } else {
+              console.log('[api/collection] Auth user check result:', authUser);
+            }
+          } catch (authCheckError) {
+            console.error('[api/collection] Exception during auth check:', authCheckError);
+          }
       }
       return NextResponse.json(
         { error: 'Error adding spirit to collection', details: error.message, code: error.code },
