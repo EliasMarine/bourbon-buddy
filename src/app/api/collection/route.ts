@@ -262,19 +262,25 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error("Supabase insert error:", insertError);
-      // Provide more detailed error from Supabase
-      const errorMessage = typeof insertError === 'object' && insertError !== null && 'message' in insertError ? String((insertError as any).message) : 'Unknown Supabase error';
+      
+      const responseStatus = typeof insertError === 'object' && insertError !== null && 'status' in insertError && typeof (insertError as any).status === 'number' 
+        ? (insertError as any).status 
+        : 500;
+
+      const errorMessage = typeof insertError === 'object' && insertError !== null && 'message' in insertError ? String((insertError as any).message) : 'Unknown Supabase error during insert.';
       const errorCode = typeof insertError === 'object' && insertError !== null && 'code' in insertError ? String((insertError as any).code) : 'N/A';
       const errorDetails = typeof insertError === 'object' && insertError !== null && 'details' in insertError ? String((insertError as any).details) : '';
-      
+      const errorHint = typeof insertError === 'object' && insertError !== null && 'hint' in insertError ? String((insertError as any).hint) : '';
+
       return NextResponse.json(
         { 
           error: "Failed to create spirit in database", 
           db_message: errorMessage,
           db_code: errorCode,
-          db_details: errorDetails
+          db_details: errorDetails,
+          db_hint: errorHint
         },
-        { status: 500 }
+        { status: responseStatus } // Use status from Supabase error if available, else 500
       );
     }
 

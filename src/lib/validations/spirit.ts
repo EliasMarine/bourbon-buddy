@@ -118,7 +118,7 @@ export const spiritSchema = z.object({
   type: z.string().min(1, "Type is required").max(50),
   category: z.string().max(50).default("whiskey"),
   description: z.string().max(2000).nullable().optional(),
-  imageUrl: z.string().url().nullable().optional(),
+  imageUrl: z.string().url({ message: "Invalid URL format for image" }).nullable().optional(),
   proof: z.number().nonnegative().nullable().optional(),
   price: z.number().nonnegative().nullable().optional(),
   rating: z.number().min(0).max(100).nullable().optional(),
@@ -126,7 +126,7 @@ export const spiritSchema = z.object({
   palate: z.string().max(1000).nullable().optional(),
   finish: z.string().max(1000).nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
-  dateAcquired: z.string().nullable().optional(),
+  dateAcquired: z.string().datetime({ message: "Invalid date format. Please use YYYY-MM-DD." }).nullable().optional(),
   bottleSize: z.string().max(50).nullable().optional(),
   distillery: z.string().max(100).nullable().optional(),
   bottleLevel: z.number().min(0).max(100).nullable().optional(),
@@ -134,7 +134,9 @@ export const spiritSchema = z.object({
   country: z.string().max(50).nullable().optional(),
   region: z.string().max(50).nullable().optional(),
   releaseYear: z.number().positive().int().nullable().optional(),
-  ownerId: z.string().uuid().optional(),
+  ownerId: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
 });
 
 export const spiritFilterSchema = z.object({
