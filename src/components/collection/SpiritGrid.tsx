@@ -118,24 +118,36 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
           key={spirit.id} 
           className={`overflow-hidden transition-all hover:shadow-md ${spirit.isFavorite ? 'ring-2 ring-amber-500 ring-opacity-50' : ''}`}
         >
+          {/* Header moved to top */}
+          <CardHeader className="p-4 pb-0">
+            <CardTitle className="text-lg line-clamp-1 text-amber-100">{spirit.name}</CardTitle>
+            <p className="text-sm text-amber-100/70 line-clamp-1">{spirit.brand}</p>
+          </CardHeader>
+          
           {/* Image Section */}
-          <div className="relative aspect-[3/4] h-48 overflow-hidden">
+          <div className="relative flex justify-center items-center h-60 mx-2 mt-2 mb-1 rounded-md bg-gray-800/10 overflow-hidden">
             {spirit.imageUrl ? (
-              <Image
-                src={spirit.imageUrl}
-                alt={spirit.name}
-                fill
-                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                style={{ objectFit: 'contain' }}
-                className="transition-all hover:scale-105 bg-gray-800/50"
-                onError={(e) => {
-                  // Fallback if image fails to load
-                  const target = e.target as HTMLImageElement;
-                  target.src = '/images/bottle-placeholder.png';
-                }}
-              />
+              <div className="w-full h-full flex justify-center items-center p-2">
+                <Image
+                  src={spirit.imageUrl}
+                  alt={spirit.name}
+                  width={120}
+                  height={180}
+                  style={{ 
+                    objectFit: 'contain', 
+                    maxHeight: '100%',
+                    width: 'auto'
+                  }}
+                  className="transition-all hover:scale-105"
+                  onError={(e) => {
+                    // Fallback if image fails to load
+                    const target = e.target as HTMLImageElement;
+                    target.src = '/images/bottle-placeholder.png';
+                  }}
+                />
+              </div>
             ) : (
-              <div className="flex h-full w-full items-center justify-center bg-gray-800/50">
+              <div className="flex h-full w-full items-center justify-center">
                 <Coffee className="h-20 w-20 text-amber-700/30" />
               </div>
             )}
@@ -154,12 +166,7 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
             </Button>
           </div>
           
-          <CardHeader className="p-4">
-            <CardTitle className="text-lg line-clamp-1 text-amber-100">{spirit.name}</CardTitle>
-            <p className="text-sm text-amber-100/70 line-clamp-1">{spirit.brand}</p>
-          </CardHeader>
-          
-          <CardContent className="p-4 pt-0">
+          <CardContent className="p-3 pt-2">
             <div className="flex items-center gap-1 mb-2">
               <Star className="h-4 w-4 text-amber-500" />
               <span className="text-sm font-medium text-amber-100">
@@ -172,7 +179,7 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
               )}
             </div>
             
-            <div className="flex justify-between text-sm">
+            <div className="grid grid-cols-3 gap-2 text-sm">
               <div>
                 <p className="text-amber-100/70">Price</p>
                 <p className="font-semibold text-amber-100">{formatPrice(spirit.price)}</p>
@@ -192,7 +199,7 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
             </div>
           </CardContent>
           
-          <CardFooter className="p-4 pt-0 flex justify-between">
+          <CardFooter className="p-3 pt-1 flex justify-between">
             <Button 
               variant="outline" 
               size="sm"

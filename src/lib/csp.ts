@@ -42,6 +42,8 @@ export function isDevelopmentMode(): boolean {
 
 /**
  * Creates a CSP header with nonces for both script and style elements
+ * Uses a secure approach with nonces and specific content hashes,
+ * avoiding unsafe-inline completely for better security.
  * 
  * @param nonce - The nonce value to use
  * @returns The CSP header string
@@ -67,10 +69,36 @@ export function createCSPHeader(nonce: string): string {
   `;
 
   // Conditional style-src
+  // We use nonces and specific content hashes for all inline styles to ensure maximum security
+  // This is a more secure approach than using 'unsafe-inline', especially for production
   let styleSrcDirective = `'self' 'nonce-${nonce}' https://vercel.com https://fonts.googleapis.com`;
   if (isDevelopment) {
     // In development, allow 'unsafe-inline' for styles for easier DX (e.g. HMR).
-    styleSrcDirective += " 'unsafe-inline'";
+    // styleSrcDirective += " 'unsafe-inline'";
+    // Even in dev, prefer hashed values over unsafe-inline to maintain security
+    styleSrcDirective += " 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='";
+    styleSrcDirective += " 'sha256-7lAG9nNPimWNBky6j9qnn0jfFzu5wK96KOj/UzoG0hg='";
+    styleSrcDirective += " 'sha256-LL1Oj3pIToBpzHWMlAyrmK9guWSsY8Nr8wq7gA/m/ew='"; // Mux Player
+    styleSrcDirective += " 'sha256-8mIk1oX3LmRB+UWuFGvbo1hLWczGs3Z5yXDPHotWXlQ='"; // Mux Player
+    styleSrcDirective += " 'sha256-ZYns29och5nBGFV2O2mG0POX+mI2q4UFtJuvS1eoGF0='"; // Mux Player
+    styleSrcDirective += " 'sha256-DSYmRr35z6zyfy04z49VxSw/Fjw5T+rlVRbZWRT8U/I='"; // Mux Player
+    styleSrcDirective += " 'sha256-OYG2xTYpFINTWWpa7AYS4DfPiIyxrHaKeuWu5xqQjPE='"; // Mux Player
+    styleSrcDirective += " 'sha256-nzTgYzXYDNe6BAHiiI7NNlfK8n/auuOAhh2t92YvuXo='";
+    styleSrcDirective += " 'sha256-Nqnn8clbgv+5l0PgxcTOldg8mkMKrFn4TvPL+rYUUGg='";
+    styleSrcDirective += " 'sha256-13vrThxdyT64GcXoTNGVoRRoL0a7EGBmOJ+lemEWyws='";
+    styleSrcDirective += " 'sha256-QZ52fjvWgIOIOPr+gRIJZ7KjzNeTBm50Z+z9dH4N1/8='";
+    styleSrcDirective += " 'sha256-yOU6eaJ75xfag0gVFUvld5ipLRGUy94G17B1uL683EU='";
+    styleSrcDirective += " 'sha256-OpTmykz0m3o5HoX53cykwPhUeU4OECxHQlKXpB0QJPQ='";
+    styleSrcDirective += " 'sha256-SSIM0kI/u45y4gqkri9aH+la6wn2R+xtcBj3Lzh7qQo='";
+    styleSrcDirective += " 'sha256-ZH/+PJIjvP1BctwYxclIuiMu1wItb0aasjpXYXOmU0Y='";
+    styleSrcDirective += " 'sha256-58jqDtherY9NOM+ziRgSqQY0078tAZ+qtTBjMgbM9po='";
+    styleSrcDirective += " 'sha256-7Ri/I+PfhgtpcL7hT4A0VJKI6g3pK0ZvIN09RQV4ZhI='";
+    styleSrcDirective += " 'sha256-+1ELCr8ReJfJBjWJ10MIbLJZRYsIfwdKV+UKdFVDXyo='"; // Additional Mux Player hashes
+    styleSrcDirective += " 'sha256-MktN23nRzohmT1JNxPQ0B9CzVW6psOCbvJ20j9YxAxA='"; 
+    styleSrcDirective += " 'sha256-47lXINn3kn6TjA9CnVQoLLxD4bevVlCtoMcDr8kZ1kc='";
+    styleSrcDirective += " 'sha256-wkAU1AW/h8RKmZ3BUsffwzbTWBeIGD83S5VR9RhiQtk='";
+    styleSrcDirective += " 'sha256-MQsH+WZ41cJWVrTw3AC5wJ8LdiYKgwTlENhYI5UKpow='";
+    styleSrcDirective += " 'sha256-TIidHKBLbE0MY7TLE+9G8QOzGXaS7aIwJ1xJRtTd3zk='";
   } else {
     // In production, add specific hashes for known inline styles
     styleSrcDirective += " 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='";
@@ -90,6 +118,12 @@ export function createCSPHeader(nonce: string): string {
     styleSrcDirective += " 'sha256-ZH/+PJIjvP1BctwYxclIuiMu1wItb0aasjpXYXOmU0Y='";
     styleSrcDirective += " 'sha256-58jqDtherY9NOM+ziRgSqQY0078tAZ+qtTBjMgbM9po='";
     styleSrcDirective += " 'sha256-7Ri/I+PfhgtpcL7hT4A0VJKI6g3pK0ZvIN09RQV4ZhI='";
+    styleSrcDirective += " 'sha256-+1ELCr8ReJfJBjWJ10MIbLJZRYsIfwdKV+UKdFVDXyo='"; // Additional Mux Player hashes
+    styleSrcDirective += " 'sha256-MktN23nRzohmT1JNxPQ0B9CzVW6psOCbvJ20j9YxAxA='"; 
+    styleSrcDirective += " 'sha256-47lXINn3kn6TjA9CnVQoLLxD4bevVlCtoMcDr8kZ1kc='";
+    styleSrcDirective += " 'sha256-wkAU1AW/h8RKmZ3BUsffwzbTWBeIGD83S5VR9RhiQtk='";
+    styleSrcDirective += " 'sha256-MQsH+WZ41cJWVrTw3AC5wJ8LdiYKgwTlENhYI5UKpow='";
+    styleSrcDirective += " 'sha256-TIidHKBLbE0MY7TLE+9G8QOzGXaS7aIwJ1xJRtTd3zk='";
   }
   // In production, 'unsafe-inline' is deliberately omitted. Inline styles MUST use the nonce or be hashed.
   

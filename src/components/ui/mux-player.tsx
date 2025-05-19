@@ -109,28 +109,18 @@ export default function MuxPlayer({
 
   // Set custom CSS variable for accent color
   const playerStyle = useMemo(() => {
-    const style = document.createElement('style')
-    style.textContent = `
-      :root {
-        --accent-color: ${accentColor};
-      }
-    `
-    return style
+    // Instead of creating and appending an inline style element, 
+    // add a data attribute that CSS custom properties in globals.css can use
+    return {
+      '--accent-color': accentColor,
+    } as React.CSSProperties
   }, [accentColor])
 
   useEffect(() => {
-    // Add the style element to document head
-    if (playerStyle) {
-      document.head.appendChild(playerStyle)
-    }
-    
-    // Clean up
-    return () => {
-      if (playerStyle && document.head.contains(playerStyle)) {
-        document.head.removeChild(playerStyle)
-      }
-    }
-  }, [playerStyle])
+    // No need to do document.head manipulation that would require unsafe-inline
+    // The CSS variables will be applied directly to the container via style attribute
+    // which will get a proper nonce in Next.js
+  }, [])
 
   useEffect(() => {
     if (!playbackId) return;
@@ -179,7 +169,7 @@ export default function MuxPlayer({
 
   // Standard player markup
   return (
-    <div className={cn('relative rounded-xl overflow-hidden', className)}>
+    <div className={cn('relative rounded-xl overflow-hidden', className)} style={playerStyle}>
       {loading && !error && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/10 z-10">
           <Icons.spinner className="h-8 w-8 animate-spin" />

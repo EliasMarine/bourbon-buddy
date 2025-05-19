@@ -160,7 +160,11 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                   <FormItem>
                     <FormLabel>Name <span className="text-red-500">*</span></FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. Eagle Rare 10 Year" {...field} />
+                      <Input 
+                        placeholder="e.g. Eagle Rare 10 Year" 
+                        {...field} 
+                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -174,7 +178,11 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                   <FormItem>
                     <FormLabel>Brand <span className="text-red-500">*</span></FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. Buffalo Trace" {...field} />
+                      <Input 
+                        placeholder="e.g. Buffalo Trace" 
+                        {...field} 
+                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -192,11 +200,11 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                       defaultValue={field.value}
                     >
                       <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select spirit type" />
+                        <SelectTrigger className="bg-white text-black border-gray-300">
+                          <SelectValue placeholder="Select spirit type" className="text-gray-500" />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className="bg-white text-black">
                         <SelectItem value="Bourbon">Bourbon</SelectItem>
                         <SelectItem value="Scotch">Scotch</SelectItem>
                         <SelectItem value="Rye">Rye</SelectItem>
@@ -222,11 +230,11 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                       defaultValue={field.value}
                     >
                       <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select category" />
+                        <SelectTrigger className="bg-white text-black border-gray-300">
+                          <SelectValue placeholder="Select category" className="text-gray-500" />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className="bg-white text-black">
                         <SelectItem value="whiskey">Whiskey</SelectItem>
                         <SelectItem value="rum">Rum</SelectItem>
                         <SelectItem value="gin">Gin</SelectItem>
@@ -251,7 +259,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                   <FormControl>
                     <Textarea
                       placeholder="Add a description of this spirit..."
-                      className="min-h-[100px]"
+                      className="min-h-[100px] bg-white text-black placeholder:text-gray-500 border-gray-300"
                       {...field}
                       value={field.value || ''}
                     />
@@ -280,6 +288,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         {...field}
                         value={field.value || ''}
                         onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
+                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
                       />
                     </FormControl>
                     <FormMessage />
@@ -301,6 +310,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         {...field}
                         value={field.value || ''}
                         onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
+                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
                       />
                     </FormControl>
                     <FormDescription>Spirit proof (e.g., 80, 90.5, 100)</FormDescription>
@@ -325,6 +335,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         {...field}
                         value={field.value || ''}
                         onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
+                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
                       />
                     </FormControl>
                     <FormDescription>Enter a rating from 0 to 10</FormDescription>
@@ -350,11 +361,11 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                       defaultValue={field.value || ''}
                     >
                       <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select country" />
+                        <SelectTrigger className="bg-white text-black border-gray-300">
+                          <SelectValue placeholder="Select country" className="text-gray-500" />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent className="bg-white text-black">
                         <SelectItem value="USA">USA</SelectItem>
                         <SelectItem value="Scotland">Scotland</SelectItem>
                         <SelectItem value="Ireland">Ireland</SelectItem>
@@ -375,7 +386,12 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                   <FormItem>
                     <FormLabel>Region</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. Kentucky" {...field} value={field.value || ''} />
+                      <Input 
+                        placeholder="e.g. Kentucky" 
+                        {...field} 
+                        value={field.value || ''} 
+                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -389,7 +405,12 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                   <FormItem>
                     <FormLabel>Distillery</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. Buffalo Trace Distillery" {...field} value={field.value || ''} />
+                      <Input 
+                        placeholder="e.g. Buffalo Trace Distillery" 
+                        {...field} 
+                        value={field.value || ''} 
+                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -409,6 +430,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         {...field}
                         value={field.value || ''}
                         onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
+                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
                       />
                     </FormControl>
                     <FormMessage />
@@ -455,6 +477,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                       {...field}
                       value={field.value || ''}
                       onChange={(e) => handleImageUrlChange(e.target.value)}
+                      className="bg-white text-black placeholder:text-gray-500 border-gray-300"
                     />
                   </FormControl>
                   <FormDescription>
