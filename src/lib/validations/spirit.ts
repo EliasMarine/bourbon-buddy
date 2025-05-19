@@ -60,6 +60,9 @@ export const SpiritSchema = z.object({
     .default(false)
     .optional(),
   dateAcquired: z.string()
+    .refine((val) => /^\d{4}-\d{2}-\d{2}$/.test(val), {
+      message: "Invalid date format. Please use YYYY-MM-DD."
+    })
     .nullable()
     .optional(),
   bottleSize: z.string()
@@ -126,7 +129,12 @@ export const spiritSchema = z.object({
   palate: z.string().max(1000).nullable().optional(),
   finish: z.string().max(1000).nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
-  dateAcquired: z.string().datetime({ message: "Invalid date format. Please use YYYY-MM-DD." }).nullable().optional(),
+  dateAcquired: z.string()
+    .refine((val) => /^\d{4}-\d{2}-\d{2}$/.test(val), {
+      message: "Invalid date format. Please use YYYY-MM-DD."
+    })
+    .nullable()
+    .optional(),
   bottleSize: z.string().max(50).nullable().optional(),
   distillery: z.string().max(100).nullable().optional(),
   bottleLevel: z.number().min(0).max(100).nullable().optional(),

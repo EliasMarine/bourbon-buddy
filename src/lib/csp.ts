@@ -58,7 +58,7 @@ export function createCSPHeader(nonce: string): string {
     base-uri 'self';
     form-action 'self';
     frame-ancestors 'none';
-    img-src 'self' data: blob: https://*.mux.com https://image.mux.com https://mux.com https://vercel.live https://vercel.com https://*.pusher.com/ https://*.amazonaws.com https://*.supabase.co https://avatars.githubusercontent.com https://lh3.googleusercontent.com https://*.redd.it https://preview.redd.it https://i.redd.it https://www.buffalotracedistillery.com https://www.blantonsbourbon.com https://barbank.com https://woodencork.com https://whiskeycaviar.com https://bdliquorwine.com https://bourbonbuddy.s3.ca-west-1.s4.mega.io;
+    img-src 'self' data: blob: https://*.mux.com https://image.mux.com https://mux.com https://vercel.live https://vercel.com https://*.pusher.com/ https://*.amazonaws.com https://*.supabase.co https://avatars.githubusercontent.com https://lh3.googleusercontent.com https://*.redd.it https://preview.redd.it https://i.redd.it https://www.buffalotracedistillery.com https://www.blantonsbourbon.com https://barbank.com https://woodencork.com https://whiskeycaviar.com https://bdliquorwine.com https://bourbonbuddy.s3.ca-west-1.s4.mega.io https://www.masterofmalt.com;
     media-src 'self' blob: https://*.mux.com https://mux.com https://stream.mux.com https://assets.mux.com https://image.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://*.litix.io;
     connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.mux.com https://mux.com https://inferred.litix.io https://*.litix.io https://stream.mux.com https://assets.mux.com https://*.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://storage.googleapis.com https://vercel.live https://vercel.com https://*.pusher.com wss://*.pusher.com https://vitals.vercel-insights.com;
     frame-src 'self' https://vercel.live https://vercel.com https://*.mux.com;
@@ -71,8 +71,18 @@ export function createCSPHeader(nonce: string): string {
   if (isDevelopment) {
     // In development, allow 'unsafe-inline' for styles for easier DX (e.g. HMR).
     styleSrcDirective += " 'unsafe-inline'";
+  } else {
+    // In production, add specific hashes for known inline styles
+    styleSrcDirective += " 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='";
+    styleSrcDirective += " 'sha256-7lAG9nNPimWNBky6j9qnn0jfFzu5wK96KOj/UzoG0hg='";
+    styleSrcDirective += " 'sha256-LL1Oj3pIToBpzHWMlAyrmK9guWSsY8Nr8wq7gA/m/ew='"; // Mux Player
+    styleSrcDirective += " 'sha256-8mIk1oX3LmRB+UWuFGvbo1hLWczGs3Z5yXDPHotWXlQ='"; // Mux Player
+    styleSrcDirective += " 'sha256-ZYns29och5nBGFV2O2mG0POX+mI2q4UFtJuvS1eoGF0='"; // Mux Player
+    styleSrcDirective += " 'sha256-DSYmRr35z6zyfy04z49VxSw/Fjw5T+rlVRbZWRT8U/I='"; // Mux Player
+    styleSrcDirective += " 'sha256-OYG2xTYpFINTWWpa7AYS4DfPiIyxrHaKeuWu5xqQjPE='"; // Mux Player
+    styleSrcDirective += " 'sha256-nzTgYzXYDNe6BAHiiI7NNlfK8n/auuOAhh2t92YvuXo='";
   }
-  // In production, 'unsafe-inline' is deliberately omitted. Inline styles MUST use the nonce.
+  // In production, 'unsafe-inline' is deliberately omitted. Inline styles MUST use the nonce or be hashed.
   
   return `${baseCsp} style-src ${styleSrcDirective};`.replace(/\s{2,}/g, ' ').trim();
 }
