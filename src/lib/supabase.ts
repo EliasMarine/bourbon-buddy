@@ -147,7 +147,7 @@ export function createBrowserSupabaseClient(): SupabaseClient<Database> {
  * This is a basic client that doesn't use cookie handling
  * Use createAppRouterSupabaseClient for App Router components
  */
-export const createServerSupabaseClient = cache((): SupabaseClient<Database> => {
+export const createServerSupabaseClient = cache(async (): Promise<SupabaseClient<Database>> => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   

@@ -27,6 +27,7 @@ import {
 import { Loader2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import Image from 'next/image';
+import SimpleBottleLevelSlider from '@/components/ui/SimpleBottleLevelSlider';
 
 // Form schema for client-side validation
 const formSchema = z.object({
@@ -264,7 +265,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
           {/* Price and Rating Section */}
           <div className="space-y-4 pt-4">
             <h3 className="text-lg font-medium">Price and Rating</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <FormField
                 control={form.control}
                 name="price"
@@ -281,6 +282,28 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={form.control}
+                name="proof"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Proof</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        step="0.1"
+                        placeholder="e.g. 90.0" 
+                        {...field}
+                        value={field.value || ''}
+                        onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
+                      />
+                    </FormControl>
+                    <FormDescription>Spirit proof (e.g., 80, 90.5, 100)</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -393,6 +416,28 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                 )}
               />
             </div>
+            
+            {/* Bottle Level Slider */}
+            <FormField
+              control={form.control}
+              name="bottleLevel"
+              render={({ field }) => (
+                <FormItem className="col-span-1 md:col-span-2 mt-4">
+                  <FormLabel>Bottle Level</FormLabel>
+                  <FormControl>
+                    <SimpleBottleLevelSlider
+                      value={field.value ?? 100}
+                      onChange={(value) => field.onChange(value)}
+                      id="bottleLevel"
+                    />
+                  </FormControl>
+                  <FormDescription className="text-center">
+                    Set how full the bottle is (defaults to 100% for new bottles)
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </div>
           
           {/* Image Section */}

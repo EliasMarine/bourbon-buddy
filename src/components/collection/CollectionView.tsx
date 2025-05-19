@@ -116,10 +116,10 @@ export default function CollectionView() {
   return (
     <div className="space-y-6">
       {/* Filter Section */}
-      <div className="sticky top-20 z-30 pb-4 pt-2 backdrop-blur-sm bg-background/80">
+      <div className="sticky top-20 z-30 pb-4 pt-2 backdrop-blur-lg bg-gradient-to-b from-gray-900/95 to-gray-800/95 border-b border-amber-800/20 shadow-md">
         <div className="flex flex-col space-y-4">
           <div className="flex justify-between items-center">
-            <h2 className="text-xl font-semibold">Filters</h2>
+            <h2 className="text-xl font-semibold text-amber-100">Filters</h2>
             <Dialog open={showFormDialog} onOpenChange={setShowFormDialog}>
               <DialogTrigger asChild>
                 <Button>
@@ -129,7 +129,7 @@ export default function CollectionView() {
               </DialogTrigger>
               <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                  <DialogTitle>Add to Collection</DialogTitle>
+                  <DialogTitle className="text-amber-100">Add to Collection</DialogTitle>
                 </DialogHeader>
                 <SpiritForm onSuccess={handleFormSuccess} />
               </DialogContent>
@@ -142,15 +142,16 @@ export default function CollectionView() {
                 placeholder="Search by name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                className="bg-gray-800/60 border-gray-700/60 focus:border-amber-600/50 focus:ring-amber-600/30"
               />
             </div>
             
             <div>
               <Select value={type || ''} onValueChange={(v) => setType(v === 'all' ? undefined : v)}>
-                <SelectTrigger>
+                <SelectTrigger className="bg-gray-800/60 border-gray-700/60 focus:ring-amber-600/30">
                   <SelectValue placeholder="Type" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-gray-800 border-gray-700">
                   <SelectItem value="all">All Types</SelectItem>
                   <SelectItem value="Bourbon">Bourbon</SelectItem>
                   <SelectItem value="Scotch">Scotch</SelectItem>
@@ -163,10 +164,10 @@ export default function CollectionView() {
             
             <div>
               <Select value={country || ''} onValueChange={(v) => setCountry(v === 'all' ? undefined : v)}>
-                <SelectTrigger>
+                <SelectTrigger className="bg-gray-800/60 border-gray-700/60 focus:ring-amber-600/30">
                   <SelectValue placeholder="Country" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-gray-800 border-gray-700">
                   <SelectItem value="all">All Countries</SelectItem>
                   <SelectItem value="USA">USA</SelectItem>
                   <SelectItem value="Scotland">Scotland</SelectItem>
@@ -182,10 +183,10 @@ export default function CollectionView() {
                 value={`${sortBy}-${sortDir}`} 
                 onValueChange={handleSortChange}
               >
-                <SelectTrigger>
+                <SelectTrigger className="bg-gray-800/60 border-gray-700/60 focus:ring-amber-600/30">
                   <SelectValue placeholder="Sort by" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-gray-800 border-gray-700">
                   <SelectItem value="createdAt-desc">Newest First</SelectItem>
                   <SelectItem value="createdAt-asc">Oldest First</SelectItem>
                   <SelectItem value="name-asc">Name (A-Z)</SelectItem>
@@ -206,6 +207,7 @@ export default function CollectionView() {
                 placeholder="Min Price"
                 value={minPrice}
                 onChange={(e) => setMinPrice(e.target.value)}
+                className="bg-gray-800/60 border-gray-700/60 focus:border-amber-600/50 focus:ring-amber-600/30"
               />
             </div>
             <div>
@@ -214,6 +216,7 @@ export default function CollectionView() {
                 placeholder="Max Price"
                 value={maxPrice}
                 onChange={(e) => setMaxPrice(e.target.value)}
+                className="bg-gray-800/60 border-gray-700/60 focus:border-amber-600/50 focus:ring-amber-600/30"
               />
             </div>
             <div>
@@ -222,6 +225,7 @@ export default function CollectionView() {
                 placeholder="Min Proof"
                 value={minProof}
                 onChange={(e) => setMinProof(e.target.value)}
+                className="bg-gray-800/60 border-gray-700/60 focus:border-amber-600/50 focus:ring-amber-600/30"
               />
             </div>
             <div>
@@ -230,11 +234,12 @@ export default function CollectionView() {
                 placeholder="Max Proof"
                 value={maxProof}
                 onChange={(e) => setMaxProof(e.target.value)}
+                className="bg-gray-800/60 border-gray-700/60 focus:border-amber-600/50 focus:ring-amber-600/30"
               />
             </div>
           </div>
           
-          <Button onClick={applyFilters} className="w-full">
+          <Button onClick={applyFilters} className="w-full bg-amber-600 hover:bg-amber-700">
             <Filter className="h-4 w-4 mr-2" />
             Apply Filters
           </Button>

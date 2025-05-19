@@ -10,6 +10,7 @@ const protectedRoutes = [
   '/collection',
   '/api/collection',
   '/api/spirits/',
+  '/api/spirit/',
   '/api/users/',
   '/api/user/',
   '/api/upload',
@@ -89,7 +90,7 @@ function generateCSPNonce(): string {
 // The connect-src, media-src, and img-src directives need to include all required MUX domains
 // to prevent Cross-Origin Resource Sharing (CORS) issues and ensure the player works correctly
 const expandedMuxDirectives = `
-  img-src 'self' data: blob: https://*.mux.com https://image.mux.com https://mux.com https://vercel.live https://vercel.com https://*.pusher.com/ https://*.amazonaws.com https://*.supabase.co https://avatars.githubusercontent.com https://lh3.googleusercontent.com https://*.redd.it https://preview.redd.it https://i.redd.it https://www.buffalotracedistillery.com https://www.blantonsbourbon.com https://barbank.com https://woodencork.com https://whiskeycaviar.com https://bdliquorwine.com https://bourbonbuddy.s3.ca-west-1.s4.mega.io;
+  img-src 'self' data: blob: https://*.mux.com https://image.mux.com https://mux.com https://vercel.live https://vercel.com https://*.pusher.com/ https://*.amazonaws.com https://*.supabase.co https://avatars.githubusercontent.com https://lh3.googleusercontent.com https://*.redd.it https://preview.redd.it https://i.redd.it https://www.buffalotracedistillery.com https://www.blantonsbourbon.com https://barbank.com https://woodencork.com https://whiskeycaviar.com https://bdliquorwine.com https://bourbonbuddy.s3.ca-west-1.s4.mega.io https://www.oldforester.com https://www.makersmark.com https://www.fourrosesbourbon.com https://www.knobcreek.com https://www.angelsenvy.com https://www.woodfordreserve.com https://www.jackdaniels.com https://www.heavenhill.com https://wine-searcher.com https://distillerytrail.com https://*.google.com https://*.bing.com;
   media-src 'self' blob: https://*.mux.com https://mux.com https://stream.mux.com https://assets.mux.com https://image.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://*.litix.io;
   connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.mux.com https://mux.com https://inferred.litix.io https://*.litix.io https://stream.mux.com https://assets.mux.com https://*.mux.com https://*.fastly.mux.com https://*.cloudflare.mux.com https://storage.googleapis.com https://vercel.live https://vercel.com https://*.pusher.com wss://*.pusher.com https://vitals.vercel-insights.com;
   frame-src 'self' https://vercel.live https://vercel.com https://*.mux.com;
@@ -207,10 +208,30 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   // Now that Supabase has had a chance to work with 'response', set CSP.
-  const contentSecurityPolicy = !isStaticAsset 
-    ? createCSPHeader(nonce).replace(/\s{2,}/g, ' ').trim()
-    : '';
+  // Use a more permissive CSP for the spirit detail page
+  let contentSecurityPolicy = '';
+  
   if (!isStaticAsset) {
+    // Special case for spirit detail pages which need more permissive image sources
+    if (path.includes('/collection/spirit/')) {
+      const relaxedCSP = `
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://assets.mux.com;
+        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+        img-src 'self' data: https: http:;
+        font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com;
+        connect-src 'self' https://*.supabase.co https://api.mux.com https://*;
+        media-src 'self' blob: https://*.mux.com;
+        object-src 'none';
+        base-uri 'self';
+      `.replace(/\s{2,}/g, ' ').trim();
+      
+      contentSecurityPolicy = relaxedCSP;
+    } else {
+      // Use the standard CSP for other pages
+      contentSecurityPolicy = createCSPHeader(nonce).replace(/\s{2,}/g, ' ').trim();
+    }
+    
     response.headers.set('Content-Security-Policy', contentSecurityPolicy);
   }
   
@@ -219,6 +240,11 @@ export async function middleware(request: NextRequest) {
   if (isPublicRoute) {
     // For public routes, return the response that might have Supabase cookies (e.g., session refreshed)
     // and definitely has our CSP.
+    return response;
+  }
+  
+  // Special handling for spirit detail pages - allow if the user is authenticated
+  if (path.startsWith('/collection/spirit/') && user) {
     return response;
   }
     

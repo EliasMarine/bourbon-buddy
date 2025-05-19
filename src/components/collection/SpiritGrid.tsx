@@ -119,19 +119,24 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
           className={`overflow-hidden transition-all hover:shadow-md ${spirit.isFavorite ? 'ring-2 ring-amber-500 ring-opacity-50' : ''}`}
         >
           {/* Image Section */}
-          <div className="relative aspect-square bg-muted overflow-hidden">
+          <div className="relative aspect-[3/4] h-48 overflow-hidden">
             {spirit.imageUrl ? (
               <Image
                 src={spirit.imageUrl}
                 alt={spirit.name}
                 fill
                 sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                style={{ objectFit: 'cover' }}
-                className="transition-all hover:scale-105"
+                style={{ objectFit: 'contain' }}
+                className="transition-all hover:scale-105 bg-gray-800/50"
+                onError={(e) => {
+                  // Fallback if image fails to load
+                  const target = e.target as HTMLImageElement;
+                  target.src = '/images/bottle-placeholder.png';
+                }}
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center bg-gray-200">
-                <Coffee className="h-20 w-20 text-gray-400 opacity-20" />
+              <div className="flex h-full w-full items-center justify-center bg-gray-800/50">
+                <Coffee className="h-20 w-20 text-amber-700/30" />
               </div>
             )}
             
@@ -144,24 +149,24 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
               disabled={loadingFavoriteId === spirit.id}
             >
               <Heart 
-                className={`h-5 w-5 ${spirit.isFavorite ? 'fill-red-500 text-red-500' : 'text-white'}`} 
+                className={`h-5 w-5 ${spirit.isFavorite ? 'fill-amber-500 text-amber-500' : 'text-white'}`} 
               />
             </Button>
           </div>
           
           <CardHeader className="p-4">
-            <CardTitle className="text-lg line-clamp-1">{spirit.name}</CardTitle>
-            <p className="text-sm text-muted-foreground line-clamp-1">{spirit.brand}</p>
+            <CardTitle className="text-lg line-clamp-1 text-amber-100">{spirit.name}</CardTitle>
+            <p className="text-sm text-amber-100/70 line-clamp-1">{spirit.brand}</p>
           </CardHeader>
           
           <CardContent className="p-4 pt-0">
             <div className="flex items-center gap-1 mb-2">
-              <Star className="h-4 w-4 text-yellow-500" />
-              <span className="text-sm font-medium">
+              <Star className="h-4 w-4 text-amber-500" />
+              <span className="text-sm font-medium text-amber-100">
                 {formatRating(spirit.rating)}
               </span>
               {spirit.type && (
-                <span className="ml-auto text-xs py-0.5 px-2 bg-gray-100 rounded-full">
+                <span className="ml-auto text-xs py-0.5 px-2 bg-gray-700/50 text-amber-200 rounded-full border border-amber-800/20">
                   {spirit.type}
                 </span>
               )}
@@ -169,19 +174,19 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
             
             <div className="flex justify-between text-sm">
               <div>
-                <p className="text-muted-foreground">Price</p>
-                <p className="font-semibold">{formatPrice(spirit.price)}</p>
+                <p className="text-amber-100/70">Price</p>
+                <p className="font-semibold text-amber-100">{formatPrice(spirit.price)}</p>
               </div>
               {spirit.proof && (
                 <div>
-                  <p className="text-muted-foreground">Proof</p>
-                  <p className="font-semibold">{spirit.proof}</p>
+                  <p className="text-amber-100/70">Proof</p>
+                  <p className="font-semibold text-amber-100">{spirit.proof}</p>
                 </div>
               )}
               {spirit.bottleLevel !== null && (
                 <div>
-                  <p className="text-muted-foreground">Level</p>
-                  <p className="font-semibold">{spirit.bottleLevel}%</p>
+                  <p className="text-amber-100/70">Level</p>
+                  <p className="font-semibold text-amber-100">{spirit.bottleLevel}%</p>
                 </div>
               )}
             </div>
@@ -192,6 +197,7 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
               variant="outline" 
               size="sm"
               asChild
+              className="border-amber-800/30 hover:bg-amber-800/20 text-amber-100"
             >
               <Link href={`/collection/spirit/${spirit.id}`}>
                 View Details
@@ -202,6 +208,7 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
               <Button
                 variant="ghost"
                 size="icon"
+                className="text-amber-100/70 hover:text-amber-100 hover:bg-amber-800/20"
                 asChild
               >
                 <Link href={`/collection/spirit/${spirit.id}/edit`}>
@@ -212,7 +219,7 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
                 onClick={() => setDeletingId(spirit.id)}
               >
                 <Trash2 className="h-4 w-4" />
@@ -224,10 +231,10 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
       
       {/* Delete Confirmation Dialog */}
       {deletingId && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg max-w-md w-full">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gradient-to-b from-gray-900 to-gray-800 border border-amber-800/30 p-6 rounded-lg max-w-md w-full text-amber-100">
             <h3 className="text-xl font-bold mb-4">Are you sure?</h3>
-            <p className="mb-6">
+            <p className="mb-6 text-amber-100/80">
               This action cannot be undone. This will permanently remove this spirit from your collection.
             </p>
             <div className="flex justify-end gap-2">
@@ -235,6 +242,7 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
                 variant="outline" 
                 onClick={() => setDeletingId(null)}
                 disabled={isDeleting}
+                className="border-amber-800/30 hover:bg-amber-800/20 text-amber-100"
               >
                 Cancel
               </Button>
