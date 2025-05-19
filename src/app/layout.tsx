@@ -11,6 +11,7 @@ import CorsHandler from '../components/cors-handler'
 import { initSentry } from '@/lib/sentry'
 import React from 'react'
 import Script from 'next/script'
+import { Analytics } from '@vercel/analytics/next';
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -166,6 +167,7 @@ export default async function RootLayout({
             </ClientLayout>
           </SupabaseProvider>
         </CsrfProvider>
+        <Analytics />
       </body>
     </html>
   )
