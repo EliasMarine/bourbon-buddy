@@ -149,12 +149,36 @@ export async function GET(request: NextRequest) {
     query = query.range(offset, offset + limit - 1);
 
     // Execute the query
-    const { data, error, count } = await query;
+    let data, error, count;
+    try {
+      const queryResult = await query;
+      data = queryResult.data;
+      error = queryResult.error;
+      count = queryResult.count;
+    } catch (e) {
+      console.error("Exception during Supabase query execution:", e);
+      return NextResponse.json(
+        { error: "Failed to execute spirit query", details: (e as Error).message },
+        { status: 500 }
+      );
+    }
 
     if (error) {
       console.error("Supabase query error:", error);
+      // Distinguish 403/RLS errors more explicitly
+      // Common Supabase error codes for RLS: PGRST200 (check message), or message contains "permission denied" / "forbidden"
+      // The actual error object structure might vary, so checking message is a fallback.
+      const errorMessage = typeof error === 'object' && error !== null && 'message' in error ? String((error as any).message) : '';
+      const errorCode = typeof error === 'object' && error !== null && 'code' in error ? String((error as any).code) : '';
+
+      if (errorCode === 'PGRST200' || errorMessage.includes('permission denied') || errorMessage.includes('forbidden') || errorMessage.includes('violates row-level security policy')) {
+         return NextResponse.json(
+          { error: "Access to spirits denied. Please check Row Level Security policies.", details: errorMessage || errorCode },
+          { status: 403 }
+        );
+      }
       return NextResponse.json(
-        { error: "Failed to fetch spirits" },
+        { error: "Failed to fetch spirits", details: errorMessage || errorCode },
         { status: 500 }
       );
     }
@@ -203,45 +227,70 @@ export async function POST(request: NextRequest) {
     // Parse the request body
     const body = await request.json();
     
-    // Generate a UUID if not provided
     const spiritData = {
       ...body,
       id: body.id || uuidv4(),
       ownerId: session.user.id,
+      // Ensure createdAt and updatedAt are fresh for each insert
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     // Validate the data
-    const validatedData = spiritSchema.parse(spiritData);
+    let validatedData;
+    try {
+      validatedData = spiritSchema.parse(spiritData);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        console.error("Zod validation error in spirits POST route:", error.issues);
+        return NextResponse.json(
+          { error: "Invalid spirit data", details: error.issues },
+          { status: 400 }
+        );
+      }
+      // Re-throw other errors to be caught by the outer try-catch
+      throw error; 
+    }
 
-    // Initialize Supabase client (using service role for RLS bypass if needed)
     const supabase = await createClient();
 
-    // Insert the new spirit
-    const { data, error } = await supabase
+    const { data, error: insertError } = await supabase
       .from("Spirit")
       .insert(validatedData)
       .select()
       .single();
 
-    if (error) {
-      console.error("Supabase insert error:", error);
+    if (insertError) {
+      console.error("Supabase insert error:", insertError);
+      // Provide more detailed error from Supabase
+      const errorMessage = typeof insertError === 'object' && insertError !== null && 'message' in insertError ? String((insertError as any).message) : 'Unknown Supabase error';
+      const errorCode = typeof insertError === 'object' && insertError !== null && 'code' in insertError ? String((insertError as any).code) : 'N/A';
+      const errorDetails = typeof insertError === 'object' && insertError !== null && 'details' in insertError ? String((insertError as any).details) : '';
+      
       return NextResponse.json(
-        { error: "Failed to create spirit" },
+        { 
+          error: "Failed to create spirit in database", 
+          db_message: errorMessage,
+          db_code: errorCode,
+          db_details: errorDetails
+        },
         { status: 500 }
       );
     }
 
-    // Revalidate the collection page
     revalidatePath("/collection");
-
-    // Return the created spirit
     return NextResponse.json(data, { status: 201 });
+
   } catch (error) {
     console.error("Error in spirits POST route:", error);
+    if (error instanceof ZodError) { // Should have been caught above, but as a safeguard
+      return NextResponse.json(
+        { error: "Invalid spirit data (outer catch)", details: error.issues },
+        { status: 400 }
+      );
+    }
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Internal server error in POST /api/collection", details: (error as Error).message },
       { status: 500 }
     );
   }
