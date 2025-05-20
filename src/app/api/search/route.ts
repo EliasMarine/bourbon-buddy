@@ -75,6 +75,21 @@ export async function POST(request: NextRequest) {
       
       const data = await response.json();
       
+      // If this is an image search, modify the image URLs to go through our proxy
+      if (searchType === 'images' && data.images_results) {
+        data.images_results = data.images_results.map((img: any) => {
+          if (img.original) {
+            // Encode the original URL as a query parameter for our proxy
+            const encodedUrl = encodeURIComponent(img.original);
+            img.proxy_url = `/api/image-proxy?url=${encodedUrl}`;
+            // For backward compatibility, keep the original URL but also add the proxy URL
+            img.original_url = img.original;
+            img.original = img.proxy_url;
+          }
+          return img;
+        });
+      }
+      
       // Return the response data to the client
       return NextResponse.json(data);
     } catch (fetchError: unknown) {
