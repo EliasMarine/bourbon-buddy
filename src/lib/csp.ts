@@ -70,8 +70,10 @@ export function createCSPHeader(nonce: string): string {
 
   // Conditional style-src
   // We use nonces and specific content hashes for all inline styles to ensure maximum security
-  // This is a more secure approach than using 'unsafe-inline', especially for production
-  let styleSrcDirective = `'self' 'nonce-${nonce}' https://vercel.com https://fonts.googleapis.com`;
+  // 'unsafe-hashes' is added to allow specific inline style attributes and event handlers required by React/Next.js hydration and some third-party libraries.
+  // See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/style-src#unsafe-hashes
+  //      https://web.dev/strict-csp/#unsafe-hashes
+  let styleSrcDirective = `'self' 'nonce-${nonce}' 'unsafe-hashes' https://vercel.com https://fonts.googleapis.com`;
   if (isDevelopment) {
     // In development, allow 'unsafe-inline' for styles for easier DX (e.g. HMR).
     // styleSrcDirective += " 'unsafe-inline'";
