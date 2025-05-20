@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -24,10 +24,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import Image from 'next/image';
 import SimpleBottleLevelSlider from '@/components/ui/SimpleBottleLevelSlider';
+import { useDebouncedCallback } from 'use-debounce';
 
 // Form schema for client-side validation
 const formSchema = z.object({
@@ -61,9 +62,29 @@ interface SpiritFormProps {
   onSuccess?: () => void;
 }
 
+// Mock API response type
+interface SpiritSearchResult {
+  name: string;
+  brand: string;
+  type: string;
+  description?: string;
+  proof?: number | null;
+  price?: number | null;
+  country?: string | null;
+  region?: string | null;
+  distillery?: string | null;
+  releaseYear?: number | null;
+  imageUrl?: string;
+}
+
 export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(spirit?.imageUrl || null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<SpiritSearchResult[]>([]);
+  const [showResults, setShowResults] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
   
   // Initialize form with default values or existing spirit
   const form = useForm<FormValues>({
@@ -92,6 +113,295 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
       dateAcquired: spirit?.dateAcquired || new Date().toISOString().split('T')[0],
     },
   });
+  
+  // Debounced search function to avoid too many API calls
+  const debouncedSearch = useDebouncedCallback(async (query: string) => {
+    if (!query || query.length < 3 || !autoSearchEnabled) return;
+    
+    setIsSearching(true);
+    try {
+      // Use SerpAPI to get real data
+      const serpApiKey = process.env.NEXT_PUBLIC_SERPAPI_KEY;
+      if (!serpApiKey) {
+        console.warn('SerpAPI key not found, using mock data');
+        const results = await getMockSearchResults(query);
+        setSearchResults(results);
+        setShowResults(results.length > 0);
+      } else {
+        const response = await fetch(`https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(query + " whiskey bourbon details")}&api_key=${serpApiKey}`);
+        
+        if (!response.ok) {
+          throw new Error(`SerpAPI returned ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Extract structured data from search results
+        // This parsing logic will need to be adjusted based on the actual response format
+        const organicResults = data.organic_results || [];
+        const knowledgeGraph = data.knowledge_graph || {};
+        
+        // Process knowledge graph if available (best case)
+        if (knowledgeGraph.title) {
+          const result: SpiritSearchResult = {
+            name: knowledgeGraph.title || query,
+            brand: knowledgeGraph.brand || extractBrandFromTitle(knowledgeGraph.title) || "",
+            type: extractType(knowledgeGraph.type || knowledgeGraph.category || ""),
+            description: knowledgeGraph.description || "",
+            proof: extractProof(knowledgeGraph.description || ""),
+            price: extractPrice(knowledgeGraph.price || ""),
+            country: extractCountry(knowledgeGraph.description || ""),
+            region: extractRegion(knowledgeGraph.description || ""),
+            distillery: knowledgeGraph.manufacturer || knowledgeGraph.distillery || "",
+            releaseYear: extractYear(knowledgeGraph.description || ""),
+            imageUrl: knowledgeGraph.image || ""
+          };
+          
+          setSearchResults([result]);
+          setShowResults(true);
+        }
+        
+        // Process organic results as fallback
+        // This is more complex and less reliable than knowledge graph data
+        const results = organicResults.slice(0, 3).map((result: any) => {
+          const title = result.title || "";
+          return {
+            name: extractName(title),
+            brand: extractBrandFromTitle(title),
+            type: extractTypeFromTitle(title),
+            description: result.snippet || "",
+            imageUrl: result.thumbnail || "",
+            // Other fields would need more complex extraction logic
+            proof: null,
+            price: null,
+            country: null,
+            region: null,
+            distillery: null,
+            releaseYear: null
+          };
+        });
+        
+        setSearchResults(results);
+        setShowResults(results.length > 0);
+      }
+    } catch (error) {
+      console.error("Error fetching from SerpAPI:", error);
+      // Fallback to mock data if API fails
+      const results = await getMockSearchResults(query);
+      setSearchResults(results);
+      setShowResults(results.length > 0);
+    } finally {
+      setIsSearching(false);
+    }
+  }, 500); // 500ms debounce
+  
+  // Helper functions for extracting info from search results
+  const extractBrandFromTitle = (title: string): string => {
+    // Common bourbon/whiskey brands
+    const brands = [
+      "Buffalo Trace", "Blanton's", "Maker's Mark", "Woodford Reserve", 
+      "Four Roses", "Wild Turkey", "Jim Beam", "Knob Creek", "Eagle Rare",
+      "Lagavulin", "Macallan", "Glenfiddich", "Glenlivet", "Jack Daniel's",
+      "Bulleit", "Johnnie Walker", "Jameson", "Crown Royal", "Suntory", "Nikka"
+    ];
+    
+    for (const brand of brands) {
+      if (title.includes(brand)) {
+        return brand;
+      }
+    }
+    
+    return "";
+  };
+  
+  const extractName = (title: string): string => {
+    // Remove common suffixes and clean up the title
+    return title
+      .replace(/( - | \| |: ).*$/, '')
+      .replace(/(\d+ years old|\d+yo|aged \d+ years)/i, '')
+      .trim();
+  };
+  
+  const extractTypeFromTitle = (title: string): string => {
+    const types = [
+      { keywords: ["bourbon"], value: "Bourbon" },
+      { keywords: ["scotch", "single malt"], value: "Scotch" },
+      { keywords: ["rye"], value: "Rye" },
+      { keywords: ["japanese"], value: "Japanese" },
+      { keywords: ["irish"], value: "Irish" },
+      { keywords: ["canadian"], value: "Canadian" }
+    ];
+    
+    for (const type of types) {
+      for (const keyword of type.keywords) {
+        if (title.toLowerCase().includes(keyword)) {
+          return type.value;
+        }
+      }
+    }
+    
+    if (title.toLowerCase().includes("whiskey") || title.toLowerCase().includes("whisky")) {
+      return "Whiskey";
+    }
+    
+    return "Other";
+  };
+  
+  const extractType = (type: string): string => {
+    const lowerType = type.toLowerCase();
+    if (lowerType.includes("bourbon")) return "Bourbon";
+    if (lowerType.includes("scotch") || lowerType.includes("single malt")) return "Scotch";
+    if (lowerType.includes("rye")) return "Rye";
+    if (lowerType.includes("japanese")) return "Japanese";
+    if (lowerType.includes("irish")) return "Irish";
+    if (lowerType.includes("canadian")) return "Canadian";
+    if (lowerType.includes("whiskey") || lowerType.includes("whisky")) return "Whiskey";
+    return "Other";
+  };
+  
+  const extractProof = (text: string): number | null => {
+    // Look for proof or ABV patterns
+    const proofMatch = text.match(/(\d+(?:\.\d+)?)\s*proof/i);
+    if (proofMatch) return parseFloat(proofMatch[1]);
+    
+    const abvMatch = text.match(/(\d+(?:\.\d+)?)\s*%\s*(?:abv|alcohol)/i);
+    if (abvMatch) return parseFloat(abvMatch[1]) * 2; // Convert ABV to proof (roughly)
+    
+    return null;
+  };
+  
+  const extractPrice = (text: string): number | null => {
+    const priceMatch = text.match(/\$(\d+(?:\.\d+)?)/);
+    return priceMatch ? parseFloat(priceMatch[1]) : null;
+  };
+  
+  const extractCountry = (text: string): string | null => {
+    const countries = ["USA", "Scotland", "Japan", "Ireland", "Canada"];
+    for (const country of countries) {
+      if (text.includes(country)) return country;
+    }
+    return null;
+  };
+  
+  const extractRegion = (text: string): string | null => {
+    const regions = [
+      "Kentucky", "Tennessee", "Islay", "Speyside", "Highland", "Lowland", 
+      "Campbeltown", "Islands"
+    ];
+    for (const region of regions) {
+      if (text.includes(region)) return region;
+    }
+    return null;
+  };
+  
+  const extractYear = (text: string): number | null => {
+    const yearMatch = text.match(/(?:released|bottled|distilled).*?in (\d{4})/i);
+    return yearMatch ? parseInt(yearMatch[1]) : null;
+  };
+  
+  // Fallback to mock data
+  const getMockSearchResults = async (query: string): Promise<SpiritSearchResult[]> => {
+    // Simulate API call delay
+    // Example data - in a real app, this would come from your API
+    const mockDatabase: SpiritSearchResult[] = [
+      {
+        name: "Eagle Rare 10 Year",
+        brand: "Buffalo Trace",
+        type: "Bourbon",
+        description: "A classic Kentucky straight bourbon whiskey aged for 10 years, known for its complex flavor profile.",
+        proof: 90,
+        price: 39.99,
+        country: "USA",
+        region: "Kentucky",
+        distillery: "Buffalo Trace Distillery",
+        releaseYear: 2022,
+        imageUrl: "https://www.masterofmalt.com/whiskies/eagle-rare/eagle-rare-10-year-old-whiskey/1-litre/"
+      },
+      {
+        name: "Blanton's Original",
+        brand: "Blanton's",
+        type: "Bourbon",
+        description: "The first commercially available single barrel bourbon, with a distinctive bottle and stopper.",
+        proof: 93,
+        price: 64.99,
+        country: "USA",
+        region: "Kentucky",
+        distillery: "Buffalo Trace Distillery",
+        releaseYear: 2021,
+        imageUrl: "https://www.masterofmalt.com/whiskies/blantons/blantons-original-single-barrel-bourbon-whiskey/"
+      },
+      {
+        name: "Lagavulin 16",
+        brand: "Lagavulin",
+        type: "Scotch",
+        description: "An intense, smoky Islay single malt with rich, deep flavors.",
+        proof: 86,
+        price: 89.99,
+        country: "Scotland",
+        region: "Islay",
+        distillery: "Lagavulin Distillery",
+        releaseYear: 2020,
+        imageUrl: "https://www.masterofmalt.com/whiskies/lagavulin/lagavulin-16-year-old-whisky/"
+      },
+      {
+        name: "Maker's Mark",
+        brand: "Maker's Mark",
+        type: "Bourbon",
+        description: "A wheated bourbon known for its red wax seal and smooth flavor profile.",
+        proof: 90,
+        price: 29.99,
+        country: "USA",
+        region: "Kentucky",
+        distillery: "Maker's Mark Distillery",
+        releaseYear: 2022,
+        imageUrl: "https://www.masterofmalt.com/whiskies/makers-mark-whisky/"
+      }
+    ];
+    
+    // Filter based on the query (case insensitive)
+    const lowercaseQuery = query.toLowerCase();
+    return mockDatabase.filter(
+      item => 
+        item.name.toLowerCase().includes(lowercaseQuery) || 
+        item.brand.toLowerCase().includes(lowercaseQuery) ||
+        (item.distillery && item.distillery.toLowerCase().includes(lowercaseQuery))
+    );
+  };
+  
+  // Apply search result to form
+  const applySearchResult = (result: SpiritSearchResult) => {
+    form.setValue('name', result.name);
+    form.setValue('brand', result.brand);
+    form.setValue('type', result.type);
+    
+    if (result.description) form.setValue('description', result.description);
+    if (result.proof) form.setValue('proof', result.proof);
+    if (result.price) form.setValue('price', result.price);
+    if (result.country) form.setValue('country', result.country);
+    if (result.region) form.setValue('region', result.region);
+    if (result.distillery) form.setValue('distillery', result.distillery);
+    if (result.releaseYear) form.setValue('releaseYear', result.releaseYear);
+    
+    if (result.imageUrl) {
+      form.setValue('imageUrl', result.imageUrl);
+      setPreviewUrl(result.imageUrl);
+    }
+    
+    setShowResults(false);
+  };
+  
+  // Watch the name field for auto-search
+  useEffect(() => {
+    const subscription = form.watch((value, { name }) => {
+      if (name === 'name' || name === 'brand' || name === 'distillery') {
+        const query = value.name || '';
+        setSearchQuery(query);
+        debouncedSearch(query);
+      }
+    });
+    
+    return () => subscription.unsubscribe();
+  }, [form.watch, debouncedSearch]);
   
   // Handle form submission
   const onSubmit = async (data: FormValues) => {
@@ -145,10 +455,44 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
     form.setValue('imageUrl', url);
   };
   
+  // Manually trigger search
+  const handleManualSearch = () => {
+    const query = form.getValues('name');
+    if (query) {
+      debouncedSearch.flush(); // Immediately perform the search
+    }
+  };
+  
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         <div className="space-y-4">
+          {/* Auto Search Toggle */}
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="autoSearch"
+                checked={autoSearchEnabled}
+                onChange={(e) => setAutoSearchEnabled(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+              />
+              <label htmlFor="autoSearch" className="text-sm font-medium text-amber-100">
+                Enable Auto Search
+              </label>
+            </div>
+            <Button 
+              type="button" 
+              variant="outline" 
+              size="sm"
+              onClick={handleManualSearch}
+              className="flex items-center space-x-1 border-amber-800/30 hover:bg-amber-800/20 text-amber-100"
+            >
+              <Search className="h-4 w-4" />
+              <span>Search</span>
+            </Button>
+          </div>
+          
           {/* Basic Info Section */}
           <div className="space-y-4">
             <h3 className="text-lg font-medium">Basic Information</h3>
@@ -157,16 +501,45 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                 control={form.control}
                 name="name"
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem className="relative">
                     <FormLabel>Name <span className="text-red-500">*</span></FormLabel>
                     <FormControl>
                       <Input 
                         placeholder="e.g. Eagle Rare 10 Year" 
                         {...field} 
-                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                        className="bg-white text-black placeholder:text-black border-gray-300"
                       />
                     </FormControl>
                     <FormMessage />
+                    
+                    {/* Search Results Dropdown */}
+                    {showResults && searchResults.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                        <ul className="py-1 text-black">
+                          {searchResults.map((result, index) => (
+                            <li 
+                              key={index}
+                              className="px-4 py-2 hover:bg-gray-100 cursor-pointer flex items-center"
+                              onClick={() => applySearchResult(result)}
+                            >
+                              <div>
+                                <div className="font-medium">{result.name}</div>
+                                <div className="text-sm text-gray-600">
+                                  {result.brand} · {result.type}
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {isSearching && (
+                      <div className="text-sm text-amber-400 mt-1 flex items-center">
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        Searching...
+                      </div>
+                    )}
                   </FormItem>
                 )}
               />
@@ -181,7 +554,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                       <Input 
                         placeholder="e.g. Buffalo Trace" 
                         {...field} 
-                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                        className="bg-white text-black placeholder:text-black border-gray-300"
                       />
                     </FormControl>
                     <FormMessage />
@@ -201,7 +574,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger className="bg-white text-black border-gray-300">
-                          <SelectValue placeholder="Select spirit type" className="text-gray-500" />
+                          <SelectValue placeholder="Select spirit type" className="text-black" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className="bg-white text-black">
@@ -231,7 +604,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger className="bg-white text-black border-gray-300">
-                          <SelectValue placeholder="Select category" className="text-gray-500" />
+                          <SelectValue placeholder="Select category" className="text-black" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className="bg-white text-black">
@@ -259,7 +632,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                   <FormControl>
                     <Textarea
                       placeholder="Add a description of this spirit..."
-                      className="min-h-[100px] bg-white text-black placeholder:text-gray-500 border-gray-300"
+                      className="min-h-[100px] bg-white text-black placeholder:text-black border-gray-300"
                       {...field}
                       value={field.value || ''}
                     />
@@ -288,7 +661,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         {...field}
                         value={field.value || ''}
                         onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
-                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                        className="bg-white text-black placeholder:text-black border-gray-300"
                       />
                     </FormControl>
                     <FormMessage />
@@ -310,10 +683,10 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         {...field}
                         value={field.value || ''}
                         onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
-                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                        className="bg-white text-black placeholder:text-black border-gray-300"
                       />
                     </FormControl>
-                    <FormDescription>Spirit proof (e.g., 80, 90.5, 100)</FormDescription>
+                    <FormDescription className="text-black">Spirit proof (e.g., 80, 90.5, 100)</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -335,10 +708,10 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         {...field}
                         value={field.value || ''}
                         onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
-                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                        className="bg-white text-black placeholder:text-black border-gray-300"
                       />
                     </FormControl>
-                    <FormDescription>Enter a rating from 0 to 10</FormDescription>
+                    <FormDescription className="text-black">Enter a rating from 0 to 10</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -362,7 +735,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                     >
                       <FormControl>
                         <SelectTrigger className="bg-white text-black border-gray-300">
-                          <SelectValue placeholder="Select country" className="text-gray-500" />
+                          <SelectValue placeholder="Select country" className="text-black" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className="bg-white text-black">
@@ -390,7 +763,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         placeholder="e.g. Kentucky" 
                         {...field} 
                         value={field.value || ''} 
-                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                        className="bg-white text-black placeholder:text-black border-gray-300"
                       />
                     </FormControl>
                     <FormMessage />
@@ -409,7 +782,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         placeholder="e.g. Buffalo Trace Distillery" 
                         {...field} 
                         value={field.value || ''} 
-                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                        className="bg-white text-black placeholder:text-black border-gray-300"
                       />
                     </FormControl>
                     <FormMessage />
@@ -430,7 +803,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         {...field}
                         value={field.value || ''}
                         onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
-                        className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                        className="bg-white text-black placeholder:text-black border-gray-300"
                       />
                     </FormControl>
                     <FormMessage />
@@ -453,7 +826,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                       id="bottleLevel"
                     />
                   </FormControl>
-                  <FormDescription className="text-center">
+                  <FormDescription className="text-center text-black">
                     Set how full the bottle is (defaults to 100% for new bottles)
                   </FormDescription>
                   <FormMessage />
@@ -477,10 +850,10 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                       {...field}
                       value={field.value || ''}
                       onChange={(e) => handleImageUrlChange(e.target.value)}
-                      className="bg-white text-black placeholder:text-gray-500 border-gray-300"
+                      className="bg-white text-black placeholder:text-black border-gray-300"
                     />
                   </FormControl>
-                  <FormDescription>
+                  <FormDescription className="text-black">
                     Enter a URL for the bottle image
                   </FormDescription>
                   <FormMessage />

@@ -112,33 +112,33 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
   }
   
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
       {spirits.map((spirit) => (
         <Card 
           key={spirit.id} 
-          className={`overflow-hidden transition-all hover:shadow-md ${spirit.isFavorite ? 'ring-2 ring-amber-500 ring-opacity-50' : ''}`}
+          className={`overflow-hidden transition-all hover:shadow-md h-full ${spirit.isFavorite ? 'ring-2 ring-amber-500 ring-opacity-50' : ''}`}
         >
           {/* Header moved to top */}
-          <CardHeader className="p-4 pb-0">
+          <CardHeader className="p-3 pb-0">
             <CardTitle className="text-lg line-clamp-1 text-amber-100">{spirit.name}</CardTitle>
             <p className="text-sm text-amber-100/70 line-clamp-1">{spirit.brand}</p>
           </CardHeader>
           
-          {/* Image Section */}
-          <div className="relative flex justify-center items-center h-60 mx-2 mt-2 mb-1 rounded-md bg-gray-800/10 overflow-hidden">
+          {/* Image Section - Taller container */}
+          <div className="relative flex justify-center items-center h-72 mx-2 mt-2 mb-1 rounded-md bg-gray-800/10 overflow-hidden">
             {spirit.imageUrl ? (
               <div className="w-full h-full flex justify-center items-center p-2">
                 <Image
                   src={spirit.imageUrl}
                   alt={spirit.name}
-                  width={120}
-                  height={180}
+                  width={140}
+                  height={220}
                   style={{ 
                     objectFit: 'contain', 
                     maxHeight: '100%',
                     width: 'auto'
                   }}
-                  className="transition-all hover:scale-105"
+                  className="transition-all hover:scale-105 rounded-lg"
                   onError={(e) => {
                     // Fallback if image fails to load
                     const target = e.target as HTMLImageElement;
@@ -179,19 +179,19 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
               )}
             </div>
             
-            <div className="grid grid-cols-3 gap-2 text-sm">
-              <div>
+            <div className="grid grid-cols-1 gap-1 text-sm">
+              <div className="flex justify-between">
                 <p className="text-amber-100/70">Price</p>
                 <p className="font-semibold text-amber-100">{formatPrice(spirit.price)}</p>
               </div>
               {spirit.proof && (
-                <div>
+                <div className="flex justify-between">
                   <p className="text-amber-100/70">Proof</p>
                   <p className="font-semibold text-amber-100">{spirit.proof}</p>
                 </div>
               )}
               {spirit.bottleLevel !== null && (
-                <div>
+                <div className="flex justify-between">
                   <p className="text-amber-100/70">Level</p>
                   <p className="font-semibold text-amber-100">{spirit.bottleLevel}%</p>
                 </div>
@@ -199,19 +199,19 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
             </div>
           </CardContent>
           
-          <CardFooter className="p-3 pt-1 flex justify-between">
+          <CardFooter className="p-3 pt-1 flex flex-col gap-2">
             <Button 
               variant="outline" 
               size="sm"
               asChild
-              className="border-amber-800/30 hover:bg-amber-800/20 text-amber-100"
+              className="w-full border-amber-800/30 hover:bg-amber-800/20 text-amber-100"
             >
               <Link href={`/collection/spirit/${spirit.id}`}>
                 View Details
               </Link>
             </Button>
             
-            <div className="flex gap-2">
+            <div className="flex gap-2 w-full justify-center">
               <Button
                 variant="ghost"
                 size="icon"
