@@ -125,7 +125,7 @@ function createStrictCSPHeader(nonce: string): string {
   const strictCSP = `
     ${baseDirectives}
     script-src 'nonce-${nonce}' 'strict-dynamic' https: 'unsafe-inline';
-    style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com;
+    style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com 'sha256-zlqnbDt84zf1iSefLU/ImC54isoprH/MRiVZGskwexk=' 'sha256-YU+7xR2SQ2IoeUaPeEWvwLEWsztKCB9S84+vZSiCCb8=' 'sha256-e+d//0i8BFXT2i7IyorNZ0tv2tapkHWj1efiS4sgAWo=' 'sha256-idlVAVXQtMoxiIyJdtG5SRyKpGisdxifn7tQeFGuGFU=';
   `;
   
   // In development, we need to allow eval for hot module replacement
@@ -133,7 +133,7 @@ function createStrictCSPHeader(nonce: string): string {
     return `
       ${baseDirectives}
       script-src 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval' https: 'unsafe-inline';
-      style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://fonts.googleapis.com;
+      style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://fonts.googleapis.com 'sha256-zlqnbDt84zf1iSefLU/ImC54isoprH/MRiVZGskwexk=' 'sha256-YU+7xR2SQ2IoeUaPeEWvwLEWsztKCB9S84+vZSiCCb8=' 'sha256-e+d//0i8BFXT2i7IyorNZ0tv2tapkHWj1efiS4sgAWo=' 'sha256-idlVAVXQtMoxiIyJdtG5SRyKpGisdxifn7tQeFGuGFU=';
     `.replace(/\s{2,}/g, ' ').trim();
   }
   
