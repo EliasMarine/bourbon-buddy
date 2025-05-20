@@ -120,45 +120,27 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
     
     setIsSearching(true);
     try {
-      // Use SerpAPI to get real data
-      const serpApiKey = process.env.NEXT_PUBLIC_SERPAPI_KEY;
-      if (!serpApiKey) {
-        console.warn('SerpAPI key not found, using mock data');
-        const results = await getMockSearchResults(query);
-        setSearchResults(results);
-        setShowResults(results.length > 0);
-        return;
-      }
-      
-      console.log('Searching with SerpAPI for:', query);
+      // Craft a more precise query for spirits
+      const searchTerm = `${query} ${form.getValues('brand') || ''} ${form.getValues('type') || 'whiskey bourbon'} spirit details`;
+      console.log('Searching for:', searchTerm);
       
       try {
-        // Craft a more precise query for spirits
-        const searchTerm = `${query} ${form.getValues('brand') || ''} ${form.getValues('type') || 'whiskey bourbon'} spirit details`;
-        const encodedQuery = encodeURIComponent(searchTerm.trim());
-        
-        // Build API URL with additional parameters for better results
-        // See https://serpapi.com/search-api for full parameter documentation
-        const apiUrl = new URL('https://serpapi.com/search.json');
-        apiUrl.searchParams.append('engine', 'google');
-        apiUrl.searchParams.append('q', searchTerm);
-        apiUrl.searchParams.append('api_key', serpApiKey);
-        apiUrl.searchParams.append('gl', 'us'); // Google country - US for bourbon focus
-        apiUrl.searchParams.append('hl', 'en'); // Language - English
-        apiUrl.searchParams.append('num', '5'); // Number of results
-        apiUrl.searchParams.append('safe', 'active'); // Safe search active
-        
-        console.log('Calling SerpAPI with search term:', searchTerm);
-        
-        const response = await fetch(apiUrl.toString());
+        // Use our server-side proxy to avoid CORS issues
+        const response = await fetch('/api/search', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ query: searchTerm.trim() }),
+        });
         
         if (!response.ok) {
-          console.error(`SerpAPI Error: ${response.status} ${response.statusText}`);
-          throw new Error(`SerpAPI returned ${response.status}`);
+          console.error(`Search API Error: ${response.status} ${response.statusText}`);
+          throw new Error(`Search API returned ${response.status}`);
         }
         
         const data = await response.json();
-        console.log('SerpAPI raw response:', data);
+        console.log('Search API response:', data);
         
         // Extract structured data from search results
         const results: SpiritSearchResult[] = [];
@@ -288,7 +270,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
         
         // Fallback if no results
         if (results.length === 0) {
-          console.warn('No results from SerpAPI, using mock data');
+          console.warn('No results from Search API, using mock data');
           const mockResults = await getMockSearchResults(query);
           setSearchResults(mockResults);
           setShowResults(mockResults.length > 0);
@@ -302,9 +284,9 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
         
         setSearchResults(uniqueResults);
         setShowResults(true);
-      } catch (serpError) {
-        console.error("Error with SerpAPI:", serpError);
-        throw serpError; // Rethrow for the outer catch
+      } catch (searchError) {
+        console.error("Error with Search API:", searchError);
+        throw searchError; // Rethrow for the outer catch
       }
     } catch (error) {
       console.error("Search error:", error);

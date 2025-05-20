@@ -104,9 +104,7 @@ async function performWebSearch(query: string, distillery: string = '', releaseY
   const searchQuery = `${query} ${distillery} ${releaseYear} whiskey bourbon information`.trim();
   
   try {
-    // Perform web search using SerpApi
-    // For demonstration purposes, we're using fetch API directly
-    // You would need to get a SerpApi key and set it as an environment variable
+    // Check if we have an API key
     const serpApiKey = process.env.SERPAPI_KEY;
     
     if (!serpApiKey) {
@@ -114,16 +112,22 @@ async function performWebSearch(query: string, distillery: string = '', releaseY
       return getFallbackData(query, distillery, releaseYear);
     }
     
+    // Since this is server-side code, we can safely call SerpAPI directly
     const params = new URLSearchParams({
       q: searchQuery,
       api_key: serpApiKey,
       engine: 'google',
+      gl: 'us',
+      hl: 'en',
+      num: '5',
+      safe: 'active'
     });
     
-    const response = await fetch(`https://serpapi.com/search?${params.toString()}`);
+    const serpApiUrl = `https://serpapi.com/search.json?${params.toString()}`;
+    const response = await fetch(serpApiUrl);
     
     if (!response.ok) {
-      console.error(`[ERROR] SerpApi response error: ${response.status} ${response.statusText}`);
+      console.error(`[ERROR] SerpAPI response error: ${response.status} ${response.statusText}`);
       return getFallbackData(query, distillery, releaseYear);
     }
     
@@ -152,18 +156,20 @@ async function findBottleImage(query: string, distillery: string, apiKey: string
     // Build a specific image search query for bottle images
     const imageQuery = `${query} ${distillery} bottle whiskey bourbon`.trim();
     
+    // Since this is server-side code, we can safely call SerpAPI directly
     const params = new URLSearchParams({
       q: imageQuery,
       api_key: apiKey,
-      engine: 'google_images', // Use Google Images search engine
-      tbm: 'isch', // Image search
-      num: '10' // Increase from 5 to 10 results for better chances of finding good images
+      engine: 'google_images',
+      tbm: 'isch',
+      num: '10'
     });
     
-    const response = await fetch(`https://serpapi.com/search?${params.toString()}`);
+    const serpApiUrl = `https://serpapi.com/search.json?${params.toString()}`;
+    const response = await fetch(serpApiUrl);
     
     if (!response.ok) {
-      console.error(`[ERROR] SerpApi image search error: ${response.status} ${response.statusText}`);
+      console.error(`[ERROR] SerpAPI image search error: ${response.status} ${response.statusText}`);
       return undefined;
     }
     
