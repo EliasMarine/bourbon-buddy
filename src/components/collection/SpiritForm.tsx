@@ -791,7 +791,10 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                             <li 
                               key={index}
                               className="px-4 py-2 hover:bg-gray-100 cursor-pointer flex items-center"
-                              onClick={() => applySearchResult(result)}
+                              onClick={() => {
+                                applySearchResult(result);
+                                setShowResults(false); // Explicitly hide results after selection
+                              }}
                             >
                               <div>
                                 <div className="font-medium">{result.name}</div>
@@ -840,7 +843,11 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                   <FormItem>
                     <FormLabel>Type <span className="text-red-500">*</span></FormLabel>
                     <Select
-                      onValueChange={field.onChange}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        // Force blur to ensure dropdown closes
+                        document.activeElement instanceof HTMLElement && document.activeElement.blur();
+                      }}
                       defaultValue={field.value}
                     >
                       <FormControl>
@@ -870,7 +877,11 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                   <FormItem>
                     <FormLabel>Category</FormLabel>
                     <Select
-                      onValueChange={field.onChange}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        // Force blur to ensure dropdown closes
+                        document.activeElement instanceof HTMLElement && document.activeElement.blur();
+                      }}
                       defaultValue={field.value}
                     >
                       <FormControl>
@@ -957,7 +968,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         className="bg-white text-black placeholder:text-black border-gray-300"
                       />
                     </FormControl>
-                    <FormDescription className="text-black">Spirit proof (e.g., 80, 90.5, 100)</FormDescription>
+                    <FormDescription className="text-amber-100">Spirit proof (e.g., 80, 90.5, 100)</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -982,7 +993,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                         className="bg-white text-black placeholder:text-black border-gray-300"
                       />
                     </FormControl>
-                    <FormDescription className="text-black">Enter a rating from 0 to 10</FormDescription>
+                    <FormDescription className="text-amber-100">Enter a rating from 0 to 10</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1001,7 +1012,11 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                   <FormItem>
                     <FormLabel>Country</FormLabel>
                     <Select
-                      onValueChange={field.onChange}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        // Force blur to ensure dropdown closes
+                        document.activeElement instanceof HTMLElement && document.activeElement.blur();
+                      }}
                       defaultValue={field.value || ''}
                     >
                       <FormControl>
@@ -1097,7 +1112,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                       id="bottleLevel"
                     />
                   </FormControl>
-                  <FormDescription className="text-center text-black">
+                  <FormDescription className="text-center text-amber-100">
                     Set how full the bottle is (defaults to 100% for new bottles)
                   </FormDescription>
                   <FormMessage />
@@ -1124,7 +1139,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                       className="bg-white text-black placeholder:text-black border-gray-300"
                     />
                   </FormControl>
-                  <FormDescription className="text-black">
+                  <FormDescription className="text-amber-100">
                     Enter a URL for the bottle image
                   </FormDescription>
                   <FormMessage />
