@@ -1,0 +1,85 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Content Security Policy Best Practices
+
+This rule enforces secure Content Security Policy (CSP) implementation to protect against Cross-Site Scripting (XSS) and other injection attacks.
+
+## Secure Pattern: Use Nonce-Based CSP with Strict-Dynamic
+
+- **Always Use Cryptographic Nonces for Inline Content**
+  - Generate a unique nonce per request using `crypto.randomBytes(16).toString('base64')`
+  - Pass nonce through headers to make it available to components
+  - Never use static nonces or predictable values
+
+- **Implement strict-dynamic for Script Loading**
+  - Use `'strict-dynamic'` in script-src directive alongside nonces
+  - This allows properly nonced scripts to load additional scripts dynamically
+  - Eliminates need for extensive domain allowlists
+  
+- **Image Proxy Pattern for External Media**
+  - Use the image proxy endpoint (`/api/image-proxy/route.ts`) for external images
+  - Never add new domains to img-src directive unless absolutely necessary
+  - All user-submitted content should flow through the proxy
+
+## Forbidden Patterns
+
+- **❌ NEVER Use 'unsafe-inline'**
+  - 'unsafe-inline' completely defeats CSP protection
+  - Use nonce-based approach instead for inline scripts and styles
+  - Even in development, prefer nonces over 'unsafe-inline'
+
+- **❌ NEVER Use 'unsafe-eval'**
+  - Avoid dynamic code evaluation (eval, new Function, etc.)
+  - Use alternative patterns that don't require eval
+
+- **❌ Avoid Extensive Domain Allowlists**
+  - Long lists of allowed domains are hard to maintain and review
+  - Each added domain increases attack surface
+  - Use the proxy pattern instead for external resources
+
+## Implementation Guide
+
+```typescript
+// Middleware nonce generation (in middleware.ts)
+const nonce = crypto.randomBytes(16).toString('base64');
+
+// CSP header construction
+const cspHeader = `
+  default-src 'self';
+  script-src 'self' 'nonce-${nonce}' 'strict-dynamic';
+  style-src 'self' 'nonce-${nonce}';
+  img-src 'self' data: blob:;
+  font-src 'self';
+  object-src 'none';
+  base-uri 'self';
+  form-action 'self';
+  frame-ancestors 'none';
+  block-all-mixed-content;
+  upgrade-insecure-requests;
+`;
+
+// Pass nonce to frontend via header
+const headers = new Headers(response.headers);
+headers.set('x-nonce', nonce);
+
+// Example of nonced script in JSX
+<script nonce={nonce}>{/* script content */}</script>
+```
+
+## Adding New Resources
+
+If a new type of resource needs to be loaded:
+
+1. First try to proxy it through our server (preferred)
+2. If proxy isn't possible, add specific domains to the appropriate directive
+3. Document why the domain was added and what it's used for
+4. Ensure CSP is tested with the new additions
+
+## Monitoring and Enforcement
+
+- Set up CSP violation reporting to track potential issues
+- Regularly audit CSP headers and allowed domains
+- Use CSP in report-only mode first when making significant changes

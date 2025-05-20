@@ -8,6 +8,7 @@ const protectedRoutes = [
   '/profile',
   '/streams/create',
   '/collection',
+  '/collection/',
   '/api/collection',
   '/api/spirits/',
   '/api/spirit/',
@@ -187,7 +188,7 @@ export async function middleware(request: NextRequest) {
     },
   });
   
-  // Create Supabase client for SSR auth with correct cookie pattern
+  // Initialize Supabase client
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -197,31 +198,35 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          // Apply to request cookies first.
-          // This uses the object form of `request.cookies.set`.
+          // Create a new response object only once
           cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set({ name, value, ...options });
-          });
-
-          // Re-assign the 'response' variable from the outer scope to a new NextResponse object.
-          response = NextResponse.next({
-            request: {
-              headers: request.headers, // Preserve original request headers
-            },
-          });
-
-          // Set Supabase cookies on the newly created (or reassigned) response object.
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
-          });
+            // First set cookie in the request cookies store to ensure it's available 
+            // for the current request processing
+            request.cookies.set(name, value)
+            
+            // Also set in the response for subsequent requests
+            response.cookies.set(name, value, options)
+          })
         },
       },
     }
   )
-    
+
+  // IMPORTANT: DO NOT execute any code between creating the Supabase client
+  // and calling auth.getUser() to prevent session inconsistency
+
   // IMPORTANT: Call supabase.auth.getUser() to handle session refresh and allow Supabase
   // to set cookies on our 'response' object via the 'setAll' handler if needed.
   const { data: { user } } = await supabase.auth.getUser()
+
+  // Debug log authentication state
+  if (process.env.NODE_ENV !== 'production' || process.env.DEBUG_AUTH === 'true') {
+    console.log(`[Auth Debug] Path: ${path}`);
+    console.log(`[Auth Debug] User authenticated: ${!!user}`);
+    console.log(`[Auth Debug] User ID: ${user?.id || 'none'}`);
+    console.log(`[Auth Debug] Cookies: ${request.cookies.getAll().map(c => c.name).join(', ')}`);
+    console.log(`[Auth Debug] Protected route match: ${protectedRoutes.some(route => path.startsWith(route))}`);
+  }
 
   // Now that Supabase has had a chance to work with 'response', set CSP.
   // Use a more permissive CSP for the spirit detail pages
@@ -252,20 +257,39 @@ export async function middleware(request: NextRequest) {
     return response;
   }
     
+  // Check for protected routes with more precise matching
+  const isProtectedRoute = protectedRoutes.some(route => {
+    // Exact match
+    if (path === route) return true;
+    // Route with trailing slash
+    if (path === `${route}/`) return true;
+    // Starts with route + /
+    if (path.startsWith(`${route}/`)) return true;
+    return false;
+  });
+
   // If route is protected and user is not authenticated, redirect to login
-  const isProtectedRoute = protectedRoutes.some(route => path.startsWith(route))
   if (isProtectedRoute && !user) {
     const redirectUrl = new URL('/login', request.url)
     redirectUrl.searchParams.set('redirect', path)
     // Create a new response for the redirect
     const redirectResponse = NextResponse.redirect(redirectUrl);
-    // Copy any cookies that Supabase might have set (captured in our 'response' object)
-    // and also our CSP header to the redirectResponse.
+    
+    // Copy all cookies from the original response to preserve auth state
     response.cookies.getAll().forEach(cookie => {
-        redirectResponse.cookies.set(cookie.name, cookie.value, cookie);
+      redirectResponse.cookies.set(cookie.name, cookie.value, {
+        domain: cookie.domain,
+        expires: cookie.expires,
+        httpOnly: cookie.httpOnly,
+        maxAge: cookie.maxAge,
+        path: cookie.path,
+        sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined,
+        secure: cookie.secure
+      });
     });
+    
     if (!isStaticAsset) { // Also copy CSP
-        redirectResponse.headers.set('Content-Security-Policy', contentSecurityPolicy);
+      redirectResponse.headers.set('Content-Security-Policy', contentSecurityPolicy);
     }
     return redirectResponse;
   }
