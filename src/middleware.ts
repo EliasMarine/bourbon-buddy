@@ -87,6 +87,9 @@ function generateCSPNonce(): string {
   return Buffer.from(crypto.randomUUID()).toString('base64');
 }
 
+// Add CSP reporting directives
+const cspReportingDirectives = `report-uri /api/csp-report; report-to csp-endpoint;`;
+
 // Create Content Security Policy with nonce and strict-dynamic
 function createStrictCSPHeader(nonce: string): string {
   const isDevelopment = process.env.NODE_ENV !== 'production';
@@ -126,6 +129,7 @@ function createStrictCSPHeader(nonce: string): string {
     ${baseDirectives}
     script-src 'nonce-${nonce}' 'strict-dynamic' https: 'unsafe-inline';
     style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com 'sha256-zlqnbDt84zf1iSefLU/ImC54isoprH/MRiVZGskwexk=' 'sha256-YU+7xR2SQ2IoeUaPeEWvwLEWsztKCB9S84+vZSiCCb8=' 'sha256-e+d//0i8BFXT2i7IyorNZ0tv2tapkHWj1efiS4sgAWo=' 'sha256-idlVAVXQtMoxiIyJdtG5SRyKpGisdxifn7tQeFGuGFU=';
+    ${cspReportingDirectives}
   `;
   
   // In development, we need to allow eval for hot module replacement
@@ -155,6 +159,7 @@ function createRelaxedCSPHeader(nonce: string): string {
     form-action 'self';
     frame-ancestors 'self';
     upgrade-insecure-requests;
+    ${cspReportingDirectives}
   `.replace(/\s{2,}/g, ' ').trim();
 }
 
@@ -242,6 +247,13 @@ export async function middleware(request: NextRequest) {
     }
     
     response.headers.set('Content-Security-Policy', contentSecurityPolicy);
+    // Add Report-To header for CSP reporting
+    response.headers.set('Report-To', JSON.stringify({
+      group: 'csp-endpoint',
+      max_age: 10886400, // 18 weeks
+      endpoints: [{ url: '/api/csp-report' }],
+      include_subdomains: true
+    }));
   }
   
   // Handle public routes first
