@@ -8,6 +8,7 @@ import { headers } from 'next/headers';
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
 import React from 'react'
+import AuthDebugger from '@/components/AuthDebugger'
 
 // If loading a variable font, you don't need to specify the font weight
 const inter = Inter({ subsets: ['latin'] })
@@ -51,6 +52,7 @@ export default async function RootLayout({
           </main>
           <Footer />
           <Toaster position="top-right" richColors theme="dark" />
+          <AuthDebugger />
         </SupabaseProvider>
         <Analytics />
       </body>
