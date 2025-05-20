@@ -52,26 +52,58 @@ export async function POST(request: NextRequest) {
     const serpApiUrl = `https://serpapi.com/search.json?${searchParams.toString()}`;
     console.log(`[Server] Calling SerpAPI: ${serpApiUrl.replace(apiKey, '*****')}`);
     
-    const response = await fetch(serpApiUrl, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json"
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+    
+    try {
+      const response = await fetch(serpApiUrl, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        signal: controller.signal
+      });
+      
+      // Clear timeout as request completed
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.error(`SerpAPI responded with status: ${response.status}`);
+        throw new Error(`SerpAPI responded with status: ${response.status}`);
       }
-    });
-    
-    if (!response.ok) {
-      console.error(`SerpAPI responded with status: ${response.status}`);
-      throw new Error(`SerpAPI responded with status: ${response.status}`);
+      
+      const data = await response.json();
+      
+      // Return the response data to the client
+      return NextResponse.json(data);
+    } catch (fetchError: unknown) {
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        console.error('SerpAPI request timed out after 8 seconds');
+        return NextResponse.json(
+          { 
+            error: "Search request timed out", 
+            fallback: true,
+            organic_results: [
+              { title: "No results found", snippet: "The search timed out. Please try again with a simpler query." }
+            ]
+          },
+          { status: 408 }
+        );
+      }
+      throw fetchError; // Rethrow other fetch errors to be caught by outer try/catch
     }
-    
-    const data = await response.json();
-    
-    // Return the response data to the client
-    return NextResponse.json(data);
   } catch (error) {
     console.error("Error with SerpAPI proxy:", error);
     return NextResponse.json(
-      { error: "Failed to fetch search results", details: (error as Error).message },
+      { 
+        error: "Failed to fetch search results", 
+        details: (error as Error).message,
+        fallback: true,
+        organic_results: [
+          { title: "Search error", snippet: "There was an error processing your search. Please try again." }
+        ]
+      },
       { status: 500 }
     );
   }

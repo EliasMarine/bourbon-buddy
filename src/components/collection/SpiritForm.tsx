@@ -134,12 +134,22 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
           body: JSON.stringify({ query: searchTerm.trim() }),
         });
         
-        if (!response.ok) {
-          console.error(`Search API Error: ${response.status} ${response.statusText}`);
-          throw new Error(`Search API returned ${response.status}`);
+        const data = await response.json();
+        
+        // Check if the response contains an error or is a fallback response
+        if (!response.ok || data.error || data.fallback) {
+          console.warn(`Search API issue: ${response.status} ${data.error || ''}`);
+          
+          // If API returned fallback results, we can still use them
+          if (data.fallback && data.organic_results && data.organic_results.length > 0) {
+            console.log('Using fallback results from API');
+            // Continue processing with fallback data
+          } else {
+            // No usable data, throw error to trigger fallback
+            throw new Error(`Search API returned ${response.status}: ${data.error || 'Unknown error'}`);
+          }
         }
         
-        const data = await response.json();
         console.log('Search API response:', data);
         
         // Extract structured data from search results
@@ -594,7 +604,33 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
         'pappyco.com',
         'buffalotracedistillery.com',
         'breakingbourbon.com',
-        'drizly.com'
+        'drizly.com',
+        'serpapi.com',
+        'lpwinesandliquors.com',
+        'wine-searcher.com',
+        'whiskyshopusa.com',
+        'oldforester.com',
+        'makersmark.com',
+        'fourrosesbourbon.com',
+        'knobcreek.com',
+        'angelsenvy.com',
+        'woodfordreserve.com',
+        'jackdaniels.com',
+        'heavenhill.com',
+        'akamaized.net',
+        'shopify.com',
+        'caskers.com',
+        'flaviar.com',
+        'whiskyanalysis.com',
+        'spirits.com',
+        'whiskey.com',
+        'whiskeyraiders.com',
+        'storage.googleapis.com',
+        'cdn.shopify.com',
+        'whiskeywash.com',
+        'whiskyfun.com',
+        'bourbon.com',
+        'scotchwhisky.com'
       ];
       
       // Parse the URL for domain checking
@@ -604,6 +640,7 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
       const isAllowedDomain = allowedDomains.some(domain => hostname.includes(domain));
       
       if (isAllowedDomain) {
+        console.log(`Image from ${hostname} allowed by CSP`);
         return url;
       }
       
@@ -615,7 +652,6 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
       }
       
       // For other domains, return a placeholder image 
-      // In a production environment, you'd implement a proxy service
       console.log(`Image from ${hostname} not in CSP allowlist. Using placeholder.`);
       return '/images/bottle-placeholder.png';
       
