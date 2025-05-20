@@ -8,7 +8,6 @@ const protectedRoutes = [
   '/profile',
   '/streams/create',
   '/collection',
-  '/collection/',
   '/api/collection',
   '/api/spirits/',
   '/api/spirit/',
@@ -20,12 +19,15 @@ const protectedRoutes = [
 
 // List of public routes (no authentication required)
 const publicRoutes = [
+  '/',
   '/login',
   '/signup',
-  '/auth',
+  '/auth/callback',
   '/api/auth',
   '/api/csrf',
   '/api/status',
+  '/api/image-proxy',
+  '/api/csp-report',
   '/_next',
   '/static',
   '/images',
@@ -77,8 +79,16 @@ async function triggerBackgroundVideoSync() {
 
 export const config = {
   matcher: [
-    // Match all request paths except for static files and Next.js internals
-    '/((?!_next/static|_next/image|favicon.ico|public/|static/).*)',
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public (publicly served assets)
+     * - static (another common public asset folder)
+     * Feel free to modify this pattern to include more paths.
+     */
+    '/((?!_next/static|_next/image|favicon.ico|public/|static/|api/image-proxy).*)',
   ],
 }
 
@@ -125,20 +135,21 @@ function createStrictCSPHeader(nonce: string): string {
   `;
   
   // Use strict CSP with nonce and strict-dynamic
-  const strictCSP = `
+  let strictCSP = `
     ${baseDirectives}
     script-src 'nonce-${nonce}' 'strict-dynamic' https:;
-    style-src 'self' 'nonce-${nonce}' 'unsafe-hashes' https://vercel.com https://fonts.googleapis.com 'sha256-zlqnbDt84zf1iSefLU/ImC54isoprH/MRiVZGskwexk=' 'sha256-YU+7xR2SQ2IoeUaPeEWvwLEWsztKCB9S84+vZSiCCb8=' 'sha256-e+d//0i8BFXT2i7IyorNZ0tv2tapkHWj1efiS4sgAWo=' 'sha256-idlVAVXQtMoxiIyJdtG5SRyKpGisdxifn7tQeFGuGFU=' 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' 'sha256-7lAG9nNPimWNBky6j9qnn0jfFzu5wK96KOj/UzoG0hg=' 'sha256-LL1Oj3pIToBpzHWMlAyrmK9guWSsY8Nr8wq7gA/m/ew=' 'sha256-8mIk1oX3LmRB+UWuFGvbo1hLWczGs3Z5yXDPHotWXlQ=' 'sha256-ZYns29och5nBGFV2O2mG0POX+mI2q4UFtJuvS1eoGF0=' 'sha256-DSYmRr35z6zyfy04z49VxSw/Fjw5T+rlVRbZWRT8U/I=' 'sha256-OYG2xTYpFINTWWpa7AYS4DfPiIyxrHaKeuWu5xqQjPE=' 'sha256-nzTgYzXYDNe6BAHiiI7NNlfK8n/auuOAhh2t92YvuXo=' 'sha256-Nqnn8clbgv+5l0PgxcTOldg8mkMKrFn4TvPL+rYUUGg=' 'sha256-13vrThxdyT64GcXoTNGVoRRoL0a7EGBmOJ+lemEWyws=' 'sha256-QZ52fjvWgIOIOPr+gRIJZ7KjzNeTBm50Z+z9dH4N1/8=' 'sha256-yOU6eaJ75xfag0gVFUvld5ipLRGUy94G17B1uL683EU=' 'sha256-OpTmykz0m3o5HoX53cykwPhUeU4OECxHQlKXpB0QJPQ=' 'sha256-SSIM0kI/u45y4gqkri9aH+la6wn2R+xtcBj3Lzh7qQo=' 'sha256-ZH/+PJIjvP1BctwYxclIuiMu1wItb0aasjpXYXOmU0Y=' 'sha256-58jqDtherY9NOM+ziRgSqQY0078tAZ+qtTBjMgbM9po=' 'sha256-7Ri/I+PfhgtpcL7hT4A0VJKI6g3pK0ZvIN09RQV4ZhI=' 'sha256-+1ELCr8ReJfJBjWJ10MIbLJZRYsIfwdKV+UKdFVDXyo=' 'sha256-MktN23nRzohmT1JNxPQ0B9CzVW6psOCbvJ20j9YxAxA=' 'sha256-47lXINn3kn6TjA9CnVQoLLxD4bevVlCtoMcDr8kZ1kc=' 'sha256-wkAU1AW/h8RKmZ3BUsffwzbTWBeIGD83S5VR9RhiQtk=' 'sha256-MQsH+WZ41cJWVrTw3AC5wJ8LdiYKgwTlENhYI5UKpow=' 'sha256-TIidHKBLbE0MY7TLE+9G8QOzGXaS7aIwJ1xJRtTd3zk=';
+    style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com;
     ${cspReportingDirectives}
   `;
   
-  // In development, we need to allow eval for hot module replacement
+  // In development, we might need to allow 'unsafe-eval' for HMR and possibly 'unsafe-inline' for styles if nonces are tricky
   if (isDevelopment) {
-    return `
+    strictCSP = `
       ${baseDirectives}
       script-src 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval' https:;
-      style-src 'self' 'nonce-${nonce}' 'unsafe-hashes' https://vercel.com https://fonts.googleapis.com 'sha256-zlqnbDt84zf1iSefLU/ImC54isoprH/MRiVZGskwexk=' 'sha256-YU+7xR2SQ2IoeUaPeEWvwLEWsztKCB9S84+vZSiCCb8=' 'sha256-e+d//0i8BFXT2i7IyorNZ0tv2tapkHWj1efiS4sgAWo=' 'sha256-idlVAVXQtMoxiIyJdtG5SRyKpGisdxifn7tQeFGuGFU=' 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' 'sha256-7lAG9nNPimWNBky6j9qnn0jfFzu5wK96KOj/UzoG0hg=' 'sha256-LL1Oj3pIToBpzHWMlAyrmK9guWSsY8Nr8wq7gA/m/ew=' 'sha256-8mIk1oX3LmRB+UWuFGvbo1hLWczGs3Z5yXDPHotWXlQ=' 'sha256-ZYns29och5nBGFV2O2mG0POX+mI2q4UFtJuvS1eoGF0=' 'sha256-DSYmRr35z6zyfy04z49VxSw/Fjw5T+rlVRbZWRT8U/I=' 'sha256-OYG2xTYpFINTWWpa7AYS4DfPiIyxrHaKeuWu5xqQjPE=' 'sha256-nzTgYzXYDNe6BAHiiI7NNlfK8n/auuOAhh2t92YvuXo=' 'sha256-Nqnn8clbgv+5l0PgxcTOldg8mkMKrFn4TvPL+rYUUGg=' 'sha256-13vrThxdyT64GcXoTNGVoRRoL0a7EGBmOJ+lemEWyws=' 'sha256-QZ52fjvWgIOIOPr+gRIJZ7KjzNeTBm50Z+z9dH4N1/8=' 'sha256-yOU6eaJ75xfag0gVFUvld5ipLRGUy94G17B1uL683EU=' 'sha256-OpTmykz0m3o5HoX53cykwPhUeU4OECxHQlKXpB0QJPQ=' 'sha256-SSIM0kI/u45y4gqkri9aH+la6wn2R+xtcBj3Lzh7qQo=' 'sha256-ZH/+PJIjvP1BctwYxclIuiMu1wItb0aasjpXYXOmU0Y=' 'sha256-58jqDtherY9NOM+ziRgSqQY0078tAZ+qtTBjMgbM9po=' 'sha256-7Ri/I+PfhgtpcL7hT4A0VJKI6g3pK0ZvIN09RQV4ZhI=' 'sha256-+1ELCr8ReJfJBjWJ10MIbLJZRYsIfwdKV+UKdFVDXyo=' 'sha256-MktN23nRzohmT1JNxPQ0B9CzVW6psOCbvJ20j9YxAxA=' 'sha256-47lXINn3kn6TjA9CnVQoLLxD4bevVlCtoMcDr8kZ1kc=' 'sha256-wkAU1AW/h8RKmZ3BUsffwzbTWBeIGD83S5VR9RhiQtk=' 'sha256-MQsH+WZ41cJWVrTw3AC5wJ8LdiYKgwTlENhYI5UKpow=' 'sha256-TIidHKBLbE0MY7TLE+9G8QOzGXaS7aIwJ1xJRtTd3zk=';
-    `.replace(/\s{2,}/g, ' ').trim();
+      style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://fonts.googleapis.com;
+      ${cspReportingDirectives}
+    `;
   }
   
   return strictCSP.replace(/\s{2,}/g, ' ').trim();
@@ -149,10 +160,10 @@ function createRelaxedCSPHeader(nonce: string): string {
   return `
     default-src 'self';
     script-src 'nonce-${nonce}' 'strict-dynamic' https:;
-    style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com;
+    style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com 'unsafe-inline';
     img-src 'self' data: blob: https: http:;
     font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com;
-    connect-src 'self' https://*.supabase.co https://api.mux.com https://*;
+    connect-src 'self' https://*.supabase.co https://api.mux.com https://* wss://*;
     media-src 'self' blob: https://*.mux.com;
     object-src 'none';
     base-uri 'none';
@@ -326,66 +337,79 @@ export async function middleware(request: NextRequest) {
   }
   
   // Handle public routes first
-  const isPublicRoute = publicRoutes.some(route => path.startsWith(route))
-  if (isPublicRoute) {
-    // For public routes, return the response that might have Supabase cookies (e.g., session refreshed)
-    // and definitely has our CSP.
+  const isPublic = publicRoutes.some(route => {
+    if (path === route) return true;
+    // Handle cases where public route is a prefix, e.g. /auth/*
+    // Ensure it doesn't incorrectly match parts of longer paths if not intended.
+    // For exact prefix matching for folders:
+    if (route.endsWith('/')) return path.startsWith(route);
+    // For exact file matches or specific API endpoints:
+    return path === route;
+  });
+
+  if (isPublic) {
+    // For public routes, return the response. Supabase cookies might have been set.
     return response;
   }
   
-  // SIMPLIFIED AUTHENTICATION FLOW
-  // If user is authenticated, allow access to all routes
+  // 2. If not a public route, check if user is authenticated
   if (user) {
-    // User is logged in, allow access to all routes including protected ones
+    // User is authenticated, allow access.
+    // Potentially trigger background sync for relevant pages
+    if (path === '/past-tastings' || path === '/dashboard' || path === '/') {
+        triggerBackgroundVideoSync();
+    }
     return response;
   }
   
-  // At this point, user is NOT authenticated
+  // 3. User is NOT authenticated, and it's NOT a public route.
+  //    This means it must be a protected route or an unknown route.
+  //    For simplicity here, we assume any non-public route without a user session
+  //    should redirect to login. If you have non-protected, non-public routes
+  //    that unauthenticated users can see, that logic would need adjustment.
   
-  // Check if this is a protected route that requires authentication
+  // Check if it's explicitly a protected route (this check is mainly for clarity now,
+  // as any non-public route without a user will redirect).
   const isProtectedRoute = protectedRoutes.some(route => {
     if (path === route) return true;
-    if (path === `${route}/`) return true;
-    if (path.startsWith(`${route}/`)) return true;
+    // Ensure trailing slashes are handled if `route` doesn't include them
+    if (path === `${route}/`) return true; 
+    // Check if path starts with a protected folder-like route
+    if (route.endsWith('/') && path.startsWith(route)) return true; 
+    // Check for specific API patterns if route is like /api/spirits/
+    if (route.endsWith('/') && path.startsWith(route)) return true;
     return false;
   });
 
-  // If route is protected and user is not authenticated, redirect to login
-  if (isProtectedRoute) {
-    const redirectUrl = new URL('/login', request.url)
-    redirectUrl.searchParams.set('redirect', encodeURIComponent(path))
-    
-    const redirectResponse = NextResponse.redirect(redirectUrl);
-    
-    // Copy cookies and headers to maintain state
-    response.cookies.getAll().forEach(cookie => {
-      redirectResponse.cookies.set(cookie.name, cookie.value, {
-        domain: cookie.domain,
-        expires: cookie.expires,
-        httpOnly: cookie.httpOnly,
-        maxAge: cookie.maxAge,
-        path: cookie.path,
-        sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined,
-        secure: cookie.secure
-      });
+  // Redirect to login if not authenticated and trying to access a non-public page.
+  const loginUrl = new URL('/login', request.url)
+  loginUrl.searchParams.set('redirect', encodeURIComponent(path))
+
+  const redirectResponse = NextResponse.redirect(loginUrl);
+
+  // Copy essential cookies (like those Supabase might have tried to set before getUser)
+  // and CSP headers to the redirect response.
+  response.cookies.getAll().forEach(cookie => {
+    redirectResponse.cookies.set(cookie.name, cookie.value, {
+      domain: cookie.domain,
+      expires: cookie.expires,
+      httpOnly: cookie.httpOnly,
+      maxAge: cookie.maxAge,
+      path: cookie.path,
+      sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined,
+      secure: cookie.secure
     });
-    
-    if (!isStaticAsset) {
-      redirectResponse.headers.set('Content-Security-Policy', contentSecurityPolicy);
-      redirectResponse.headers.set('Report-To', response.headers.get('Report-To') || '');
+  });
+
+  if (!isStaticAsset) {
+    // Re-apply the determined CSP to the redirect response
+    const finalCsp = path.includes('/collection/spirit/') ? createRelaxedCSPHeader(nonce) : createStrictCSPHeader(nonce);
+    redirectResponse.headers.set('Content-Security-Policy', finalCsp);
+    const reportTo = response.headers.get('Report-To');
+    if (reportTo) {
+      redirectResponse.headers.set('Report-To', reportTo);
     }
-    
-    return redirectResponse;
   }
   
-  // If we got here, route is not protected and user is not authenticated
-  // Allow access to public content
-  
-  // Trigger background health check for video syncing on the past-tastings page
-  // This ensures videos get updated even without explicit user action
-  if (path === '/past-tastings' || path === '/') {
-    triggerBackgroundVideoSync();
-  }
-  
-  return response;
+  return redirectResponse;
 }
