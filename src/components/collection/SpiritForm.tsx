@@ -85,6 +85,8 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
   const [showResults, setShowResults] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
+  const [imageOptions, setImageOptions] = useState<string[]>([]);
+  const [isLoadingImages, setIsLoadingImages] = useState(false);
   
   // Initialize form with default values or existing spirit
   const form = useForm<FormValues>({
@@ -689,6 +691,78 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
     return () => subscription.unsubscribe();
   }, [form.watch, debouncedSearch]);
   
+  // Image search function
+  const searchForImages = async (query: string) => {
+    if (!query || query.length < 3) return;
+    
+    setIsLoadingImages(true);
+    try {
+      // Craft a more precise image search query
+      const brandText = form.getValues('brand') || '';
+      const typeText = form.getValues('type') || 'whiskey bourbon';
+      const searchTerm = `${query} ${brandText} ${typeText} bottle`;
+      
+      console.log('Searching for images:', searchTerm);
+      
+      const response = await fetch('/api/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          query: searchTerm.trim(),
+          searchType: 'images' 
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Image search failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Extract image URLs from results
+      let imageUrls: string[] = [];
+      
+      if (data.images_results && data.images_results.length > 0) {
+        // Take first 3 images
+        imageUrls = data.images_results
+          .slice(0, 3)
+          .map((img: any) => img.original || img.thumbnail);
+      }
+      
+      // Filter for valid URLs and check against CSP
+      const validImageUrls = imageUrls
+        .filter(url => url && url.match(/^https?:\/\//))
+        .map(url => getProxiedImageUrl(url))
+        .filter(url => url !== '/images/bottle-placeholder.png');
+      
+      setImageOptions(validImageUrls);
+    } catch (error) {
+      console.error("Error searching for images:", error);
+      setImageOptions([]);
+    } finally {
+      setIsLoadingImages(false);
+    }
+  };
+  
+  // Select an image from options
+  const selectImage = (url: string) => {
+    setPreviewUrl(url);
+    form.setValue('imageUrl', url);
+  };
+
+  // When a search result is selected or form data changes significantly, search for images
+  useEffect(() => {
+    // Trigger image search when we have enough info about the spirit
+    const name = form.getValues('name');
+    const brand = form.getValues('brand');
+    
+    if (name && name.length > 3 && brand && brand.length > 2) {
+      searchForImages(`${brand} ${name}`);
+    }
+  }, [form.watch('name'), form.watch('brand'), form.watch('type')]);
+  
   // Handle form submission
   const onSubmit = async (data: FormValues) => {
     try {
@@ -1142,6 +1216,52 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
           {/* Image Section */}
           <div className="space-y-4 pt-4">
             <h3 className="text-lg font-medium">Image</h3>
+            
+            {/* Image Selection Options */}
+            {imageOptions.length > 0 && (
+              <>
+                <div className="mb-2">
+                  <h4 className="text-sm font-medium text-amber-100 mb-2">Select an image:</h4>
+                  <div className="grid grid-cols-3 gap-4">
+                    {imageOptions.map((imageUrl, index) => (
+                      <div 
+                        key={index}
+                        className={`
+                          relative aspect-[3/4] h-[150px] overflow-hidden rounded-md border 
+                          cursor-pointer transition-all hover:opacity-90 hover:border-amber-500
+                          ${previewUrl === imageUrl ? 'border-amber-500 border-2 ring-2 ring-amber-400' : 'border-gray-300'}
+                        `}
+                        onClick={() => selectImage(imageUrl)}
+                      >
+                        <Image
+                          src={imageUrl}
+                          alt={`Bottle option ${index + 1}`}
+                          fill
+                          sizes="150px"
+                          style={{ objectFit: 'contain' }}
+                          onError={(e) => {
+                            // Hide the image on error
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="text-sm text-amber-100 mb-4">
+                  Click an image above to select it, or enter a custom URL below.
+                </div>
+              </>
+            )}
+            
+            {isLoadingImages && (
+              <div className="flex items-center justify-center p-4">
+                <Loader2 className="h-8 w-8 animate-spin text-amber-400" />
+                <span className="ml-2 text-amber-100">Finding bottle images...</span>
+              </div>
+            )}
+            
+            {/* Manual Image URL Entry (Fallback) */}
             <FormField
               control={form.control}
               name="imageUrl"
@@ -1158,15 +1278,48 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
                     />
                   </FormControl>
                   <FormDescription className="text-amber-100">
-                    Enter a URL for the bottle image
+                    {imageOptions.length > 0 ? 
+                      "Or enter a custom URL for the bottle image" : 
+                      "Enter a URL for the bottle image"}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
             
+            {/* Manual image search button */}
+            <div className="flex justify-center">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const name = form.getValues('name');
+                  const brand = form.getValues('brand');
+                  if (name || brand) {
+                    searchForImages(`${brand} ${name}`);
+                  }
+                }}
+                disabled={isLoadingImages}
+                className="border-amber-800/30 hover:bg-amber-800/20 text-amber-100"
+              >
+                {isLoadingImages ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Searching...
+                  </>
+                ) : (
+                  <>
+                    <Search className="mr-2 h-4 w-4" />
+                    Find Images
+                  </>
+                )}
+              </Button>
+            </div>
+            
+            {/* Preview */}
             {previewUrl && (
-              <div className="flex justify-center">
+              <div className="flex justify-center mt-4">
                 <div className="relative aspect-[3/4] h-[300px] overflow-hidden rounded-md border">
                   <Image
                     src={previewUrl}
