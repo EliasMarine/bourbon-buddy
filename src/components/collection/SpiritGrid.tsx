@@ -116,7 +116,7 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
       {spirits.map((spirit) => (
         <Card 
           key={spirit.id} 
-          className={`overflow-hidden transition-all hover:shadow-md h-full ${spirit.isFavorite ? 'ring-2 ring-amber-500 ring-opacity-50' : ''}`}
+          className={`overflow-hidden transition-all hover:shadow-md h-full flex flex-col ${spirit.isFavorite ? 'ring-2 ring-amber-500 ring-opacity-50' : ''}`}
         >
           {/* Header moved to top */}
           <CardHeader className="p-3 pb-0">
@@ -166,7 +166,7 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
             </Button>
           </div>
           
-          <CardContent className="p-3 pt-2">
+          <CardContent className="p-3 pt-2 flex-grow">
             <div className="flex items-center gap-1 mb-2">
               <Star className="h-4 w-4 text-amber-500" />
               <span className="text-sm font-medium text-amber-100">
@@ -199,7 +199,7 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
             </div>
           </CardContent>
           
-          <CardFooter className="p-3 pt-1 flex flex-col gap-2">
+          <CardFooter className="p-3 pt-1 flex flex-col gap-2 mt-auto">
             <Button 
               variant="outline" 
               size="sm"
