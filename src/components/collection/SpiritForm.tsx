@@ -127,65 +127,187 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
         const results = await getMockSearchResults(query);
         setSearchResults(results);
         setShowResults(results.length > 0);
-      } else {
-        const response = await fetch(`https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(query + " whiskey bourbon details")}&api_key=${serpApiKey}`);
+        return;
+      }
+      
+      console.log('Searching with SerpAPI for:', query);
+      
+      try {
+        // Craft a more precise query for spirits
+        const searchTerm = `${query} ${form.getValues('brand') || ''} ${form.getValues('type') || 'whiskey bourbon'} spirit details`;
+        const encodedQuery = encodeURIComponent(searchTerm.trim());
+        
+        // Build API URL with additional parameters for better results
+        // See https://serpapi.com/search-api for full parameter documentation
+        const apiUrl = new URL('https://serpapi.com/search.json');
+        apiUrl.searchParams.append('engine', 'google');
+        apiUrl.searchParams.append('q', searchTerm);
+        apiUrl.searchParams.append('api_key', serpApiKey);
+        apiUrl.searchParams.append('gl', 'us'); // Google country - US for bourbon focus
+        apiUrl.searchParams.append('hl', 'en'); // Language - English
+        apiUrl.searchParams.append('num', '5'); // Number of results
+        apiUrl.searchParams.append('safe', 'active'); // Safe search active
+        
+        console.log('Calling SerpAPI with search term:', searchTerm);
+        
+        const response = await fetch(apiUrl.toString());
         
         if (!response.ok) {
+          console.error(`SerpAPI Error: ${response.status} ${response.statusText}`);
           throw new Error(`SerpAPI returned ${response.status}`);
         }
         
         const data = await response.json();
+        console.log('SerpAPI raw response:', data);
         
         // Extract structured data from search results
-        // This parsing logic will need to be adjusted based on the actual response format
-        const organicResults = data.organic_results || [];
-        const knowledgeGraph = data.knowledge_graph || {};
+        const results: SpiritSearchResult[] = [];
         
         // Process knowledge graph if available (best case)
-        if (knowledgeGraph.title) {
+        if (data.knowledge_graph && data.knowledge_graph.title) {
+          const kg = data.knowledge_graph;
+          
+          // Extract image from knowledge graph or thumbnail
+          let imageUrl = kg.image || '';
+          
+          // Extract price using both patterns
+          const priceValue = extractPrice(kg.price || '') || 
+                            (kg.description ? extractPrice(kg.description) : null);
+          
           const result: SpiritSearchResult = {
-            name: knowledgeGraph.title || query,
-            brand: knowledgeGraph.brand || extractBrandFromTitle(knowledgeGraph.title) || "",
-            type: extractType(knowledgeGraph.type || knowledgeGraph.category || ""),
-            description: knowledgeGraph.description || "",
-            proof: extractProof(knowledgeGraph.description || ""),
-            price: extractPrice(knowledgeGraph.price || ""),
-            country: extractCountry(knowledgeGraph.description || ""),
-            region: extractRegion(knowledgeGraph.description || ""),
-            distillery: knowledgeGraph.manufacturer || knowledgeGraph.distillery || "",
-            releaseYear: extractYear(knowledgeGraph.description || ""),
-            imageUrl: knowledgeGraph.image || ""
+            name: kg.title || query,
+            brand: kg.brand || extractBrandFromTitle(kg.title) || "",
+            type: extractType(kg.type || kg.category || ""),
+            description: kg.description || "",
+            proof: extractProof(kg.description || ""),
+            price: priceValue,
+            country: extractCountry(kg.description || ""),
+            region: extractRegion(kg.description || ""),
+            distillery: kg.manufacturer || kg.distillery || "",
+            releaseYear: extractYear(kg.description || ""),
+            imageUrl: imageUrl
           };
           
-          setSearchResults([result]);
-          setShowResults(true);
+          results.push(result);
+          console.log('Extracted from knowledge graph:', result);
         }
         
-        // Process organic results as fallback
-        // This is more complex and less reliable than knowledge graph data
-        const results = organicResults.slice(0, 3).map((result: any) => {
-          const title = result.title || "";
-          return {
-            name: extractName(title),
-            brand: extractBrandFromTitle(title),
-            type: extractTypeFromTitle(title),
-            description: result.snippet || "",
-            imageUrl: result.thumbnail || "",
-            // Other fields would need more complex extraction logic
-            proof: null,
-            price: null,
-            country: null,
-            region: null,
-            distillery: null,
-            releaseYear: null
-          };
-        });
+        // Process organic results
+        if (data.organic_results && data.organic_results.length > 0) {
+          const organicResults = data.organic_results.slice(0, 3).map((result: any) => {
+            const title = result.title || "";
+            const snippet = result.snippet || "";
+            
+            // Try to extract image from thumbnail or link
+            let imageUrl = result.thumbnail || "";
+            if (!imageUrl && result.images_results && result.images_results.length > 0) {
+              imageUrl = result.images_results[0].original;
+            }
+            
+            // Extract brand - look both in title and snippet
+            const brand = extractBrandFromTitle(title) || 
+                          extractBrandFromString(snippet) || "";
+            
+            // Extract type with improved logic
+            const type = extractTypeFromTitle(title) || 
+                         extractTypeFromString(snippet) || 
+                         "Whiskey";
+            
+            // Extract bottle specs with improved patterns
+            const proof = extractProof(snippet) || extractProof(title) || null;
+            const price = extractPrice(snippet) || extractPrice(title) || null;
+            
+            return {
+              name: extractName(title),
+              brand: brand,
+              type: type,
+              description: snippet,
+              imageUrl: imageUrl,
+              proof: proof,
+              price: price,
+              country: extractCountry(snippet),
+              region: extractRegion(snippet),
+              distillery: extractDistilleryFromSnippet(snippet),
+              releaseYear: extractYear(snippet)
+            };
+          });
+          
+          results.push(...organicResults);
+          console.log('Extracted from organic results:', organicResults);
+        }
         
-        setSearchResults(results);
-        setShowResults(results.length > 0);
+        // Process shopping results if available (great for prices)
+        if (data.shopping_results && data.shopping_results.length > 0) {
+          const shoppingResults = data.shopping_results.slice(0, 2).map((item: any) => {
+            const title = item.title || "";
+            const snippet = item.snippet || "";
+            
+            // Extract name removing typical store prefixes
+            const name = extractName(title.replace(/^(Buy|Shop|Get|Order)\s+/i, ''));
+            
+            return {
+              name: name,
+              brand: extractBrandFromTitle(title) || "",
+              type: extractTypeFromTitle(title) || "Whiskey",
+              description: snippet || item.description || "",
+              imageUrl: item.thumbnail || "",
+              proof: extractProof(title) || null,
+              price: item.extracted_price || extractPrice(item.price) || null,
+              country: extractCountry(snippet),
+              region: extractRegion(snippet),
+              distillery: extractDistilleryFromSnippet(title),
+              releaseYear: null
+            };
+          });
+          
+          results.push(...shoppingResults);
+          console.log('Extracted from shopping results:', shoppingResults);
+        }
+        
+        // Process related questions if no results yet
+        if (results.length === 0 && data.related_questions && data.related_questions.length > 0) {
+          const questionsData = data.related_questions.slice(0, 2);
+          questionsData.forEach((question: any) => {
+            if (question.title && question.title.includes(query)) {
+              results.push({
+                name: query,
+                brand: extractBrandFromString(question.title) || "",
+                type: "Whiskey",
+                description: question.snippet || "",
+                imageUrl: question.thumbnail || "",
+                proof: null,
+                price: null,
+                country: null,
+                region: null,
+                distillery: null,
+                releaseYear: null
+              });
+            }
+          });
+        }
+        
+        // Fallback if no results
+        if (results.length === 0) {
+          console.warn('No results from SerpAPI, using mock data');
+          const mockResults = await getMockSearchResults(query);
+          setSearchResults(mockResults);
+          setShowResults(mockResults.length > 0);
+          return;
+        }
+        
+        // Remove duplicates based on name
+        const uniqueResults = results.filter((item, index, self) => 
+          index === self.findIndex((t) => t.name === item.name)
+        );
+        
+        setSearchResults(uniqueResults);
+        setShowResults(true);
+      } catch (serpError) {
+        console.error("Error with SerpAPI:", serpError);
+        throw serpError; // Rethrow for the outer catch
       }
     } catch (error) {
-      console.error("Error fetching from SerpAPI:", error);
+      console.error("Search error:", error);
       // Fallback to mock data if API fails
       const results = await getMockSearchResults(query);
       setSearchResults(results);
@@ -194,6 +316,71 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
       setIsSearching(false);
     }
   }, 500); // 500ms debounce
+  
+  // Additional helper function for brand extraction from descriptions
+  const extractBrandFromString = (text: string): string | null => {
+    // Common bourbon/whiskey brands
+    const brands = [
+      "Buffalo Trace", "Blanton's", "Maker's Mark", "Woodford Reserve", 
+      "Four Roses", "Wild Turkey", "Jim Beam", "Knob Creek", "Eagle Rare",
+      "Lagavulin", "Macallan", "Glenfiddich", "Glenlivet", "Jack Daniel's",
+      "Bulleit", "Johnnie Walker", "Jameson", "Crown Royal", "Suntory", "Nikka",
+      "Old Forester", "Elijah Craig", "Weller", "Stagg", "Pappy Van Winkle",
+      "Basil Hayden", "Heaven Hill", "Booker's", "Barrell", "Jefferson's"
+    ];
+    
+    for (const brand of brands) {
+      if (text.includes(brand)) {
+        return brand;
+      }
+    }
+    
+    return null;
+  };
+  
+  // Extract type from arbitrary text
+  const extractTypeFromString = (text: string): string | null => {
+    const lowerText = text.toLowerCase();
+    
+    const typeMappings = [
+      { patterns: ["bourbon", "straight bourbon", "kentucky bourbon"], value: "Bourbon" },
+      { patterns: ["scotch", "single malt", "blended scotch"], value: "Scotch" },
+      { patterns: ["rye", "rye whiskey", "straight rye"], value: "Rye" },
+      { patterns: ["japanese whisky", "japan whisky"], value: "Japanese" },
+      { patterns: ["irish whiskey", "triple distilled"], value: "Irish" },
+      { patterns: ["canadian whisky", "canadian rye"], value: "Canadian" },
+      { patterns: ["tennessee whiskey"], value: "Tennessee Whiskey" },
+      { patterns: ["whisky", "whiskey"], value: "Whiskey" }
+    ];
+    
+    for (const type of typeMappings) {
+      for (const pattern of type.patterns) {
+        if (lowerText.includes(pattern)) {
+          return type.value;
+        }
+      }
+    }
+    
+    return null;
+  };
+  
+  // Additional helper function for distillery extraction
+  const extractDistilleryFromSnippet = (snippet: string): string | null => {
+    const distilleryPatterns = [
+      /distilled by ([\w\s]+)/i,
+      /from ([\w\s]+) distillery/i,
+      /([\w\s]+) distillery/i
+    ];
+    
+    for (const pattern of distilleryPatterns) {
+      const match = snippet.match(pattern);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+    
+    return null;
+  };
   
   // Helper functions for extracting info from search results
   const extractBrandFromTitle = (title: string): string => {
@@ -383,11 +570,92 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
     if (result.releaseYear) form.setValue('releaseYear', result.releaseYear);
     
     if (result.imageUrl) {
-      form.setValue('imageUrl', result.imageUrl);
-      setPreviewUrl(result.imageUrl);
+      // Try to convert to a CSP-friendly image URL if needed
+      const imageUrl = getProxiedImageUrl(result.imageUrl);
+      form.setValue('imageUrl', imageUrl);
+      setPreviewUrl(imageUrl);
     }
     
     setShowResults(false);
+  };
+  
+  // Helper function to get a proxied image URL that works with CSP
+  const getProxiedImageUrl = (url: string): string => {
+    // Check if URL is valid
+    if (!url || !url.trim() || !url.match(/^https?:\/\//)) {
+      console.log('Invalid image URL:', url);
+      return '/images/bottle-placeholder.png';
+    }
+    
+    try {
+      // Check if URL is already CSP-friendly (from allowed domains)
+      const allowedDomains = [
+        'amazonaws.com',
+        'supabase.co',
+        'githubusercontent.com',
+        'googleusercontent.com',
+        'redd.it',
+        'buffalotracedistillery.com',
+        'blantonsbourbon.com',
+        'barbank.com',
+        'woodencork.com',
+        'whiskeycaviar.com',
+        'bdliquorwine.com',
+        'bourbonbuddy.s3.ca-west-1.s4.mega.io',
+        'masterofmalt.com',
+        'thewhiskyexchange.com',
+        'totalwine.com',
+        'reservebar.com',
+        'whiskyadvocate.com',
+        'bourbonblog.com',
+        'distiller.com',
+        'pappyco.com',
+        'buffalotracedistillery.com',
+        'breakingbourbon.com',
+        'drizly.com'
+      ];
+      
+      // Parse the URL for domain checking
+      const urlObj = new URL(url);
+      const hostname = urlObj.hostname;
+      
+      const isAllowedDomain = allowedDomains.some(domain => hostname.includes(domain));
+      
+      if (isAllowedDomain) {
+        return url;
+      }
+      
+      // For Master of Malt, make sure we get the actual image and not a product page
+      if (url.includes('masterofmalt.com') && !url.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+        // If it's a product page and not a direct image link, return placeholder
+        console.log('Master of Malt product page detected, using placeholder instead');
+        return '/images/bottle-placeholder.png';
+      }
+      
+      // For other domains, return a placeholder image 
+      // In a production environment, you'd implement a proxy service
+      console.log(`Image from ${hostname} not in CSP allowlist. Using placeholder.`);
+      return '/images/bottle-placeholder.png';
+      
+      // Alternatively, if you have an image proxy API, uncomment this:
+      // return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+    } catch (error) {
+      console.error('Error processing image URL:', error);
+      return '/images/bottle-placeholder.png';
+    }
+  };
+  
+  // Handle image URL change
+  const handleImageUrlChange = (url: string) => {
+    if (!url) {
+      setPreviewUrl(null);
+      form.setValue('imageUrl', '');
+      return;
+    }
+    
+    const imageUrl = getProxiedImageUrl(url);
+    setPreviewUrl(imageUrl);
+    form.setValue('imageUrl', url); // Keep the original URL in the form
   };
   
   // Watch the name field for auto-search
@@ -449,12 +717,6 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
     }
   };
   
-  // Handle image URL change
-  const handleImageUrlChange = (url: string) => {
-    setPreviewUrl(url);
-    form.setValue('imageUrl', url);
-  };
-  
   // Manually trigger search
   const handleManualSearch = () => {
     const query = form.getValues('name');
@@ -491,6 +753,15 @@ export function SpiritForm({ spirit, onSuccess }: SpiritFormProps) {
               <Search className="h-4 w-4" />
               <span>Search</span>
             </Button>
+          </div>
+          
+          {/* Auto-search explanation */}
+          <div className="mb-4 p-3 bg-amber-800/20 rounded-md border border-amber-800/30">
+            <p className="text-sm text-amber-100">
+              <span className="font-medium">Auto-search</span>: As you type the spirit name, 
+              we'll search for details and fill in information automatically.
+              Toggle this feature on/off, or click "Search" to search manually.
+            </p>
           </div>
           
           {/* Basic Info Section */}
