@@ -7,7 +7,8 @@ const protectedRoutes = [
   '/dashboard',
   '/profile',
   '/streams/create',
-  '/collection',
+  '/collection', // Collection path without trailing slash
+  '/collection/', // Collection path with trailing slash - explicitly added to fix routing issue
   '/api/collection',
   '/api/spirits/',
   '/api/spirit/',
@@ -348,8 +349,11 @@ export async function middleware(request: NextRequest) {
     // Handle trailing slashes
     if (path === `${route}/` || `${path}/` === route) return true;
     
-    // Path prefix match (for folder-like routes)
+    // Path prefix match (for path-based routes like /collection/*)
     if (route.endsWith('/') && path.startsWith(route)) return true;
+    
+    // Additional specific path match for '/collection' to catch all variations
+    if (route === '/collection' && (path === '/collection' || path.startsWith('/collection/'))) return true;
     
     return false;
   }
@@ -438,6 +442,18 @@ export async function middleware(request: NextRequest) {
   // 2. If not a public route, check if user is authenticated
   if (user) {
     // User is authenticated, allow access.
+    // Add debug headers for authenticated requests
+    if (!isStaticAsset && (process.env.NODE_ENV !== 'production' || process.env.DEBUG_AUTH === 'true')) {
+      response.headers.set('X-Auth-Debug-Authenticated', 'true');
+      response.headers.set('X-Auth-Debug-UserId', user.id);
+      response.headers.set('X-Auth-Debug-Path', path);
+      response.headers.set('X-Auth-Debug-RouteCheck', 'passed');
+      
+      // Log authenticated access for easier debugging
+      console.log(`[Auth Debug] ✅ Authenticated user ${user.id.substring(0, 8)}... accessing ${path}`);
+      console.log(`[Auth Debug] 🔑 Auth cookies count: ${request.cookies.getAll().length}`);
+    }
+    
     // Potentially trigger background sync for relevant pages
     if (path === '/past-tastings' || path === '/dashboard' || path === '/') {
         triggerBackgroundVideoSync();
@@ -470,6 +486,13 @@ export async function middleware(request: NextRequest) {
       });
     });
 
+    // Also copy any cookies from the original request that may not be in the response
+    request.cookies.getAll().forEach(cookie => {
+      if (!redirectResponse.cookies.get(cookie.name)) {
+        redirectResponse.cookies.set(cookie.name, cookie.value);
+      }
+    });
+
     if (!isStaticAsset) {
       // Re-apply the determined CSP to the redirect response
       const finalCsp = path.includes('/collection/spirit/') ? createRelaxedCSPHeader(nonce) : createStrictCSPHeader(nonce);
@@ -483,6 +506,8 @@ export async function middleware(request: NextRequest) {
       redirectResponse.headers.set('X-Auth-Debug-Redirect', 'true');
       redirectResponse.headers.set('X-Auth-Debug-From', path);
       redirectResponse.headers.set('X-Auth-Debug-To', loginUrl.toString());
+      redirectResponse.headers.set('X-Auth-Debug-HasUser', user ? 'true' : 'false');
+      redirectResponse.headers.set('X-Auth-Debug-CookieCount', request.cookies.getAll().length.toString());
     }
     
     return redirectResponse;
