@@ -119,6 +119,38 @@ function createStrictCSPHeader(nonce: string): string {
     frame-src 'self' https://vercel.live https://vercel.com https://*.mux.com;
   `;
   
+  // Well-known hashes for React and other frameworks' runtime-generated inline styles
+  // These hashes were extracted from CSP violation reports
+  const knownStyleHashes = [
+    "'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='",
+    "'sha256-7lAG9nNPimWNBky6j9qnn0jfFzu5wK96KOj/UzoG0hg='",
+    "'sha256-LL1Oj3pIToBpzHWMlAyrmK9guWSsY8Nr8wq7gA/m/ew='",
+    "'sha256-8mIk1oX3LmRB+UWuFGvbo1hLWczGs3Z5yXDPHotWXlQ='",
+    "'sha256-ZYns29och5nBGFV2O2mG0POX+mI2q4UFtJuvS1eoGF0='",
+    "'sha256-DSYmRr35z6zyfy04z49VxSw/Fjw5T+rlVRbZWRT8U/I='",
+    "'sha256-OYG2xTYpFINTWWpa7AYS4DfPiIyxrHaKeuWu5xqQjPE='",
+    "'sha256-nzTgYzXYDNe6BAHiiI7NNlfK8n/auuOAhh2t92YvuXo='",
+    "'sha256-Nqnn8clbgv+5l0PgxcTOldg8mkMKrFn4TvPL+rYUUGg='",
+    "'sha256-13vrThxdyT64GcXoTNGVoRRoL0a7EGBmOJ+lemEWyws='",
+    "'sha256-QZ52fjvWgIOIOPr+gRIJZ7KjzNeTBm50Z+z9dH4N1/8='",
+    "'sha256-yOU6eaJ75xfag0gVFUvld5ipLRGUy94G17B1uL683EU='",
+    "'sha256-OpTmykz0m3o5HoX53cykwPhUeU4OECxHQlKXpB0QJPQ='",
+    "'sha256-SSIM0kI/u45y4gqkri9aH+la6wn2R+xtcBj3Lzh7qQo='",
+    "'sha256-ZH/+PJIjvP1BctwYxclIuiMu1wItb0aasjpXYXOmU0Y='",
+    "'sha256-58jqDtherY9NOM+ziRgSqQY0078tAZ+qtTBjMgbM9po='",
+    "'sha256-7Ri/I+PfhgtpcL7hT4A0VJKI6g3pK0ZvIN09RQV4ZhI='",
+    "'sha256-+1ELCr8ReJfJBjWJ10MIbLJZRYsIfwdKV+UKdFVDXyo='",
+    "'sha256-MktN23nRzohmT1JNxPQ0B9CzVW6psOCbvJ20j9YxAxA='",
+    "'sha256-47lXINn3kn6TjA9CnVQoLLxD4bevVlCtoMcDr8kZ1kc='",
+    "'sha256-wkAU1AW/h8RKmZ3BUsffwzbTWBeIGD83S5VR9RhiQtk='",
+    "'sha256-MQsH+WZ41cJWVrTw3AC5wJ8LdiYKgwTlENhYI5UKpow='",
+    "'sha256-TIidHKBLbE0MY7TLE+9G8QOzGXaS7aIwJ1xJRtTd3zk='",
+    "'sha256-zlqnbDt84zf1iSefLU/ImC54isoprH/MRiVZGskwexk='",
+    "'sha256-YU+7xR2SQ2IoeUaPeEWvwLEWsztKCB9S84+vZSiCCb8='",
+    "'sha256-e+d//0i8BFXT2i7IyorNZ0tv2tapkHWj1efiS4sgAWo='",
+    "'sha256-idlVAVXQtMoxiIyJdtG5SRyKpGisdxifn7tQeFGuGFU='"
+  ].join(' ');
+  
   // Basic security directives
   const baseDirectives = `
     default-src 'self';
@@ -134,20 +166,20 @@ function createStrictCSPHeader(nonce: string): string {
     upgrade-insecure-requests;
   `;
   
-  // Use strict CSP with nonce and strict-dynamic
+  // For production, use nonce + hashes + strict-dynamic for defense-in-depth
   let strictCSP = `
     ${baseDirectives}
     script-src 'nonce-${nonce}' 'strict-dynamic' https:;
-    style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com;
+    style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com 'unsafe-hashes' ${knownStyleHashes};
     ${cspReportingDirectives}
   `;
   
-  // In development, we might need to allow 'unsafe-eval' for HMR and possibly 'unsafe-inline' for styles if nonces are tricky
+  // In development, allow safer debugging capabilities
   if (isDevelopment) {
     strictCSP = `
       ${baseDirectives}
       script-src 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval' https:;
-      style-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://fonts.googleapis.com;
+      style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com 'unsafe-hashes' ${knownStyleHashes};
       ${cspReportingDirectives}
     `;
   }
@@ -157,10 +189,41 @@ function createStrictCSPHeader(nonce: string): string {
 
 // Create a more permissive CSP for special pages that need it
 function createRelaxedCSPHeader(nonce: string): string {
+  // Well-known hashes for React and other frameworks' runtime-generated inline styles
+  const knownStyleHashes = [
+    "'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='",
+    "'sha256-7lAG9nNPimWNBky6j9qnn0jfFzu5wK96KOj/UzoG0hg='",
+    "'sha256-LL1Oj3pIToBpzHWMlAyrmK9guWSsY8Nr8wq7gA/m/ew='",
+    "'sha256-8mIk1oX3LmRB+UWuFGvbo1hLWczGs3Z5yXDPHotWXlQ='",
+    "'sha256-ZYns29och5nBGFV2O2mG0POX+mI2q4UFtJuvS1eoGF0='",
+    "'sha256-DSYmRr35z6zyfy04z49VxSw/Fjw5T+rlVRbZWRT8U/I='",
+    "'sha256-OYG2xTYpFINTWWpa7AYS4DfPiIyxrHaKeuWu5xqQjPE='",
+    "'sha256-nzTgYzXYDNe6BAHiiI7NNlfK8n/auuOAhh2t92YvuXo='",
+    "'sha256-Nqnn8clbgv+5l0PgxcTOldg8mkMKrFn4TvPL+rYUUGg='",
+    "'sha256-13vrThxdyT64GcXoTNGVoRRoL0a7EGBmOJ+lemEWyws='",
+    "'sha256-QZ52fjvWgIOIOPr+gRIJZ7KjzNeTBm50Z+z9dH4N1/8='",
+    "'sha256-yOU6eaJ75xfag0gVFUvld5ipLRGUy94G17B1uL683EU='",
+    "'sha256-OpTmykz0m3o5HoX53cykwPhUeU4OECxHQlKXpB0QJPQ='",
+    "'sha256-SSIM0kI/u45y4gqkri9aH+la6wn2R+xtcBj3Lzh7qQo='",
+    "'sha256-ZH/+PJIjvP1BctwYxclIuiMu1wItb0aasjpXYXOmU0Y='",
+    "'sha256-58jqDtherY9NOM+ziRgSqQY0078tAZ+qtTBjMgbM9po='",
+    "'sha256-7Ri/I+PfhgtpcL7hT4A0VJKI6g3pK0ZvIN09RQV4ZhI='",
+    "'sha256-+1ELCr8ReJfJBjWJ10MIbLJZRYsIfwdKV+UKdFVDXyo='",
+    "'sha256-MktN23nRzohmT1JNxPQ0B9CzVW6psOCbvJ20j9YxAxA='",
+    "'sha256-47lXINn3kn6TjA9CnVQoLLxD4bevVlCtoMcDr8kZ1kc='",
+    "'sha256-wkAU1AW/h8RKmZ3BUsffwzbTWBeIGD83S5VR9RhiQtk='",
+    "'sha256-MQsH+WZ41cJWVrTw3AC5wJ8LdiYKgwTlENhYI5UKpow='",
+    "'sha256-TIidHKBLbE0MY7TLE+9G8QOzGXaS7aIwJ1xJRtTd3zk='",
+    "'sha256-zlqnbDt84zf1iSefLU/ImC54isoprH/MRiVZGskwexk='",
+    "'sha256-YU+7xR2SQ2IoeUaPeEWvwLEWsztKCB9S84+vZSiCCb8='",
+    "'sha256-e+d//0i8BFXT2i7IyorNZ0tv2tapkHWj1efiS4sgAWo='",
+    "'sha256-idlVAVXQtMoxiIyJdtG5SRyKpGisdxifn7tQeFGuGFU='"
+  ].join(' ');
+
   return `
     default-src 'self';
     script-src 'nonce-${nonce}' 'strict-dynamic' https:;
-    style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com 'unsafe-inline';
+    style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com 'unsafe-hashes' ${knownStyleHashes};
     img-src 'self' data: blob: https: http:;
     font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com;
     connect-src 'self' https://*.supabase.co https://api.mux.com https://* wss://*;
@@ -235,13 +298,14 @@ export async function middleware(request: NextRequest) {
   // to set cookies on our 'response' object via the 'setAll' handler if needed.
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Debug log authentication state
+  // DEBUG: Output current cookies for troubleshooting session issues
   if (process.env.NODE_ENV !== 'production' || process.env.DEBUG_AUTH === 'true') {
     console.log(`[Auth Debug] Path: ${path}`);
     console.log(`[Auth Debug] User authenticated: ${!!user}`);
     console.log(`[Auth Debug] User ID: ${user?.id || 'none'}`);
-    console.log(`[Auth Debug] Cookies: ${request.cookies.getAll().map(c => c.name).join(', ')}`);
-    console.log(`[Auth Debug] Protected route match: ${protectedRoutes.some(route => path.startsWith(route))}`);
+    console.log(`[Auth Debug] Cookies count: ${request.cookies.getAll().length}`);
+    console.log(`[Auth Debug] Cookie names: ${request.cookies.getAll().map(c => c.name).join(', ')}`);
+    console.log(`[Auth Debug] Protected route match: ${protectedRoutes.some(route => isProtectedRoute(path, route))}`);
   }
 
   // Now that Supabase has had a chance to work with 'response', set CSP.
@@ -276,6 +340,20 @@ export async function middleware(request: NextRequest) {
     }
   }
   
+  // Helper function to check if a path matches a protected route
+  function isProtectedRoute(path: string, route: string): boolean {
+    // Exact match
+    if (path === route) return true;
+    
+    // Handle trailing slashes
+    if (path === `${route}/` || `${path}/` === route) return true;
+    
+    // Path prefix match (for folder-like routes)
+    if (route.endsWith('/') && path.startsWith(route)) return true;
+    
+    return false;
+  }
+  
   // Add script to page that will log debug info to console
   const debugScript = `
   <script nonce="${nonce}">
@@ -307,6 +385,11 @@ export async function middleware(request: NextRequest) {
         console.log("📍 Current URL:", window.location.href);
         console.log("↩️ Referrer:", document.referrer || "none");
         console.log("🔄 Was Redirected:", wasRedirected);
+        
+        // Extra debug for CSP issues
+        console.log("%c🔒 CSP Debug", "color: white; background-color: #9C27B0; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
+        console.log("🔍 Check console for CSP violations");
+        console.log("🔍 Inline styles okay:", document.querySelector('style') ? "Yes" : "No");
       }
     }
     
@@ -363,53 +446,48 @@ export async function middleware(request: NextRequest) {
   }
   
   // 3. User is NOT authenticated, and it's NOT a public route.
-  //    This means it must be a protected route or an unknown route.
-  //    For simplicity here, we assume any non-public route without a user session
-  //    should redirect to login. If you have non-protected, non-public routes
-  //    that unauthenticated users can see, that logic would need adjustment.
+  //    Check if it's explicitly a protected route
+  const isProtected = protectedRoutes.some(route => isProtectedRoute(path, route));
   
-  // Check if it's explicitly a protected route (this check is mainly for clarity now,
-  // as any non-public route without a user will redirect).
-  const isProtectedRoute = protectedRoutes.some(route => {
-    if (path === route) return true;
-    // Ensure trailing slashes are handled if `route` doesn't include them
-    if (path === `${route}/`) return true; 
-    // Check if path starts with a protected folder-like route
-    if (route.endsWith('/') && path.startsWith(route)) return true; 
-    // Check for specific API patterns if route is like /api/spirits/
-    if (route.endsWith('/') && path.startsWith(route)) return true;
-    return false;
-  });
+  // If it's a protected route, redirect to login
+  if (isProtected) {
+    // Redirect to login if not authenticated and trying to access a protected page
+    const loginUrl = new URL('/login', request.url)
+    loginUrl.searchParams.set('redirect', encodeURIComponent(path))
 
-  // Redirect to login if not authenticated and trying to access a non-public page.
-  const loginUrl = new URL('/login', request.url)
-  loginUrl.searchParams.set('redirect', encodeURIComponent(path))
+    const redirectResponse = NextResponse.redirect(loginUrl);
 
-  const redirectResponse = NextResponse.redirect(loginUrl);
-
-  // Copy essential cookies (like those Supabase might have tried to set before getUser)
-  // and CSP headers to the redirect response.
-  response.cookies.getAll().forEach(cookie => {
-    redirectResponse.cookies.set(cookie.name, cookie.value, {
-      domain: cookie.domain,
-      expires: cookie.expires,
-      httpOnly: cookie.httpOnly,
-      maxAge: cookie.maxAge,
-      path: cookie.path,
-      sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined,
-      secure: cookie.secure
+    // Copy ALL cookies from the response to the redirect response to maintain auth state
+    response.cookies.getAll().forEach(cookie => {
+      redirectResponse.cookies.set(cookie.name, cookie.value, {
+        domain: cookie.domain,
+        expires: cookie.expires,
+        httpOnly: cookie.httpOnly,
+        maxAge: cookie.maxAge,
+        path: cookie.path,
+        sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined,
+        secure: cookie.secure
+      });
     });
-  });
 
-  if (!isStaticAsset) {
-    // Re-apply the determined CSP to the redirect response
-    const finalCsp = path.includes('/collection/spirit/') ? createRelaxedCSPHeader(nonce) : createStrictCSPHeader(nonce);
-    redirectResponse.headers.set('Content-Security-Policy', finalCsp);
-    const reportTo = response.headers.get('Report-To');
-    if (reportTo) {
-      redirectResponse.headers.set('Report-To', reportTo);
+    if (!isStaticAsset) {
+      // Re-apply the determined CSP to the redirect response
+      const finalCsp = path.includes('/collection/spirit/') ? createRelaxedCSPHeader(nonce) : createStrictCSPHeader(nonce);
+      redirectResponse.headers.set('Content-Security-Policy', finalCsp);
+      const reportTo = response.headers.get('Report-To');
+      if (reportTo) {
+        redirectResponse.headers.set('Report-To', reportTo);
+      }
+      
+      // Add debug headers to redirect
+      redirectResponse.headers.set('X-Auth-Debug-Redirect', 'true');
+      redirectResponse.headers.set('X-Auth-Debug-From', path);
+      redirectResponse.headers.set('X-Auth-Debug-To', loginUrl.toString());
     }
+    
+    return redirectResponse;
   }
   
-  return redirectResponse;
+  // If we get here, route is neither public nor protected, return normal response
+  return response;
 }
