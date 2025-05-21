@@ -2,6 +2,9 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import crypto from 'crypto'
 
+// Import NextRequest as a value, not just a type
+import { NextRequest as ActualNextRequest } from 'next/server'
+
 // List of protected routes (require authentication)
 const protectedRoutes = [
   '/dashboard',
@@ -244,9 +247,17 @@ function createRelaxedCSPHeader(nonce: string): string {
  * - Handles Supabase SSR auth and route protection
  * - Occasionally triggers background video sync
  */
-export async function middleware(request: NextRequest) {
+export async function middleware(request: ActualNextRequest) {
   const url = new URL(request.url)
   const path = url.pathname
+  const isCollectionPath = path === '/collection' || path.startsWith('/collection/');
+  
+  // Debug collection path access attempts
+  if (isCollectionPath) {
+    console.log(`[AUTH DEBUG] Collection path access attempt: ${path}`);
+    console.log(`[AUTH DEBUG] Cookies: ${request.cookies.getAll().length}`);
+    console.log(`[AUTH DEBUG] Cookie names: ${request.cookies.getAll().map(c => c.name).join(', ')}`);
+  }
 
   // Skip static assets for performance
   const isStaticAsset = staticAssetPatterns.some(pattern => pattern.test(path))
@@ -260,6 +271,15 @@ export async function middleware(request: NextRequest) {
     requestHeaders.set('x-nonce', nonce);
   }
   
+  // Ensure we have the referrer to help debug navigation issues
+  const referrer = request.headers.get('referer') || 'none';
+  
+  // Get auth state from cookies before creating supabase client
+  // This helps diagnose issues with incomplete auth state
+  const hasAuthCookie = !!request.cookies.get('sb-access-token') || 
+                        !!request.cookies.get('supabase-auth-token') ||
+                        request.cookies.getAll().some(c => c.name.startsWith('sb-'));
+  
   // Initialize a base response. Supabase client might update this instance
   // or we might replace it if we redirect.
   let response = NextResponse.next({
@@ -267,6 +287,12 @@ export async function middleware(request: NextRequest) {
       headers: requestHeaders,
     },
   });
+  
+  // Track if we've already attempted session refresh to avoid loops
+  const hasAttemptedRefresh = request.headers.get('x-auth-refresh-attempted') === 'true';
+  
+  // Add tracking header for refresh attempts to the response
+  response.headers.set('x-auth-refresh-attempted', hasAttemptedRefresh ? 'true' : 'false');
   
   // Initialize Supabase client
   const supabase = createServerClient(
@@ -278,15 +304,15 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          // Create a new response object only once
+          // First set cookie in the request cookies store to ensure it's available 
+          // for the current request processing
           cookiesToSet.forEach(({ name, value, options }) => {
-            // First set cookie in the request cookies store to ensure it's available 
-            // for the current request processing
-            request.cookies.set(name, value)
+            // Add to original request cookies for current processing
+            request.cookies.set(name, value);
             
             // Also set in the response for subsequent requests
-            response.cookies.set(name, value, options)
-          })
+            response.cookies.set(name, value, options);
+          });
         },
       },
     }
@@ -295,18 +321,46 @@ export async function middleware(request: NextRequest) {
   // IMPORTANT: DO NOT execute any code between creating the Supabase client
   // and calling auth.getUser() to prevent session inconsistency
 
-  // IMPORTANT: Call supabase.auth.getUser() to handle session refresh and allow Supabase
-  // to set cookies on our 'response' object via the 'setAll' handler if needed.
-  const { data: { user } } = await supabase.auth.getUser()
+  // Before checking if the user exists, actively attempt to refresh the session
+  // This is particularly important for collection navigation where auth might not be fully established
+  let sessionResult;
+  
+  // We make extra sure we have the latest session for collection paths, particularly if we suspect auth issues
+  if (isCollectionPath && hasAuthCookie && !hasAttemptedRefresh) {
+    try {
+      console.log('[Auth Debug] 🔄 Attempting to refresh session for collection path');
+      
+      // Attempt an explicit session refresh to ensure we have the latest auth state
+      sessionResult = await supabase.auth.getSession();
+      
+      // Log the session refresh attempt to help troubleshooting
+      console.log(`[Auth Debug] 📋 Session refresh result: ${sessionResult?.data?.session ? "Has session" : "No session"}`);
+    } catch (error) {
+      console.error('[Auth Debug] ❌ Error refreshing session:', error);
+    }
+  }
+  
+  // Now get the user - we use the explicitly refreshed session result if available, otherwise default to getUser()
+  const { data: { user } } = sessionResult?.data?.session ? 
+    { data: { user: sessionResult.data.session.user } } : 
+    await supabase.auth.getUser();
 
-  // DEBUG: Output current cookies for troubleshooting session issues
-  if (process.env.NODE_ENV !== 'production' || process.env.DEBUG_AUTH === 'true') {
-    console.log(`[Auth Debug] Path: ${path}`);
-    console.log(`[Auth Debug] User authenticated: ${!!user}`);
-    console.log(`[Auth Debug] User ID: ${user?.id || 'none'}`);
-    console.log(`[Auth Debug] Cookies count: ${request.cookies.getAll().length}`);
-    console.log(`[Auth Debug] Cookie names: ${request.cookies.getAll().map(c => c.name).join(', ')}`);
-    console.log(`[Auth Debug] Protected route match: ${protectedRoutes.some(route => isProtectedRoute(path, route))}`);
+  // Enhanced debug logging for collection path authentication issues
+  if (isCollectionPath) {
+    console.log(`[AUTH DEBUG] Collection path: ${path}, User authenticated: ${!!user}`);
+    console.log(`[AUTH DEBUG] Referrer: ${referrer}`);
+    if (user) {
+      console.log(`[AUTH DEBUG] User ID for collection access: ${user.id}`);
+    } else {
+      console.log(`[AUTH DEBUG] No user found for collection access`);
+      // Check specific auth cookies to help diagnose issue
+      const supabaseCookies = request.cookies.getAll().filter(c => 
+        c.name.includes('supabase') || 
+        c.name.includes('auth') || 
+        c.name.includes('sb-')
+      );
+      console.log(`[AUTH DEBUG] Auth-related cookies: ${supabaseCookies.map(c => c.name).join(', ')}`);
+    }
   }
 
   // Now that Supabase has had a chance to work with 'response', set CSP.
@@ -335,95 +389,25 @@ export async function middleware(request: NextRequest) {
       response.headers.set('X-Auth-Debug-IsAuthenticated', user ? 'true' : 'false');
       response.headers.set('X-Auth-Debug-Path', path);
       response.headers.set('X-Auth-Debug-Timestamp', new Date().toISOString());
+      response.headers.set('X-Auth-Debug-HasAuthCookie', hasAuthCookie ? 'true' : 'false');
+      response.headers.set('X-Auth-Debug-Referrer', referrer);
       if (user) {
         response.headers.set('X-Auth-Debug-UserId', user.id.substring(0, 8) + '...');
       }
     }
   }
   
-  // Helper function to check if a path matches a protected route
-  function isProtectedRoute(path: string, route: string): boolean {
-    // Exact match
-    if (path === route) return true;
-    
-    // Handle trailing slashes
-    if (path === `${route}/` || `${path}/` === route) return true;
-    
-    // Path prefix match (for path-based routes like /collection/*)
-    if (route.endsWith('/') && path.startsWith(route)) return true;
-    
-    // Additional specific path match for '/collection' to catch all variations
-    if (route === '/collection' && (path === '/collection' || path.startsWith('/collection/'))) return true;
-    
-    return false;
+  // DEBUG: Output current cookies for troubleshooting session issues
+  if (process.env.NODE_ENV !== 'production' || process.env.DEBUG_AUTH === 'true') {
+    console.log(`[Auth Debug] Path: ${path}`);
+    console.log(`[Auth Debug] User authenticated: ${!!user}`);
+    console.log(`[Auth Debug] User ID: ${user?.id || 'none'}`);
+    console.log(`[Auth Debug] Cookies count: ${request.cookies.getAll().length}`);
+    console.log(`[Auth Debug] Cookie names: ${request.cookies.getAll().map(c => c.name).join(', ')}`);
+    console.log(`[Auth Debug] Protected route match: ${protectedRoutes.some(route => isProtectedRoute(path, route))}`);
   }
   
-  // Add script to page that will log debug info to console
-  const debugScript = `
-  <script nonce="${nonce}">
-    console.log(
-      "%c🔐 Auth Debug Info",
-      "color: white; background-color: #4CAF50; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
-    );
-    console.log("🔍 Path:", "${path}");
-    console.log("👤 Is Authenticated:", ${!!user});
-    console.log("⏱️ Server Time:", "${new Date().toISOString()}");
-    ${user ? `console.log("🆔 User ID:", "${user.id}");` : ''}
-    console.log("🍪 Cookie Count:", ${request.cookies.getAll().length});
-    console.log(
-      "%c📝 Navigation Event",
-      "color: white; background-color: #2196F3; padding: 4px 8px; border-radius: 4px; font-weight: bold;",
-      "Route accessed at: " + new Date().toISOString()
-    );
-    
-    // Helper function to detect auth issues
-    function checkAuthState() {
-      const isCollectionPage = window.location.pathname.startsWith('/collection');
-      const wasRedirected = document.referrer.includes('/login');
-      
-      if (isCollectionPage) {
-        console.log(
-          "%c🧪 Collection Page Access Check",
-          "color: white; background-color: #FF9800; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
-        );
-        console.log("📍 Current URL:", window.location.href);
-        console.log("↩️ Referrer:", document.referrer || "none");
-        console.log("🔄 Was Redirected:", wasRedirected);
-        
-        // Extra debug for CSP issues
-        console.log("%c🔒 CSP Debug", "color: white; background-color: #9C27B0; padding: 4px 8px; border-radius: 4px; font-weight: bold;");
-        console.log("🔍 Check console for CSP violations");
-        console.log("🔍 Inline styles okay:", document.querySelector('style') ? "Yes" : "No");
-      }
-    }
-    
-    // Run check after page loads
-    window.addEventListener('load', checkAuthState);
-  </script>
-  `;
-  
-  // Only inject the debug script if we're not dealing with a static asset, API route, or Next.js internal route
-  if (!isStaticAsset && 
-      !path.startsWith('/api/') && 
-      !path.startsWith('/_next/') && 
-      (process.env.NODE_ENV !== 'production' || process.env.DEBUG_AUTH === 'true')) {
-    
-    // Read the response body
-    response.headers.set('X-Auth-Debug-Active', 'true');
-    
-    // We'll set a header that signals our debug script should be injected
-    // This will be handled by a special middleware or a layout component
-    response.headers.set('X-Auth-Debug-Script', 'inject');
-    response.headers.set('X-Auth-Debug-Data', JSON.stringify({
-      path,
-      isAuthenticated: !!user,
-      timestamp: new Date().toISOString(),
-      userId: user ? user.id : null,
-      cookieCount: request.cookies.getAll().length
-    }));
-  }
-  
-  // Handle public routes first
+  // Handle public routes first - these are always allowed regardless of auth state
   const isPublic = publicRoutes.some(route => {
     if (path === route) return true;
     // Handle cases where public route is a prefix, e.g. /auth/*
@@ -458,6 +442,22 @@ export async function middleware(request: NextRequest) {
     if (path === '/past-tastings' || path === '/dashboard' || path === '/') {
         triggerBackgroundVideoSync();
     }
+    
+    // CRITICAL: Check for cookie inconsistencies that might lead to collection redirection
+    if (isCollectionPath) {
+      // Ensure all necessary session cookies are properly set
+      const sessionCookies = request.cookies.getAll().filter(c => 
+        c.name.includes('sb-') || 
+        c.name.includes('supabase.auth')
+      );
+      
+      if (sessionCookies.length < 2) {
+        console.warn(`[Auth Debug] ⚠️ Potential cookie issue for collection path: ${sessionCookies.length} session cookies found`);
+      }
+      
+      console.log(`[Auth Debug] 📝 Collection access granted for user ${user.id.substring(0, 8)}...`);
+    }
+    
     return response;
   }
   
@@ -465,14 +465,47 @@ export async function middleware(request: NextRequest) {
   //    Check if it's explicitly a protected route
   const isProtected = protectedRoutes.some(route => isProtectedRoute(path, route));
   
+  // Special handling for collection paths with auth cookies but no user yet
+  // This can happen during initial navigation before auth is fully established
+  if (isCollectionPath && hasAuthCookie && !hasAttemptedRefresh) {
+    // We have auth cookies but no user - this might be a timing issue
+    // Let's force a refresh and retry the middleware with a special header
+    console.log('[Auth Debug] ⚠️ Collection access with auth cookies but no user - forcing refresh');
+    
+    // Create a new request with a special header indicating we've attempted refresh
+    const refreshRequest = new ActualNextRequest(request.url, {
+      headers: new Headers(request.headers),
+      method: request.method,
+      body: request.body,
+      redirect: request.redirect,
+      signal: request.signal,
+    });
+    refreshRequest.headers.set('x-auth-refresh-attempted', 'true');
+    
+    // Copy all cookies to ensure state is preserved
+    request.cookies.getAll().forEach(cookie => {
+      // Just set name and value without extra options to avoid type errors
+      refreshRequest.cookies.set(cookie.name, cookie.value);
+    });
+    
+    // Rerun the middleware with the refreshed request
+    return middleware(refreshRequest);
+  }
+  
   // If it's a protected route, redirect to login
   if (isProtected) {
     // Redirect to login if not authenticated and trying to access a protected page
     const loginUrl = new URL('/login', request.url)
     loginUrl.searchParams.set('redirect', encodeURIComponent(path))
-
+    
     const redirectResponse = NextResponse.redirect(loginUrl);
-
+    
+    // Copy cookies from the original request to the redirect response
+    // Just copy the name and value as RequestCookie doesn't have the other properties
+    request.cookies.getAll().forEach(cookie => {
+      redirectResponse.cookies.set(cookie.name, cookie.value);
+    });
+    
     // Copy ALL cookies from the response to the redirect response to maintain auth state
     response.cookies.getAll().forEach(cookie => {
       redirectResponse.cookies.set(cookie.name, cookie.value, {
@@ -484,13 +517,6 @@ export async function middleware(request: NextRequest) {
         sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined,
         secure: cookie.secure
       });
-    });
-
-    // Also copy any cookies from the original request that may not be in the response
-    request.cookies.getAll().forEach(cookie => {
-      if (!redirectResponse.cookies.get(cookie.name)) {
-        redirectResponse.cookies.set(cookie.name, cookie.value);
-      }
     });
 
     if (!isStaticAsset) {
@@ -507,7 +533,14 @@ export async function middleware(request: NextRequest) {
       redirectResponse.headers.set('X-Auth-Debug-From', path);
       redirectResponse.headers.set('X-Auth-Debug-To', loginUrl.toString());
       redirectResponse.headers.set('X-Auth-Debug-HasUser', user ? 'true' : 'false');
+      redirectResponse.headers.set('X-Auth-Debug-HasAuthCookie', hasAuthCookie ? 'true' : 'false');
       redirectResponse.headers.set('X-Auth-Debug-CookieCount', request.cookies.getAll().length.toString());
+    }
+    
+    // For collection path specifically, log detailed debug info
+    if (isCollectionPath) {
+      console.log(`[Auth Debug] 🔄 Redirecting unauthenticated collection request to login`);
+      console.log(`[Auth Debug] 🍪 Cookies preserved in redirect: ${redirectResponse.cookies.getAll().length}`);
     }
     
     return redirectResponse;
@@ -515,4 +548,21 @@ export async function middleware(request: NextRequest) {
   
   // If we get here, route is neither public nor protected, return normal response
   return response;
+}
+
+// Helper function to check if a path matches a protected route
+function isProtectedRoute(path: string, route: string): boolean {
+  // Exact match
+  if (path === route) return true;
+  
+  // Handle trailing slashes
+  if (path === `${route}/` || `${path}/` === route) return true;
+  
+  // Path prefix match (for path-based routes like /collection/*)
+  if (route.endsWith('/') && path.startsWith(route)) return true;
+  
+  // Additional specific path match for '/collection' to catch all variations
+  if (route === '/collection' && (path === '/collection' || path.startsWith('/collection/'))) return true;
+  
+  return false;
 }
