@@ -10,8 +10,8 @@ const protectedRoutes = [
   '/dashboard',
   '/profile',
   '/streams/create',
-  '/collection', // Collection path without trailing slash
-  '/collection/', // Collection path with trailing slash - explicitly added to fix routing issue
+  '/collection',
+  '/collection/', 
   '/api/collection',
   '/api/spirits/',
   '/api/spirit/',
@@ -241,6 +241,12 @@ function createRelaxedCSPHeader(nonce: string): string {
   `.replace(/\s{2,}/g, ' ').trim();
 }
 
+// Helper function to check if a path matches a route pattern
+// SIMPLIFIED from working version to improve route matching reliability
+function isPathMatch(path: string, pattern: string): boolean {
+  return path.startsWith(pattern) || path.includes(pattern) || path === pattern;
+}
+
 /**
  * Next.js Middleware for SSR authentication and route protection.
  * - Adds CSP headers with nonces
@@ -266,33 +272,22 @@ export async function middleware(request: ActualNextRequest) {
   // Ensure we have the referrer to help debug navigation issues
   const referrer = request.headers.get('referer') || 'none';
   
-  // Check for protected route first - this helps us optimize session refresh logic
-  const isProtected = protectedRoutes.some(route => isProtectedRoute(path, route));
+  // Check for protected route using simpler matching logic
+  const isProtected = protectedRoutes.some(route => isPathMatch(path, route));
   
   // Get auth state from cookies before creating supabase client
-  // This helps diagnose issues with incomplete auth state
   const hasAuthCookie = !!request.cookies.get('sb-access-token') || 
                         !!request.cookies.get('supabase-auth-token') ||
                         request.cookies.getAll().some(c => c.name.startsWith('sb-'));
   
-  // Initialize a base response. Supabase client might update this instance
-  // or we might replace it if we redirect.
+  // Initialize a base response with nonce
   let response = NextResponse.next({
     request: {
       headers: requestHeaders,
     },
   });
   
-  // Check if this is a refresh attempt to prevent loops
-  const hasAttemptedRefresh = request.headers.get('x-auth-refresh-attempted') === 'true';
-  const refreshCount = parseInt(request.headers.get('x-auth-refresh-count') || '0', 10);
-  
-  // Add tracking headers for debugging
-  response.headers.set('x-auth-refresh-attempted', hasAttemptedRefresh ? 'true' : 'false');
-  response.headers.set('x-auth-refresh-count', refreshCount.toString());
-  response.headers.set('x-auth-has-cookies', hasAuthCookie ? 'true' : 'false');
-  
-  // Initialize Supabase client
+  // Initialize Supabase client with simplified cookie handling
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -303,8 +298,7 @@ export async function middleware(request: ActualNextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
-            // Set cookie in both the request cookies (for current processing)
-            // and the response cookies (for subsequent requests)
+            // Set cookie in both request and response
             request.cookies.set(name, value);
             response.cookies.set(name, value, options);
           });
@@ -314,75 +308,22 @@ export async function middleware(request: ActualNextRequest) {
   )
 
   // IMPORTANT: DO NOT execute any code between creating the Supabase client
-  // and calling auth.getUser() or getSession() to prevent session inconsistency
+  // and calling auth.getUser() to prevent session inconsistency
   
-  // Force session refresh for ALL protected route accesses when we have auth cookies
-  // This is critical to maintain consistent auth state during navigation
-  let sessionResult;
-  let user;
+  // Get user data with single reliable call
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  // Handle public routes first
+  const isPublic = publicRoutes.some(route => isPathMatch(path, route));
 
-  // If this is a protected route with auth cookies but we haven't tried a forced refresh yet
-  if (isProtected && hasAuthCookie && refreshCount < 2) {
-    try {
-      console.log(`[Auth Debug] 🔄 Forcing session refresh for protected route: ${path}`);
-      
-      // Explicitly refresh session to ensure latest auth state
-      sessionResult = await supabase.auth.getSession();
-      user = sessionResult?.data?.session?.user;
-      
-      if (user) {
-        console.log(`[Auth Debug] ✅ Session refresh successful, user: ${user.id.substring(0, 8)}...`);
-      } else {
-        console.log(`[Auth Debug] ❓ Session refresh completed but no user found`);
-        
-        // If we have auth cookies but couldn't get a user, and haven't maxed out refresh attempts,
-        // try again with an incremented refresh count
-        if (hasAuthCookie && refreshCount < 1) {
-          console.log(`[Auth Debug] 🔄 Attempting additional refresh (${refreshCount + 1})`);
-          
-          // Create request for another refresh attempt
-          const refreshRequest = new ActualNextRequest(request.url, {
-            headers: new Headers(request.headers),
-            method: request.method,
-            body: request.body,
-            redirect: request.redirect,
-            signal: request.signal,
-          });
-          
-          // Set refresh attempt headers
-          refreshRequest.headers.set('x-auth-refresh-attempted', 'true');
-          refreshRequest.headers.set('x-auth-refresh-count', (refreshCount + 1).toString());
-          
-          // Copy all cookies to ensure state is preserved
-          request.cookies.getAll().forEach(cookie => {
-            refreshRequest.cookies.set(cookie.name, cookie.value);
-          });
-          
-          // Rerun the middleware with the refreshed request
-          return middleware(refreshRequest);
-        }
-      }
-    } catch (error) {
-      console.error('[Auth Debug] ❌ Error during forced session refresh:', error);
-    }
-  } else {
-    // Standard user fetch if not doing a forced refresh
-    const userResult = await supabase.auth.getUser();
-    user = userResult.data.user;
-  }
-  
-  // Handle public routes first - these are always allowed regardless of auth state
-  const isPublic = publicRoutes.some(route => {
-    if (path === route) return true;
-    // Handle cases where public route is a prefix, e.g. /auth/*
-    if (route.endsWith('/')) return path.startsWith(route);
-    return path === route;
-  });
+  // Handle auth-specific routes
+  const isAuthRoute = path.startsWith('/login') || 
+                     path.startsWith('/signup') || 
+                     path.startsWith('/auth');
 
   if (isPublic) {
-    // For public routes, return the response. Supabase cookies might have been set.
+    // For public routes, return the response
     if (!isStaticAsset) {
-      // Set CSP headers
       response.headers.set('Content-Security-Policy', createStrictCSPHeader(nonce));
       response.headers.set('Report-To', JSON.stringify({
         group: 'csp-endpoint',
@@ -394,8 +335,39 @@ export async function middleware(request: ActualNextRequest) {
     return response;
   }
   
-  // User is authenticated, allow access to protected routes
+  // Authenticated user, allow access to protected routes
   if (user) {
+    // If user is authenticated but trying to access auth routes, redirect to dashboard
+    if (isAuthRoute) {
+      const dashboardUrl = new URL('/dashboard', request.url);
+      const redirectResponse = NextResponse.redirect(dashboardUrl);
+      
+      // Copy cookies from request to redirect response
+      request.cookies.getAll().forEach(cookie => {
+        redirectResponse.cookies.set(cookie.name, cookie.value);
+      });
+      
+      // Also copy any new cookies set during middleware execution
+      response.cookies.getAll().forEach(cookie => {
+        redirectResponse.cookies.set(cookie.name, cookie.value, {
+          domain: cookie.domain,
+          path: cookie.path,
+          expires: cookie.expires,
+          httpOnly: cookie.httpOnly,
+          maxAge: cookie.maxAge,
+          secure: cookie.secure,
+          sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined
+        });
+      });
+      
+      // Set CSP headers for the redirect
+      if (!isStaticAsset) {
+        redirectResponse.headers.set('Content-Security-Policy', createStrictCSPHeader(nonce));
+      }
+      
+      return redirectResponse;
+    }
+    
     if (!isStaticAsset) {
       // Determine which CSP to use based on route
       const csp = path.includes('/collection/spirit/') 
@@ -410,13 +382,12 @@ export async function middleware(request: ActualNextRequest) {
         include_subdomains: true
       }));
       
-      // Add detailed debug headers
-      response.headers.set('X-Auth-Debug-Authenticated', 'true');
-      response.headers.set('X-Auth-Debug-UserId', user.id);
-      response.headers.set('X-Auth-Debug-Path', path);
-      
-      // Log authenticated access
-      console.log(`[Auth Debug] ✅ Authenticated access: ${path} for user ${user.id.substring(0, 8)}...`);
+      // Add auth debug headers in non-production
+      if (process.env.NODE_ENV !== 'production') {
+        response.headers.set('X-Auth-Debug-Authenticated', 'true');
+        response.headers.set('X-Auth-Debug-UserId', user.id);
+        response.headers.set('X-Auth-Debug-Path', path);
+      }
     }
     
     // Potentially trigger background video sync for relevant pages
@@ -428,10 +399,8 @@ export async function middleware(request: ActualNextRequest) {
   }
   
   // If we get here: user is NOT authenticated AND it's NOT a public route
-  // For protected routes, redirect to login
+  // Redirect to login for protected routes
   if (isProtected) {
-    console.log(`[Auth Debug] 🔒 Protected route access denied for: ${path}`);
-    
     // Build login URL with redirect parameter
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('redirect', encodeURIComponent(path));
@@ -439,45 +408,35 @@ export async function middleware(request: ActualNextRequest) {
     // Create redirect response
     const redirectResponse = NextResponse.redirect(loginUrl);
     
-    // Preserve all cookies from both request and response
-    // First, copy request cookies to maintain existing state
+    // Copy cookies from request to redirect response
     request.cookies.getAll().forEach(cookie => {
       redirectResponse.cookies.set(cookie.name, cookie.value);
     });
     
-    // Then, copy any new cookies set during this middleware execution
-    // This ensures auth tokens set by Supabase are preserved
+    // Also copy any new cookies set during middleware execution
     response.cookies.getAll().forEach(cookie => {
       redirectResponse.cookies.set(cookie.name, cookie.value, {
         domain: cookie.domain,
+        path: cookie.path,
         expires: cookie.expires,
         httpOnly: cookie.httpOnly,
         maxAge: cookie.maxAge,
-        path: cookie.path,
-        sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined,
-        secure: cookie.secure
+        secure: cookie.secure,
+        sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined
       });
     });
 
     if (!isStaticAsset) {
-      // Add CSP headers to redirect
-      const csp = path.includes('/collection/spirit/') 
-        ? createRelaxedCSPHeader(nonce) 
-        : createStrictCSPHeader(nonce);
-        
-      redirectResponse.headers.set('Content-Security-Policy', csp);
-      redirectResponse.headers.set('Report-To', JSON.stringify({
-        group: 'csp-endpoint',
-        max_age: 10886400,
-        endpoints: [{ url: '/api/csp-report' }],
-        include_subdomains: true
-      }));
+      // Set CSP headers for the redirect
+      redirectResponse.headers.set('Content-Security-Policy', createStrictCSPHeader(nonce));
       
-      // Add debug headers for redirect
-      redirectResponse.headers.set('X-Auth-Debug-Redirect', 'true');
-      redirectResponse.headers.set('X-Auth-Debug-From', path);
-      redirectResponse.headers.set('X-Auth-Debug-To', loginUrl.toString());
-      redirectResponse.headers.set('X-Auth-Debug-HasAuthCookie', hasAuthCookie ? 'true' : 'false');
+      // Add debug headers in non-production
+      if (process.env.NODE_ENV !== 'production') {
+        redirectResponse.headers.set('X-Auth-Debug-Redirect', 'true');
+        redirectResponse.headers.set('X-Auth-Debug-From', path);
+        redirectResponse.headers.set('X-Auth-Debug-To', loginUrl.toString());
+        redirectResponse.headers.set('X-Auth-Debug-HasAuthCookie', hasAuthCookie ? 'true' : 'false');
+      }
     }
     
     return redirectResponse;
@@ -490,24 +449,4 @@ export async function middleware(request: ActualNextRequest) {
   }
   
   return response;
-}
-
-// Helper function to check if a path matches a protected route pattern
-function isProtectedRoute(path: string, route: string): boolean {
-  // Exact match (most common case)
-  if (path === route) return true;
-  
-  // Handle trailing slashes (normalize)
-  if (path === `${route}/` || `${path}/` === route) return true;
-  
-  // Path prefix match (for routes like /collection/*)
-  if (route.endsWith('/') && path.startsWith(route)) return true;
-  
-  // Additional collection-specific handling
-  if (route === '/collection' && path.startsWith('/collection/')) return true;
-  
-  // API routes often need prefix matching
-  if (route.startsWith('/api/') && path.startsWith(route)) return true;
-  
-  return false;
 }
