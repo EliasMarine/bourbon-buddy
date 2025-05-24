@@ -72,12 +72,12 @@ export function SupabaseProvider({
   const lastSyncRef = useRef<Record<string, number>>({});
   // Track the last auth event timestamp to prevent rapid successive updates
   const lastAuthEventRef = useRef<Record<string, number>>(globalAuthEvents);
-  // Minimum time between processing similar auth events (10 seconds - increased from 1 second to prevent loops)
-  const MIN_AUTH_EVENT_INTERVAL = 10000;
+  // Minimum time between processing similar auth events (2 seconds - reduced from 10 seconds for better responsiveness)
+  const MIN_AUTH_EVENT_INTERVAL = 2000;
   // Track if we're currently refreshing the session
   const isRefreshingSessionRef = useRef<boolean>(globalRefreshingSession);
-  // Minimum time between session refreshes (30 seconds)
-  const MIN_REFRESH_INTERVAL = 30000;
+  // Minimum time between session refreshes (5 seconds - reduced from 30 seconds for better responsiveness)
+  const MIN_REFRESH_INTERVAL = 5000;
   // Track component mount state
   const isMountedRef = useRef<boolean>(false);
   // Track session stabilization to prevent premature rendering

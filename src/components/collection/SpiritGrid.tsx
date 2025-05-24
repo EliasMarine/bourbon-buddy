@@ -201,10 +201,10 @@ export function SpiritGrid({ spirits, onDelete, onFavoriteToggle }: SpiritGridPr
           
           <CardFooter className="p-3 pt-1 flex flex-col gap-2 mt-auto">
             <Button 
-              variant="outline" 
+              variant="default" 
               size="sm"
               asChild
-              className="w-full border-amber-800/30 hover:bg-amber-800/20 text-amber-100"
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white"
             >
               <Link href={`/collection/spirit/${spirit.id}`}>
                 View Details

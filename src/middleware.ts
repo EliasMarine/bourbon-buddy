@@ -12,6 +12,7 @@ const protectedRoutes = [
   '/streams/create',
   '/collection',
   '/collection/', 
+  '/explore',
   '/api/collection',
   '/api/spirits/',
   '/api/spirit/',
@@ -298,8 +299,6 @@ export async function middleware(request: ActualNextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
-            // Set cookie in both request and response
-            request.cookies.set(name, value);
             response.cookies.set(name, value, options);
           });
         },
@@ -310,8 +309,28 @@ export async function middleware(request: ActualNextRequest) {
   // IMPORTANT: DO NOT execute any code between creating the Supabase client
   // and calling auth.getUser() to prevent session inconsistency
   
-  // Get user data with single reliable call
-  const { data: { user } } = await supabase.auth.getUser();
+  // Get user data with single reliable call AND refresh session if needed
+  const { data: { user }, error } = await supabase.auth.getUser();
+  
+  // If there's an error getting user but we have auth cookies, try to refresh the session
+  let sessionRefreshed = false;
+  if (error && hasAuthCookie && !isStaticAsset) {
+    try {
+      // Attempt to refresh the session
+      const { data: { session }, error: refreshError } = await supabase.auth.getSession();
+      if (session && !refreshError) {
+        sessionRefreshed = true;
+        // Re-check user after refresh
+        const { data: { user: refreshedUser } } = await supabase.auth.getUser();
+        if (refreshedUser) {
+          // Update the user variable for the rest of the middleware
+          (user as any) = refreshedUser;
+        }
+      }
+    } catch (refreshErr) {
+      console.error('Session refresh failed:', refreshErr);
+    }
+  }
   
   // Handle public routes first
   const isPublic = publicRoutes.some(route => isPathMatch(path, route));
@@ -340,32 +359,7 @@ export async function middleware(request: ActualNextRequest) {
     // If user is authenticated but trying to access auth routes, redirect to dashboard
     if (isAuthRoute) {
       const dashboardUrl = new URL('/dashboard', request.url);
-      const redirectResponse = NextResponse.redirect(dashboardUrl);
-      
-      // Copy cookies from request to redirect response
-      request.cookies.getAll().forEach(cookie => {
-        redirectResponse.cookies.set(cookie.name, cookie.value);
-      });
-      
-      // Also copy any new cookies set during middleware execution
-      response.cookies.getAll().forEach(cookie => {
-        redirectResponse.cookies.set(cookie.name, cookie.value, {
-          domain: cookie.domain,
-          path: cookie.path,
-          expires: cookie.expires,
-          httpOnly: cookie.httpOnly,
-          maxAge: cookie.maxAge,
-          secure: cookie.secure,
-          sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined
-        });
-      });
-      
-      // Set CSP headers for the redirect
-      if (!isStaticAsset) {
-        redirectResponse.headers.set('Content-Security-Policy', createStrictCSPHeader(nonce));
-      }
-      
-      return redirectResponse;
+      return NextResponse.redirect(dashboardUrl);
     }
     
     if (!isStaticAsset) {
@@ -387,6 +381,7 @@ export async function middleware(request: ActualNextRequest) {
         response.headers.set('X-Auth-Debug-Authenticated', 'true');
         response.headers.set('X-Auth-Debug-UserId', user.id);
         response.headers.set('X-Auth-Debug-Path', path);
+        response.headers.set('X-Auth-Debug-SessionRefreshed', sessionRefreshed ? 'true' : 'false');
       }
     }
     
@@ -407,24 +402,6 @@ export async function middleware(request: ActualNextRequest) {
     
     // Create redirect response
     const redirectResponse = NextResponse.redirect(loginUrl);
-    
-    // Copy cookies from request to redirect response
-    request.cookies.getAll().forEach(cookie => {
-      redirectResponse.cookies.set(cookie.name, cookie.value);
-    });
-    
-    // Also copy any new cookies set during middleware execution
-    response.cookies.getAll().forEach(cookie => {
-      redirectResponse.cookies.set(cookie.name, cookie.value, {
-        domain: cookie.domain,
-        path: cookie.path,
-        expires: cookie.expires,
-        httpOnly: cookie.httpOnly,
-        maxAge: cookie.maxAge,
-        secure: cookie.secure,
-        sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined
-      });
-    });
 
     if (!isStaticAsset) {
       // Set CSP headers for the redirect
